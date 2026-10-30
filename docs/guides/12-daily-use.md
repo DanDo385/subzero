@@ -71,7 +71,7 @@ If the second app finds it, cross-app memory is working.
   app's settings and check it's there. Or ask explicitly: "Check my personal context."
 - **The connector disappeared.** Remove and re-add it. This is a known quirk, especially with ChatGPT.
 - **A save didn't show up in another app.** Wait a moment, then ask again. If it still doesn't show,
-  run `uv run personal-context-mcp check` to make sure the server is healthy.
+  run `uv run subzero check` to make sure the server is healthy.
 - **Gemini stopped working.** "Gemini Apps Activity / Keep Activity" might have been turned off.
   Custom apps require it.
 

@@ -39,7 +39,7 @@ Before anything from an imported chat goes anywhere, a check on your computer lo
   custody) and personal finances (salary, tax returns, account numbers).
 
 It can only make a conversation *more* private, never less. The patterns are in
-[`importers/sensitivity.py`](../src/personal_context_mcp/importers/sensitivity.py), in one short file
+[`importers/sensitivity.py`](../src/subzero/importers/sensitivity.py), in one short file
 you can read.
 
 ### Three privacy settings

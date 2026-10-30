@@ -11,21 +11,21 @@ has barely used a terminal (what to type, what success looks like, what to do wh
 user-facing change updates the relevant guide, `docs/troubleshooting.md` for new error messages, and
 `.env.example` for new settings. Keep personal deployment values (domains, emails, 1Password item
 ids) out of committed docs and templates; they live in Git-ignored `deploy/local.env` and
-`deploy/*.env.op`. `personal-context-mcp init` (`setup_wizard.py`) is the supported way to create a
+`deploy/*.env.op`. `subzero init` (`setup_wizard.py`) is the supported way to create a
 `.env`.
 
 ## Commands
 
 ```bash
 uv sync --all-groups                       # install, including dev group
-uv run personal-context-mcp migrate            # apply migrations (--status to see pending)
-uv run personal-context-mcp check              # validate config, DB, migrations, buckets, Jev
-uv run personal-context-mcp serve              # run the MCP server
+uv run subzero migrate            # apply migrations (--status to see pending)
+uv run subzero check              # validate config, DB, migrations, buckets, Jev
+uv run subzero serve              # run the MCP server
 docker compose up -d db                    # Postgres 17 + pgvector on :5432
 
 uv run ruff check src tests
 uv run ruff format src tests
-uv run mypy src                            # packages personal_context_mcp, obsidian_sync
+uv run mypy src                            # packages subzero, obsidian_sync
 uv run pytest
 uv run pytest tests/test_paths.py::test_name -x   # single test
 ```
@@ -45,7 +45,7 @@ Two tiers, split by whether a database is needed:
   `test`.
 
 ```bash
-export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_context_mcp_test
+export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/subzero_test
 uv run pytest
 ```
 
@@ -139,7 +139,7 @@ Links and maps render into a marked generated block at note-render time (`obsidi
 and `extract_note_body` strips that block, the frontmatter and the title from human edits before
 they are stored. Keep both halves in step.
 
-**Deployment** is Vercel (`vercel.json` framework `python`; `main.py` → `personal_context_mcp.asgi:app`);
+**Deployment** is Vercel (`vercel.json` framework `python`; `main.py` → `subzero.asgi:app`);
 see `docs/guides/05-put-it-online.md` and `deploy/README.md`. The maintainer's own values live in
 Git-ignored `deploy/local.env` and `deploy/*.env.op`, and `.1password/project.toml` routes local runs
 to their 1Password Environment (`project-env`).
@@ -148,4 +148,4 @@ to their 1Password Environment (`project-env`).
 
 - `skills/` — eight portable workflow skills handed to the providers.
 - `instructions/` — per-provider connector setup plus the shared custom instruction.
-- `scripts/` — thin wrappers over `personal-context-mcp import <provider>` / `reclassify`.
+- `scripts/` — thin wrappers over `subzero import <provider>` / `reclassify`.

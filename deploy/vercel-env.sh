@@ -5,7 +5,7 @@
 #
 # SETTINGS_FILE is either
 #   - a plain file of NAME=value lines (for example the .env.local written by
-#     `personal-context-mcp init`), or
+#     `subzero init`), or
 #   - a file of op:// references (deploy/production.env.op), resolved by the
 #     1Password CLI at run time so no secret is ever written to disk.
 # Default: deploy/production.env.op if it exists, otherwise .env.local.
@@ -21,7 +21,7 @@ if [[ -z "$FILE" ]]; then
   if [[ -f deploy/production.env.op ]]; then FILE=deploy/production.env.op; else FILE=.env.local; fi
 fi
 [[ -f "$FILE" ]] || { echo "No settings file at $FILE. See docs/guides/05-put-it-online.md." >&2; exit 1; }
-PROJECT="${PC_VERCEL_PROJECT:-personal-context-mcp}"
+PROJECT="${PC_VERCEL_PROJECT:-subzero}"
 
 if [[ -z "${VERCEL_TOKEN:-}" && -n "${VERCEL_TOKEN_REF:-}" ]]; then
   VERCEL_TOKEN="$(op read "$VERCEL_TOKEN_REF")"

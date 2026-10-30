@@ -10,9 +10,9 @@ import pytest
 from pydantic import SecretStr
 
 from conftest import requires_db
-from personal_context_mcp.digest import build_digest
-from personal_context_mcp.gemini_sync import DriveSyncError, push
-from personal_context_mcp.util import sha256_text
+from subzero.digest import build_digest
+from subzero.gemini_sync import DriveSyncError, push
+from subzero.util import sha256_text
 
 pytestmark = requires_db
 

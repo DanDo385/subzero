@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from personal_context_mcp.artifacts.archives import ArchiveLimits, iter_safe_entries
-from personal_context_mcp.errors import ArchiveSecurityError
+from subzero.artifacts.archives import ArchiveLimits, iter_safe_entries
+from subzero.errors import ArchiveSecurityError
 
 
 def _zip(path: Path, members: dict[str, bytes]) -> Path:
@@ -121,7 +121,7 @@ def test_reject_path_guard(name: str) -> None:
     stays because we do not want to depend on that, but the only honest way to
     exercise it is to call it.
     """
-    from personal_context_mcp.artifacts.archives import _reject_path
+    from subzero.artifacts.archives import _reject_path
 
     with pytest.raises(ArchiveSecurityError):
         _reject_path(name)
@@ -151,7 +151,7 @@ def test_stream_guard_catches_lying_header(tmp_path: Path) -> None:
 
 
 def test_supabase_auth_headers_suit_both_key_styles() -> None:
-    from personal_context_mcp.storage.supabase import auth_headers
+    from subzero.storage.supabase import auth_headers
 
     assert auth_headers("sb_secret_abc") == {"apikey": "sb_secret_abc"}
     legacy = auth_headers("eyJhbGciOi.payload.sig")
@@ -162,7 +162,7 @@ def test_supabase_auth_headers_suit_both_key_styles() -> None:
 async def test_ensure_buckets_creates_when_supabase_answers_400_not_found() -> None:
     import httpx
 
-    from personal_context_mcp.storage.supabase import SupabaseObjectStore
+    from subzero.storage.supabase import SupabaseObjectStore
 
     created: list[str] = []
 

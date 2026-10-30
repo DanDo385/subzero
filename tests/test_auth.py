@@ -8,17 +8,17 @@ import pytest
 from fastmcp.server.auth import AccessToken
 from fastmcp.utilities.authorization import AuthContext, require_scopes
 
-from personal_context_mcp.auth import scopes
-from personal_context_mcp.auth.clients import app_for_redirect_uris
-from personal_context_mcp.auth.provider import _identities, build_auth_provider
-from personal_context_mcp.auth.scopes import (
+from subzero.auth import scopes
+from subzero.auth.clients import app_for_redirect_uris
+from subzero.auth.provider import _identities, build_auth_provider
+from subzero.auth.scopes import (
     ALL_SCOPES,
     DEFAULT_SCOPES,
     expand,
     provider_from_client,
     resolve_client_scopes,
 )
-from personal_context_mcp.config import Settings
+from subzero.config import Settings
 
 
 def _settings(**overrides: Any) -> Settings:
@@ -310,8 +310,8 @@ def test_high_entropy_server_id_is_part_of_the_resource_uri() -> None:
 def test_oauth_advertises_exactly_the_mcp_endpoint_as_its_resource() -> None:
     """The protected-resource metadata must name the URL clients dial.
     Regression: it used to say <base>/mcp/mcp."""
-    from personal_context_mcp.auth.provider import build_auth_provider
-    from personal_context_mcp.config import Settings
+    from subzero.auth.provider import build_auth_provider
+    from subzero.config import Settings
 
     settings = Settings(
         database_url="postgres://unused",
@@ -336,8 +336,8 @@ async def test_google_tokens_keep_the_scopes_fastmcp_requires() -> None:
     every Google sign-in after a successful login."""
     from mcp.server.auth.provider import AccessToken
 
-    from personal_context_mcp.auth.provider import build_auth_provider
-    from personal_context_mcp.config import Settings
+    from subzero.auth.provider import build_auth_provider
+    from subzero.config import Settings
 
     settings = Settings(
         database_url="postgres://unused",
@@ -368,7 +368,7 @@ async def test_google_tokens_keep_the_scopes_fastmcp_requires() -> None:
 
     # A capability scope the token claims for itself is still not honoured
     # unless the server-side policy grants it.
-    from personal_context_mcp.auth.scopes import ALL_SCOPES
+    from subzero.auth.scopes import ALL_SCOPES
 
     narrow = build_auth_provider(
         settings.model_copy(update={"client_scope_policy": {"*": ["read"]}})

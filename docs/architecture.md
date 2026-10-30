@@ -1,4 +1,4 @@
-# personal-context-mcp: architecture and design
+# subzero: architecture and design
 
 > This is the design document, for developers. To set it up, follow the [guides](guides/00-before-you-start.md). They deploy to Vercel; the Cloud Run deployment described below is an alternative.
 
@@ -21,7 +21,7 @@ flowchart TB
 
     EDGE[["Public HTTPS edge<br/>Cloud Run"]] --> MCP
 
-    subgraph Service["personal-context-mcp"]
+    subgraph Service["subzero"]
         MCP[MCP tool surface<br/>48 tools]
         RULES[Deterministic rules]
         POLICY[Confidence policy engine]
@@ -167,12 +167,12 @@ Three rules that follow from this, and that the code enforces:
 ### Repository layout
 
 ```
-personal-context-mcp/
+subzero/
 ├── migrations/               # numbered SQL, applied once, hash-checked
 ├── instructions/             # per-provider setup + the shared instruction
 ├── skills/                   # 8 portable workflow skills
 ├── scripts/                  # per-provider import wrappers
-├── src/personal_context_mcp/
+├── src/subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── server.py             # Starlette app, routes, lifespan
 │   ├── services.py           # explicit service wiring
@@ -328,7 +328,7 @@ One call, one transaction, idempotent.
 ```mermaid
 sequenceDiagram
     participant M as Model
-    participant S as personal-context-mcp
+    participant S as subzero
     participant J as Jev
     participant D as Postgres
     participant Q as sync_jobs
@@ -543,7 +543,7 @@ defaults to be tuned against your own results.
 
 ```mermaid
 sequenceDiagram
-    participant S as personal-context-mcp (cloud)
+    participant S as subzero (cloud)
     participant D as sync_jobs
     participant W as obsidian-sync (your Mac)
     participant V as Vault
@@ -688,7 +688,7 @@ production, OAuth without an allowlist).
 
 ### Startup refusals
 
-The server will not boot with an unsafe configuration. `personal-context-mcp check`
+The server will not boot with an unsafe configuration. `subzero check`
 reports every problem at once rather than one per run.
 
 ---
@@ -713,11 +713,11 @@ shapes, bearer tokens, long digit runs and PEM private keys.
 ## Bulk import
 
 ```
-personal-context-mcp import chatgpt ~/Downloads/chatgpt-export.zip
-personal-context-mcp import claude  ~/Downloads/claude-export.zip
-personal-context-mcp import gemini  ~/Downloads/takeout.zip
-personal-context-mcp import grok    ~/Downloads/grok-export.zip
-personal-context-mcp import auto    ~/Downloads/unknown-export.zip
+subzero import chatgpt ~/Downloads/chatgpt-export.zip
+subzero import claude  ~/Downloads/claude-export.zip
+subzero import gemini  ~/Downloads/takeout.zip
+subzero import grok    ~/Downloads/grok-export.zip
+subzero import auto    ~/Downloads/unknown-export.zip
 ```
 
 Pipeline: preserve the original archive in cold storage (hashed) → detect and
@@ -761,16 +761,16 @@ Reported by the importer, not hidden:
 ### Local
 
 ```bash
-git clone <this repo> && cd personal-context-mcp
+git clone <this repo> && cd subzero
 uv sync --all-groups
 cp .env.example .env         # then edit it
 
 # Postgres with pgvector, the quick way
 docker compose up -d db
 
-uv run personal-context-mcp migrate
-uv run personal-context-mcp check
-uv run personal-context-mcp serve
+uv run subzero migrate
+uv run subzero check
+uv run subzero serve
 ```
 
 `check` validates configuration, connectivity, migrations, bucket privacy and
@@ -779,8 +779,8 @@ Jev reachability, and prints your MCP endpoint.
 ### Migrations
 
 ```bash
-uv run personal-context-mcp migrate            # apply
-uv run personal-context-mcp migrate --status   # what is pending
+uv run subzero migrate            # apply
+uv run subzero migrate --status   # what is pending
 ```
 
 Migrations are numbered SQL files applied once each inside a transaction and
@@ -798,7 +798,7 @@ switched off; only vault sync pauses.
 PROJECT=your-gcp-project
 REGION=us-central1
 
-gcloud run deploy personal-context-mcp \
+gcloud run deploy subzero \
   --source . \
   --project "$PROJECT" \
   --region "$REGION" \
@@ -824,7 +824,7 @@ protects the data.
 Then apply migrations once against the production database:
 
 ```bash
-PC_DATABASE_URL="<prod url>" uv run personal-context-mcp migrate
+PC_DATABASE_URL="<prod url>" uv run subzero migrate
 ```
 
 ### Why not a provider tunnel
@@ -907,7 +907,7 @@ uv run mypy src
 
 # Integration tests need a throwaway Postgres with pgvector.
 # The fixture refuses a database whose name does not contain "test".
-export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_context_mcp_test
+export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/subzero_test
 uv run pytest
 ```
 

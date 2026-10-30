@@ -17,7 +17,7 @@ a credit card.
 ## Step 1: Create a Google Cloud project
 
 1. Go to <https://console.cloud.google.com/projectcreate> and sign in.
-2. **Project name:** `personal-context-mcp` (anything is fine).
+2. **Project name:** `subzero` (anything is fine).
 3. Click **Create**, wait a few seconds, and make sure the new project is selected in the drop-down at
    the top of the page.
 
@@ -52,7 +52,7 @@ only asks for your name and email address.
 ## Step 5: Create the client
 
 1. Open **Google Auth Platform → Clients** and click **Create client**.
-2. **Application type:** *Web application*. **Name:** `personal-context-mcp`.
+2. **Application type:** *Web application*. **Name:** `subzero`.
 3. Under **Authorised redirect URIs**, click **Add URI** and enter your server's address followed by
    `/auth/callback`, for example:
 
@@ -74,7 +74,7 @@ secret once. If you lose it, just add a new secret to the same client.
 
 ## Where to put them
 
-- **Using the setup wizard:** paste them when `uv run personal-context-mcp init` asks (choose
+- **Using the setup wizard:** paste them when `uv run subzero init` asks (choose
   `online`). Or, if you already have a `.env.local`, open it in a text editor and fill in
   `PC_OAUTH_CLIENT_ID=` and `PC_OAUTH_CLIENT_SECRET=`.
 - **Using 1Password:** see [guide 7](07-keep-secrets-in-1password.md).

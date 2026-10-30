@@ -15,7 +15,7 @@ computer. To test, you'll use Claude Code or a small test tool instead.
 docker compose up -d db
 ```
 
-✅ You should see `Container personal-context-mcp-db-1  Started`. The database is now running in the
+✅ You should see `Container subzero-db-1  Started`. The database is now running in the
 background and keeps running until you stop it with `docker compose down`.
 
 **Without Docker:** do [guide 4](04-database.md) first to create a free Supabase database, and use its
@@ -24,7 +24,7 @@ connection string in the next step.
 ## Step 2: Write your settings
 
 ```bash
-uv run personal-context-mcp init
+uv run subzero init
 ```
 
 It asks a few questions. For this test:
@@ -44,8 +44,8 @@ somewhere for a few minutes; you'll need it in step 5. It's also saved in `.env.
 ## Step 3: Create the tables and check everything
 
 ```bash
-uv run personal-context-mcp migrate
-uv run personal-context-mcp check
+uv run subzero migrate
+uv run subzero check
 ```
 
 ✅ The last line should say **All checks passed.**
@@ -53,7 +53,7 @@ uv run personal-context-mcp check
 ## Step 4: Start the server
 
 ```bash
-uv run personal-context-mcp serve
+uv run subzero serve
 ```
 
 ✅ You'll see some log lines ending with `Uvicorn running on http://0.0.0.0:8080`. Leave this

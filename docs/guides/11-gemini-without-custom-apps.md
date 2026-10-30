@@ -25,7 +25,7 @@ Use the same Google Cloud project as your sign-in app ([guide 3](03-google-sign-
    see and change **the files it creates itself**, never anything else in your Drive, and Google
    doesn't require a review for it.
 3. **Create a second client, for your computer:** **Google Auth Platform → Clients → Create client**,
-   choose **Desktop app**, name it `personal-context-mcp gemini sync`, and click **Create**. Copy the
+   choose **Desktop app**, name it `subzero gemini sync`, and click **Create**. Copy the
    **Client ID** and **Client secret**.
 
 ## Step 2: Save the two values
@@ -44,7 +44,7 @@ deployment's item, and add the three `PC_GOOGLE_DRIVE_*` lines from
 ## Step 3: Sign in once
 
 ```bash
-uv run personal-context-mcp gemini-sync authorize
+uv run subzero gemini-sync authorize
 ```
 
 1Password users add `--op-item <item-id> --op-vault <vault>` and run it through
@@ -59,12 +59,12 @@ Google Drive files that you use with this app".
 ## Step 4: Create the Doc
 
 ```bash
-uv run personal-context-mcp gemini-sync push
+uv run subzero gemini-sync push
 ```
 
 ✅ It prints `Created Personal Context (for Gemini): https://docs.google.com/document/d/...`. Open the
 link to see what Gemini will know. (`gemini-sync push --dry-run` builds the digest without uploading
-it, and `personal-context-mcp digest` prints it.)
+it, and `subzero digest` prints it.)
 
 Every later push replaces the text of **the same Doc**, so its link never changes.
 
@@ -97,7 +97,7 @@ deploy/install-gemini-sync.sh
 if it was asleep. To run it now: the `launchctl kickstart ...` line it printed. Change the day or
 hour with `GEMINI_SYNC_WEEKDAY` (0 = Sunday) and `GEMINI_SYNC_HOUR` before installing.
 
-Linux: run `uv run personal-context-mcp gemini-sync push` weekly from `cron` or a systemd timer.
+Linux: run `uv run subzero gemini-sync push` weekly from `cron` or a systemd timer.
 
 ## Common problems
 

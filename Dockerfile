@@ -56,4 +56,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PC_PORT\",\"8080\")}/healthz', timeout=4).status==200 else 1)"]
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["personal-context-mcp", "serve"]
+CMD ["subzero", "serve"]

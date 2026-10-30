@@ -1,7 +1,7 @@
 # 8. Set up your Obsidian notebook
 
 [Obsidian](https://obsidian.md) is a free notes app that works on plain files in a folder (a
-*vault*). personal-context-mcp fills a vault with clean, linked notes: research, project pages, your
+*vault*). subzero fills a vault with clean, linked notes: research, project pages, your
 lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
@@ -65,7 +65,7 @@ deploy/install-worker.sh
 
 ✅ It prints `Installed ...` and where its log is. From now on it starts when you log in and restarts
 if it ever stops. To stop it for good:
-`launchctl bootout gui/$(id -u)/com.personal-context-mcp.obsidian-sync`.
+`launchctl bootout gui/$(id -u)/com.subzero.obsidian-sync`.
 
 **Linux (systemd):**
 
@@ -131,6 +131,6 @@ Ticking a checkbox in a list note (`- [x]`) marks that item done everywhere.
 | --- | --- |
 | `Vault directory does not exist` | Create the folder (step 1), or fix `OBSIDIAN_SYNC_VAULT_PATH`. |
 | `worker rejected: check OBSIDIAN_SYNC_API_KEY matches` | The helper's key differs from the server's `PC_WORKER_API_KEY`. They must be identical; after changing the server's, run `deploy/vercel-env.sh .env.local` and `vercel deploy --prod`. |
-| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/personal-context-mcp/obsidian-sync.err.log`. |
+| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/subzero/obsidian-sync.err.log`. |
 
 **Next:** [9. Import your old chats](09-import-your-history.md)

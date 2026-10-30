@@ -14,7 +14,7 @@ Before starting, you should have:
 If you haven't already done this in guide 4:
 
 ```bash
-uv run personal-context-mcp init
+uv run subzero init
 ```
 
 Choose **online**. When it asks for your address, use the one you'll have after step 3, for example
@@ -24,8 +24,8 @@ it first with `mv .env.local .env.local-test`.)
 ✅ Then:
 
 ```bash
-uv run personal-context-mcp migrate
-uv run personal-context-mcp check
+uv run subzero migrate
+uv run subzero check
 ```
 
 should end with **All checks passed.**
@@ -43,11 +43,11 @@ vercel login
 ## Step 3: Create your Vercel project
 
 ```bash
-vercel project add personal-context-mcp
-vercel link --yes --project personal-context-mcp
+vercel project add subzero
+vercel link --yes --project subzero
 ```
 
-✅ It says `Linked to <your-name>/personal-context-mcp`. The name decides your free address: a project
+✅ It says `Linked to <your-name>/subzero`. The name decides your free address: a project
 called `personal-context-mcp` gets `https://personal-context-mcp.vercel.app` if that name is free.
 If it's taken, Vercel adds a suffix; check the real address under **Domains** in the project's page on
 vercel.com. Then make sure `PC_BASE_URL` in `.env.local` and the redirect URI in Google (guide 3) use that
@@ -92,7 +92,7 @@ login, which would also block ChatGPT and the other apps. Your server already ha
 (Google, limited to your email), so turn Vercel's off for this project:
 
 ```bash
-vercel project protection disable personal-context-mcp --sso
+vercel project protection disable subzero --sso
 ```
 
 Then check `/healthz` again.
@@ -101,7 +101,7 @@ Then check `/healthz` again.
 
 If you own a domain, you can use an address like `https://memory.yourname.com`:
 
-1. `vercel domains add memory.yourname.com personal-context-mcp`
+1. `vercel domains add memory.yourname.com subzero`
 2. At your domain's DNS provider, add a **CNAME** record: name `memory`, value `cname.vercel-dns.com`.
    On Cloudflare, set it to **DNS only** (grey cloud): Cloudflare's proxy can break the live
    connection the AI apps use.
@@ -132,7 +132,7 @@ When a new version of this project comes out:
 ```bash
 git pull
 uv sync
-uv run personal-context-mcp migrate     # applies any new database changes
+uv run subzero migrate     # applies any new database changes
 vercel deploy --prod
 ```
 
@@ -151,15 +151,15 @@ Cloud Run. Whatever you choose, it needs a public **https** address that stays t
 - Don't connect the apps through a temporary tunnel (a quick `ngrok` or `cloudflared` link). Its
   address changes or goes away when your computer sleeps, and the phone apps lose the connection.
 
-Then check it from your computer: `uv run personal-context-mcp probe https://<your-address>/mcp`
+Then check it from your computer: `uv run subzero probe https://<your-address>/mcp`
 should end with `All 7 checks passed.`
 
 ## Common problems
 
 | You see | Fix |
 | --- | --- |
-| `/healthz` shows a Vercel login page | Step 5: `vercel project protection disable personal-context-mcp --sso`. |
-| `/healthz` shows `500` or *This Serverless Function has crashed* | A setting is missing or wrong. Run `uv run personal-context-mcp check` locally, which lists every problem at once; fix `.env.local`, re-run `deploy/vercel-env.sh .env.local`, then `vercel deploy --prod`. On the website, **Logs** shows what happened. |
+| `/healthz` shows a Vercel login page | Step 5: `vercel project protection disable subzero --sso`. |
+| `/healthz` shows `500` or *This Serverless Function has crashed* | A setting is missing or wrong. Run `uv run subzero check` locally, which lists every problem at once; fix `.env.local`, re-run `deploy/vercel-env.sh .env.local`, then `vercel deploy --prod`. On the website, **Logs** shows what happened. |
 | `Refusing to start ... PC_BASE_URL must be https://` | `PC_BASE_URL` still says `http://localhost...`. |
 | The build log says *Failed to open file README.md* | You're on an old copy. Run `git pull`. |
 

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start here: **`uv run personal-context-mcp check`** tests your settings, database, storage and
+Start here: **`uv run subzero check`** tests your settings, database, storage and
 classifier, and lists **every** problem it finds at once, in plain words. Most answers below begin
 with it.
 
@@ -11,7 +11,7 @@ Find what you're seeing below. Each guide also ends with a table for its own ste
 | You see | What it means | Fix |
 | --- | --- | --- |
 | `command not found: uv` | The Terminal hasn't noticed the new program. | Close the Terminal window, open a new one, try again. |
-| `command not found: personal-context-mcp` | You ran it without `uv run`, or outside the project folder. | `cd ~/personal-context-mcp`, then `uv run personal-context-mcp ...`. |
+| `command not found: subzero` | You ran it without `uv run`, or outside the project folder. | `cd ~/subzero`, then `uv run subzero ...`. |
 | `Cannot connect to the Docker daemon` | Docker Desktop isn't running. | Open the Docker Desktop app, wait for it to say *running*, try again. |
 
 ## Settings
@@ -29,14 +29,14 @@ Find what you're seeing below. Each guide also ends with a table for its own ste
 | --- | --- | --- |
 | `database: cannot connect (InvalidPasswordError)` | The password in the connection string is wrong. | Reset it in Supabase (**Project Settings → Database**) to letters and numbers only, update `PC_DATABASE_URL`. |
 | `database: cannot connect (gaierror / timeout)` | The address can't be reached. | Use Supabase's **Transaction pooler** string, not *Direct connection*. |
-| `N pending migrations` | New database changes haven't been applied. | `uv run personal-context-mcp migrate` (always safe). |
+| `N pending migrations` | New database changes haven't been applied. | `uv run subzero migrate` (always safe). |
 | Everything stopped working after a week of not using it | Supabase paused the free project. | Resume it in the Supabase dashboard. |
 
 ## Online (Vercel)
 
 | You see | What it means | Fix |
 | --- | --- | --- |
-| A Vercel login page at `/healthz` | Vercel's own protection is on. | `vercel project protection disable personal-context-mcp --sso` |
+| A Vercel login page at `/healthz` | Vercel's own protection is on. | `vercel project protection disable subzero --sso` |
 | `500` / *Serverless Function has crashed* | The server refused its settings. | `check` locally; fix `.env.local`; `deploy/vercel-env.sh .env.local`; `vercel deploy --prod`. The **Logs** tab on vercel.com shows the reason. |
 | Build error mentioning `README.md` | An old copy of the project. | `git pull`, then deploy again. |
 
@@ -47,7 +47,7 @@ Find what you're seeing below. Each guide also ends with a table for its own ste
 | `redirect_uri_mismatch` | Google doesn't know your server's address. | Add `https://<your-address>/auth/callback` to the Google client ([guide 3](guides/03-google-sign-in.md)). |
 | *has not completed the Google verification process* | The Google sign-in app is still in Testing. | Publish it ([guide 3](guides/03-google-sign-in.md), step 3). |
 | Sign-in succeeds, then *access denied* | That Google account isn't allowed. | Add its email to `PC_ALLOWED_SUBJECTS`, push settings, redeploy. |
-| Connected, but no tools show up | The app didn't finish setting up the connector, or the server isn't answering the way apps expect. | Run `uv run personal-context-mcp probe https://<your-address>/mcp`: any `FAIL` line names the broken step. If all checks pass, remove and re-add the connector and reload the page. |
+| Connected, but no tools show up | The app didn't finish setting up the connector, or the server isn't answering the way apps expect. | Run `uv run subzero probe https://<your-address>/mcp`: any `FAIL` line names the broken step. If all checks pass, remove and re-add the connector and reload the page. |
 | One app has fewer tools than the others | `PC_CLIENT_SCOPE_POLICY` grants that app fewer permissions; an app that matches no entry gets read-only tools. | Grant it more (`{"*":["*"]}` gives every app everything), push settings, redeploy, then remove and re-add the connector. |
 | *Invalid or expired consent token*, or Approve leaves you on the `/consent` page | The approval page is single-use: it was already submitted, left open over 15 minutes, or (before the fix in this version) the browser blocked the hand-off to Google. | Close the sign-in window, then click **Connect** in the app again for a fresh page; click Approve once. If it persists, run `git pull` and redeploy. |
 | Worked for a week, then asks to sign in again | The Google app is in Testing (7-day limit). | Publish it. |
@@ -77,7 +77,7 @@ See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#c
 | You see | What it means | Fix |
 | --- | --- | --- |
 | `Could not identify which provider produced this archive` | Unknown file layout. | Name the app: `import gemini file.zip`. For Gemini, export **JSON**, not HTML. |
-| Many `classifier_degraded` | TypeSafe was unreachable. | Nothing is lost. `uv run personal-context-mcp reclassify` later. |
+| Many `classifier_degraded` | TypeSafe was unreachable. | Nothing is lost. `uv run subzero reclassify` later. |
 
 ## Still stuck?
 

@@ -1,4 +1,4 @@
-"""`personal-context-mcp init` writes a file the server accepts."""
+"""`subzero init` writes a file the server accepts."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from personal_context_mcp.cli import main
-from personal_context_mcp.config import Settings
-from personal_context_mcp.setup_wizard import Answers, build_env
+from subzero.cli import main
+from subzero.config import Settings
+from subzero.setup_wizard import Answers, build_env
 
 
 def _load(path: Path) -> Settings:

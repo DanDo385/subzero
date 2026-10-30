@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from starlette.testclient import TestClient
 
-from personal_context_mcp.asgi import NOT_CONFIGURED, not_configured_app
+from subzero.asgi import NOT_CONFIGURED, not_configured_app
 
 
 def test_unconfigured_deployment_answers_503_and_names_no_setting(capsys) -> None:

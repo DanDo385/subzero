@@ -3,7 +3,7 @@
 ## The basics
 
 **Do I have to stop using ChatGPT's (or Claude's...) own memory?**
-No. The apps keep their built-in memory. personal-context-mcp is the shared layer underneath that all
+No. The apps keep their built-in memory. subzero is the shared layer underneath that all
 of them can see, and the custom instruction tells each app to treat it as the main record.
 
 **Does this work on my phone?**
@@ -75,7 +75,7 @@ Any recent PostgreSQL with the `pgvector` extension works for the data (the test
 or a local folder (`PC_STORAGE_BACKEND=local`), which suits a home server but not Vercel.
 
 **How do I update to a new version?**
-`git pull`, `uv sync`, `uv run personal-context-mcp migrate`, `vercel deploy --prod`.
+`git pull`, `uv sync`, `uv run subzero migrate`, `vercel deploy --prod`.
 
 **How do I back up my data?**
 Your data is your Supabase database: Supabase keeps daily backups on paid plans, and you can export any

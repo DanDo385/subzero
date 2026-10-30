@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from personal_context_mcp.classifier.base import Answer, ClassificationResult
-from personal_context_mcp.classifier.policy import PolicyEngine, Verdict
-from personal_context_mcp.config import Settings
-from personal_context_mcp.importers.sensitivity import raise_to, screen_texts
+from subzero.classifier.base import Answer, ClassificationResult
+from subzero.classifier.policy import PolicyEngine, Verdict
+from subzero.config import Settings
+from subzero.importers.sensitivity import raise_to, screen_texts
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,7 @@ if [[ -z "$PLAIN" && -f deploy/admin.env.op && -f deploy/production.env.op ]]; t
   deploy/preflight.sh
 else
   PLAIN="${PLAIN:-.env.local}"
-  [[ -f "$PLAIN" ]] || { echo "No settings at $PLAIN. Run: uv run personal-context-mcp init" >&2; exit 1; }
+  [[ -f "$PLAIN" ]] || { echo "No settings at $PLAIN. Run: uv run subzero init" >&2; exit 1; }
   run() { "$@"; }
   PRODUCTION="$PLAIN"
   URL="$(grep -E '^PC_BASE_URL=' "$PLAIN" | head -1 | cut -d= -f2- | tr -d '"'"'")"
@@ -25,9 +25,9 @@ fi
 [[ "$URL" == https://* ]] || { echo "PC_BASE_URL must be an https:// address (got: ${URL:-nothing})." >&2; exit 1; }
 
 echo "==> Creating/updating the database tables"
-run uv run personal-context-mcp migrate
+run uv run subzero migrate
 echo "==> Checking settings, database, storage and classifier"
-run uv run personal-context-mcp check
+run uv run subzero check
 echo "==> Copying settings to Vercel"
 deploy/vercel-env.sh "$PRODUCTION"
 echo "==> Deploying"

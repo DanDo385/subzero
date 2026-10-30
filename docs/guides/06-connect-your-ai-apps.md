@@ -14,7 +14,7 @@ the app's phone version. Every app follows the same three steps:
 Before adding it to any app, let your computer connect to the server the same way the apps do:
 
 ```bash
-uv run personal-context-mcp probe https://<your-address>/mcp
+uv run subzero probe https://<your-address>/mcp
 ```
 
 ✅ It prints what the server answered at each step and ends with `All 7 checks passed.` That means

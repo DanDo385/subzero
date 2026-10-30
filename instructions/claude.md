@@ -82,7 +82,7 @@ status `pending_import`. Import your Claude export to fill in the bytes.
 
 ## For developers only
 
-Skip this unless you're working on the personal-context-mcp code itself.
+Skip this unless you're working on the subzero code itself.
 
 Keep these separate from TypeSafe's official SDK skill, which is a development
 aid for this repository, not a runtime workflow:
