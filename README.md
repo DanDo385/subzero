@@ -92,6 +92,7 @@ Follow the guides in order. Each one ends with a check that tells you it worked.
 | 10 | [Build your wiki: links and maps](docs/guides/10-build-your-wiki.md) | 10 min | Optional |
 | 11 | [Gemini without custom apps](docs/guides/11-gemini-without-custom-apps.md) | 15 min | Only if on Gemini Plus/free |
 | 12 | [Daily use: what to expect](docs/guides/12-daily-use.md) | 5 min | Read after connecting |
+| 13 | [Run it on your Mac over Tailscale](docs/guides/13-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
 
 The quickest possible start, if you already have the tools:
 
