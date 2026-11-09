@@ -1,4 +1,4 @@
-# Working on personal-context-mcp
+# Working on subzero
 
 Thanks for helping! Two things matter most here:
 
@@ -30,14 +30,14 @@ sys.path.insert(0, ".tools/pgs")
 import pgserver
 db = pgserver.get_server(str(pathlib.Path(".data/pg").absolute()), cleanup_mode=None)
 print(db.get_uri())
-db.psql("CREATE DATABASE personal_context_mcp_test;")
+db.psql("CREATE DATABASE subzero_test;")
 PY
 ```
 
 It listens on a unix socket, so the DSN takes this shape:
 
 ```bash
-export PC_TEST_DATABASE_URL="postgresql://postgres@/personal_context_mcp_test?host=/abs/path/.data/pg"
+export SUBZERO_TEST_DATABASE_URL="postgresql://postgres@/subzero_test?host=/abs/path/.data/pg"
 uv run pytest
 ```
 
@@ -56,7 +56,7 @@ uv run mypy src
 uv run pytest
 ```
 
-Integration tests skip with a clear reason when `PC_TEST_DATABASE_URL` is
+Integration tests skip with a clear reason when `SUBZERO_TEST_DATABASE_URL` is
 unset, and the fixture refuses a database whose name does not contain `test`
 before it drops any schema.
 

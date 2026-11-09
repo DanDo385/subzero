@@ -1,5 +1,5 @@
 [Unit]
-Description=Personal Context Obsidian sync timer (runs every 5 minutes)
+Description=Subzero Obsidian sync timer (runs every 5 minutes)
 Requires=obsidian-sync.service
 
 [Timer]

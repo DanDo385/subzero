@@ -1,4 +1,4 @@
-// Personal Context — service worker.
+// Subzero — service worker.
 // Handles capture queue processing, periodic sync alarms, and backfill coordination.
 
 import { enqueue, processOne, getStatus, QUEUE_KEY, DEAD_LETTER_KEY } from './lib/queue.js';

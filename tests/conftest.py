@@ -5,7 +5,7 @@ Two tiers:
 * **Unit** tests exercise pure logic (path validation, key generation, archive
   guards, confidence policy, dedup hashing). They need nothing external.
 * **Integration** tests exercise real SQL against a real Postgres with
-  pgvector. They are skipped, with a clear reason, unless PC_TEST_DATABASE_URL
+  pgvector. They are skipped, with a clear reason, unless SUBZERO_TEST_DATABASE_URL
   points at a throwaway database.
 
 Nothing here ever touches a production database: the integration fixture
@@ -19,13 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from personal_context_mcp.config import Settings
+from subzero.config import Settings
 
-TEST_DB_ENV = "PC_TEST_DATABASE_URL"
+TEST_DB_ENV = "SUBZERO_TEST_DATABASE_URL"
+#: Name before the rename; still read so an old shell profile keeps working.
+LEGACY_TEST_DB_ENV = "PC_TEST_DATABASE_URL"
 
 
 def _test_dsn() -> str | None:
-    dsn = os.environ.get(TEST_DB_ENV)
+    dsn = os.environ.get(TEST_DB_ENV) or os.environ.get(LEGACY_TEST_DB_ENV)
     if not dsn:
         return None
     # Refuse to run destructive schema work against anything not obviously a
@@ -69,8 +71,8 @@ def settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 async def db(settings: Settings):
     """A migrated database, wrapped so each test starts from a clean schema."""
-    from personal_context_mcp.db.migrate import apply_migrations
-    from personal_context_mcp.db.pool import Database
+    from subzero.db.migrate import apply_migrations
+    from subzero.db.pool import Database
 
     dsn = _test_dsn()
     if dsn is None:
@@ -88,7 +90,7 @@ async def db(settings: Settings):
 
 @pytest.fixture
 async def services(settings: Settings, db):
-    from personal_context_mcp.services import build_services, set_services
+    from subzero.services import build_services, set_services
 
     built = await build_services(settings, db)
     set_services(built)
@@ -119,7 +121,7 @@ async def live_server(settings):
 
     import uvicorn
 
-    from personal_context_mcp.server import create_app
+    from subzero.server import create_app
 
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

@@ -1,6 +1,6 @@
-# Personal Context Browser Extension
+# Subzero Browser Extension
 
-Captures AI chat sessions from Claude, ChatGPT, Gemini and Grok into your Personal Context database.
+Captures AI chat sessions from Claude, ChatGPT, Gemini and Grok into your Subzero database.
 
 ## Supported Browsers
 
@@ -20,7 +20,7 @@ Firefox not supported in v1 (Manifest V3 differences).
 ## Setup
 
 1. Click the extension icon → the popup opens
-2. The extension auto-registers with the Personal Context server
+2. The extension auto-registers with the Subzero server
 3. Configure the server URL if needed (defaults to MBP over Tailscale)
 
 ## Scripts

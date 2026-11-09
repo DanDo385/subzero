@@ -1,4 +1,4 @@
-// Personal Context — durable capture queue.
+// Subzero — durable capture queue.
 // Queues captures in chrome.storage.local and sends them from the service worker
 // with retries and exponential backoff. Nothing is lost if the browser closes.
 

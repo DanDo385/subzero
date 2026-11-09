@@ -38,7 +38,7 @@ never written to your disk.
    **1Password** as connected.
 3. In this project folder, ask Claude Code:
 
-   > Import .env.local into a 1Password Environment called personal-context-mcp and mount it here.
+   > Import .env.local into a 1Password Environment called subzero and mount it here.
 
    1Password asks you to approve. Claude creates the Environment, marks keys and passwords as concealed,
    and mounts it at `.env.local`. The plugin never shows secret values to the AI, only the variable names.
@@ -46,14 +46,14 @@ never written to your disk.
 ### By hand
 
 1. In the 1Password desktop app: **Developer → Environments → New environment**, name it
-   `personal-context-mcp`.
+   `subzero`.
 2. **Import** your existing `.env.local` file (or add each variable).
 3. **Destinations → Local .env.local file**, and choose this project's `.env.local` path.
 4. Delete the old plaintext copy if 1Password didn't replace it.
 
 ### Afterwards
 
-Everything keeps working unchanged (`uv run personal-context-mcp ...`, `deploy/vercel-env.sh .env.local`),
+Everything keeps working unchanged (`uv run subzero ...`, `deploy/vercel-env.sh .env.local`),
 because the project still reads `.env.local`. 1Password may ask you to approve access the first time.
 
 > **Rotate what used to be in plain text.** Moving secrets into 1Password protects them from now on,
@@ -62,15 +62,15 @@ because the project still reads `.env.local`. 1Password may ask you to approve a
 
 ## B. Secret references (`op://` files)
 
-Every value in 1Password has an address like `op://Private/Personal Context/Server/worker_api_key`.
+Every value in 1Password has an address like `op://Private/Subzero/Server/worker_api_key`.
 Instead of secrets, your files hold these addresses, and the
 [1Password CLI](https://developer.1password.com/docs/cli/get-started/) (`op`) swaps in the real values
 only while a command runs.
 
 1. Install and sign in to `op` (its getting-started guide takes five minutes). Check with `op whoami`.
-2. Create one 1Password item, for example *Personal Context*, with three sections, `Server`,
+2. Create one 1Password item, for example *Subzero*, with three sections, `Server`,
    `Google OAuth` and `Supabase`, holding the values from your `.env.local`. Tip: reference the item by its
-   **id** (from `op item get "Personal Context" --format json`), so renaming it never breaks anything.
+   **id** (from `op item get "Subzero" --format json`), so renaming it never breaks anything.
 3. Copy the templates and replace `<vault>` and `<item-id>`:
 
    ```bash
@@ -80,12 +80,12 @@ only while a command runs.
    ```
 
    These copies are ignored by Git, so they can't be committed by accident.
-4. Optional: create `deploy/local.env` with `PC_OP_VAULT=...` and `PC_OP_ITEM=<item-id>`, so
+4. Optional: create `deploy/local.env` with `SUBZERO_OP_VAULT=...` and `SUBZERO_OP_ITEM=<item-id>`, so
    `deploy/preflight.sh` can warn you about any field still left empty.
 5. Use them:
 
    ```bash
-   op run --env-file=deploy/admin.env.op -- uv run personal-context-mcp migrate
+   op run --env-file=deploy/admin.env.op -- uv run subzero migrate
    deploy/vercel-env.sh                  # picks up deploy/production.env.op automatically
    deploy/install-worker.sh              # picks up deploy/worker.env.op automatically
    ```

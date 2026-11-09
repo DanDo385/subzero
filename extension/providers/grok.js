@@ -1,4 +1,4 @@
-// Personal Context — Grok provider extractor.
+// Subzero — Grok provider extractor.
 // DOM-based extraction. Grok's REST API is poorly documented;
 // DOM extraction with multi-signal role detection is more reliable.
 

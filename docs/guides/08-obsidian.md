@@ -1,7 +1,7 @@
 # 8. Set up your Obsidian notebook
 
 [Obsidian](https://obsidian.md) is a free notes app that works on plain files in a folder (a
-*vault*). personal-context-mcp fills a vault with clean, linked notes: research, project pages, your
+*vault*). subzero fills a vault with clean, linked notes: research, project pages, your
 lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
@@ -24,22 +24,22 @@ ln -s ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents ~/Obsidian
 
 (Obsidian must be installed on the Mac for that iCloud folder to exist. If `~/Obsidian` already exists,
 skip the shortcut and, in the next step, use the full address instead:
-`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal Context`.) Your notes are stored in iCloud and show up
-in Obsidian on your phone; `~/Obsidian/Personal Context` is just an easier way to refer to them.
+`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Subzero`.) Your notes are stored in iCloud and show up
+in Obsidian on your phone; `~/Obsidian/Subzero` is just an easier way to refer to them.
 
-**Mac only?** Skip the shortcut. `~/Obsidian/Personal Context` will then be an ordinary local folder.
+**Mac only?** Skip the shortcut. `~/Obsidian/Subzero` will then be an ordinary local folder.
 
 Open your `.env.local` and set:
 
 ```
-OBSIDIAN_SYNC_VAULT_PATH=~/Obsidian/Personal Context
+OBSIDIAN_SYNC_VAULT_PATH=~/Obsidian/Subzero
 ```
 
 (the setup wizard already added this line, and the matching `OBSIDIAN_SYNC_API_URL` and
 `OBSIDIAN_SYNC_API_KEY`). Create the folder if it doesn't exist:
 
 ```bash
-mkdir -p ~/Obsidian/"Personal Context"
+mkdir -p ~/Obsidian/"Subzero"
 ```
 
 Then in Obsidian: **Open folder as vault** and pick that folder.
@@ -65,7 +65,7 @@ deploy/install-worker.sh
 
 ✅ It prints `Installed ...` and where its log is. From now on it starts when you log in and restarts
 if it ever stops. To stop it for good:
-`launchctl bootout gui/$(id -u)/com.personal-context-mcp.obsidian-sync`.
+`launchctl bootout gui/$(id -u)/com.subzero.obsidian-sync`.
 
 **Linux (systemd):**
 
@@ -130,7 +130,7 @@ Ticking a checkbox in a list note (`- [x]`) marks that item done everywhere.
 | You see | Fix |
 | --- | --- |
 | `Vault directory does not exist` | Create the folder (step 1), or fix `OBSIDIAN_SYNC_VAULT_PATH`. |
-| `worker rejected: check OBSIDIAN_SYNC_API_KEY matches` | The helper's key differs from the server's `PC_WORKER_API_KEY`. They must be identical; after changing the server's, run `deploy/vercel-env.sh .env.local` and `vercel deploy --prod`. |
-| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/personal-context-mcp/obsidian-sync.err.log`. |
+| `worker rejected: check OBSIDIAN_SYNC_API_KEY matches` | The helper's key differs from the server's `SUBZERO_WORKER_API_KEY`. They must be identical; after changing the server's, run `deploy/vercel-env.sh .env.local` and `vercel deploy --prod`. |
+| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/subzero/obsidian-sync.err.log`. |
 
 **Next:** [9. Import your old chats](09-import-your-history.md)

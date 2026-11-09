@@ -14,7 +14,7 @@
 
 ### Server
 - **`ingest.py`**: `POST /api/v1/ingest/conversation` — idempotent upsert, `POST /api/v1/auth/pair-device` — code-based pairing, `DELETE /api/v1/auth/devices/{id}` — revocation, `GET /api/v1/handoff` — project handoff
-- **`cli.py`**: `personal-context-mcp pair-device` — generates 8-char pairing code
+- **`cli.py`**: `subzero pair-device` — generates 8-char pairing code
 - **Migrations**: `0008_device_tokens.sql` (device token table), `0009_pairing_codes.sql` (one-time pairing codes, 5-min expiry)
 
 ### Tests
@@ -30,7 +30,7 @@
 
 ### Needs a browser (manual or Playwright)
 - Load the extension unpacked in Brave at `chrome://extensions/`
-- Pair with `personal-context-mcp pair-device`
+- Pair with `subzero pair-device`
 - Test save-on-click against the live server
 - Run backfill dry run (lists counts per provider)
 - Run real backfill in batches (after dry run approved)
@@ -60,9 +60,9 @@
 2. Enable **Developer mode** (toggle top-right)
 3. Click **Load unpacked**
 4. Select the `extension/` folder from this repo
-5. The Personal Context icon appears in the toolbar
+5. The Subzero icon appears in the toolbar
 6. Click it → "Not paired" section appears
-7. On the server: `personal-context-mcp pair-device`
+7. On the server: `subzero pair-device`
 8. Enter the 8-character code in the popup → paired
 
 ## Backfill steps

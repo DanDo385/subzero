@@ -1,4 +1,4 @@
-// Personal Context — Claude.ai provider extractor.
+// Subzero — Claude.ai provider extractor.
 // Uses Claude's internal JSON API (same endpoints the web app loads).
 // Auth: session cookies, auto-attached by the browser.
 

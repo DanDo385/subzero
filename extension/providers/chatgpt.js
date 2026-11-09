@@ -1,4 +1,4 @@
-// Personal Context — ChatGPT provider extractor.
+// Subzero — ChatGPT provider extractor.
 // Uses ChatGPT's internal backend API (same endpoints the web app loads).
 // Auth: Bearer token from /api/auth/session.
 

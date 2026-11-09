@@ -7,7 +7,7 @@
 # schema_migrations and writing the next version.
 set -eu
 
-if [ "${1:-}" = "personal-context-mcp" ] && [ "${2:-}" = "serve" ]; then
-  personal-context-mcp migrate
+if [ "${1:-}" = "subzero" ] && [ "${2:-}" = "serve" ]; then
+  subzero migrate
 fi
 exec "$@"

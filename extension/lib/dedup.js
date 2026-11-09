@@ -1,4 +1,4 @@
-// Personal Context — dedup helpers for client-side use.
+// Subzero — dedup helpers for client-side use.
 // Computes content hashes for message deduplication and position-based IDs.
 
 /**

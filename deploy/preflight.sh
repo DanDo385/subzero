@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # 1Password users only: refuse to deploy while any field of your deployment's
 # 1Password item is empty or still says REPLACE_ME. Prints field names, never
-# values. Set PC_OP_ITEM (and PC_OP_VAULT) in deploy/local.env.
+# values. Set SUBZERO_OP_ITEM (and SUBZERO_OP_VAULT) in deploy/local.env.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f deploy/local.env ]] && source deploy/local.env
-VAULT="${PC_OP_VAULT:-Private}"
-ITEM="${PC_OP_ITEM:-}"
+VAULT="${SUBZERO_OP_VAULT:-${PC_OP_VAULT:-Private}}"
+ITEM="${SUBZERO_OP_ITEM:-${PC_OP_ITEM:-}}"
 if [[ -z "$ITEM" ]]; then
-  echo "preflight: PC_OP_ITEM is not set in deploy/local.env; skipping the 1Password check."
+  echo "preflight: SUBZERO_OP_ITEM is not set in deploy/local.env; skipping the 1Password check."
   exit 0
 fi
 missing=0

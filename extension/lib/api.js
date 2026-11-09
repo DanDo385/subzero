@@ -1,4 +1,4 @@
-// Personal Context — HTTPS ingest client.
+// Subzero — HTTPS ingest client.
 // Sends conversations to the server. Never auto-registers on 401;
 // the user must pair the browser with a code from the server CLI.
 
@@ -30,7 +30,7 @@ async function isPaired() {
 }
 
 /**
- * Pair this browser using a one-time code from `personal-context-mcp pair-device`.
+ * Pair this browser using a one-time code from `subzero pair-device`.
  * Returns the device token on success.
  */
 async function pairDevice(pairingCode) {

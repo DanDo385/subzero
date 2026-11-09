@@ -21,7 +21,7 @@ Setup happens on desktop only. Once connected, the app is available in both
 Gemini web and the Gemini mobile app.
 
 > **Which Google account to sign in with.** Gemini only connects custom apps on a **personal**
-> Google Account, and the server only lets in the email(s) in `PC_ALLOWED_SUBJECTS`. Use the same
+> Google Account, and the server only lets in the email(s) in `SUBZERO_ALLOWED_SUBJECTS`. Use the same
 > personal account you used for the other apps ([guide 6](../docs/guides/06-connect-your-ai-apps.md),
 > step 2), *not* a Google Workspace (work/school) account, even if that account also signs in
 > successfully during the flow. A Workspace account can complete Google sign-in and then the link
@@ -50,7 +50,7 @@ When my request depends on past work (a project, earlier decisions, my lists,
 "remember", "last time", a continuing task), call context_bootstrap once with a
 short query of key terms you choose (names, projects, topics) and the project
 if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Personal Context rather than assuming this app's
+previously discussed, search Subzero rather than assuming this app's
 native memory is complete. Do not retrieve for standalone questions.
 
 When durable state is established, checkpoint it: decisions, project state,
@@ -62,10 +62,10 @@ Use my real lists through the list tools rather than writing out a list from
 memory.
 
 When meaningful files or generated artifacts should be retained, capture them
-through Personal Context. Never tell me an artifact is archived unless its
+through Subzero. Never tell me an artifact is archived unless its
 bytes or complete text were actually stored.
 
-Treat Personal Context as canonical shared state; this app's native memory is
+Treat Subzero as canonical shared state; this app's native memory is
 supplemental. Preserve provenance and distinguish my direct statements from
 model-generated analysis and external research.
 ```
@@ -83,7 +83,7 @@ tells it when to use the tools, and the tools themselves explain what they do.
 
 Export your history first ([docs/guides/09-import-your-history.md](../docs/guides/09-import-your-history.md)), then:
 Settings & help → **Personal context** (or **Past chats**): turn off *Your past chats with Gemini*. **Keep Gemini Apps Activity / Keep Activity on**: custom apps are unavailable without it.
-Personal Context then becomes this app's only long-term memory, shared with the other three.
+Subzero then becomes this app's only long-term memory, shared with the other three.
 
 ## 4. Surfaces and limitations
 

@@ -8,7 +8,7 @@ Plain-language meanings for the words used in these docs.
 | **Artifact** | A file an AI made or you saved: a chart, a PDF, a folder of code. |
 | **Bucket** | A storage folder in Supabase where your saved files go. Yours are private. |
 | **Checkpoint** | When an AI app saves everything useful from a conversation (decisions, facts, tasks) in one step. |
-| **CLI / command** | Something you type in the Terminal, like `uv run personal-context-mcp check`. |
+| **CLI / command** | Something you type in the Terminal, like `uv run subzero check`. |
 | **Connection string** | The address of your database, including its password: `postgresql://...`. Secret. |
 | **Connector / custom app** | An outside tool you add to an AI app. Your server is one. |
 | **Deploy** | Put your server on the internet (here: on Vercel). |

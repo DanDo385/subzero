@@ -1,4 +1,4 @@
-// Personal Context — content script.
+// Subzero — content script.
 // Runs in each provider tab. Detects the provider, listens for page changes,
 // and extracts conversation data on demand (user click or auto-capture).
 

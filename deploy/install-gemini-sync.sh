@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Update the "Personal Context (for Gemini)" Google Doc every week on a Mac
-# (a launchd LaunchAgent). Runs `personal-context-mcp gemini-sync push`.
+# Update the "Subzero (for Gemini)" Google Doc every week on a Mac
+# (a launchd LaunchAgent). Runs `subzero gemini-sync push`.
 #
 # Settings come from deploy/admin.env.op through `op run` if present,
 # otherwise from .env.local. See docs/guides/11-gemini-without-custom-apps.md.
@@ -10,15 +10,15 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 [[ -f deploy/local.env ]] && source deploy/local.env
 
-LABEL="${GEMINI_SYNC_LABEL:-com.personal-context-mcp.gemini-sync}"
+LABEL="${GEMINI_SYNC_LABEL:-com.subzero.gemini-sync}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOGS="$HOME/Library/Logs/personal-context-mcp"
+LOGS="$HOME/Library/Logs/subzero"
 
 if [[ -f deploy/admin.env.op ]]; then
   command -v op >/dev/null || { echo "deploy/admin.env.op needs the 1Password CLI (op)." >&2; exit 1; }
-  COMMAND="exec op run --env-file=deploy/admin.env.op -- .venv/bin/personal-context-mcp gemini-sync push"
+  COMMAND="exec op run --env-file=deploy/admin.env.op -- .venv/bin/subzero gemini-sync push"
 else
-  COMMAND="exec .venv/bin/personal-context-mcp gemini-sync push"
+  COMMAND="exec .venv/bin/subzero gemini-sync push"
 fi
 
 mkdir -p "$LOGS"
