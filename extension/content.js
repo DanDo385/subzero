@@ -6,8 +6,8 @@
   'use strict';
 
   // Prevent double-injection.
-  if (window.__personalContextLoaded) return;
-  window.__personalContextLoaded = true;
+  if (window.__subzeroLoaded) return;
+  window.__subzeroLoaded = true;
 
   /**
    * Detect which provider we're on.
@@ -24,7 +24,7 @@
   const provider = detectProvider();
   if (!provider) return;
 
-  console.log(`[PersonalContext] Detected provider: ${provider}`);
+  console.log(`[subzero] Detected provider: ${provider}`);
 
   // --- Message extraction (called on demand) ---
 
@@ -63,10 +63,10 @@
           action: 'capture',
           payload: data,
         });
-        console.log(`[PersonalContext] Captured ${data.messages.length} messages from ${data.title || 'untitled'}`);
+        console.log(`[subzero] Captured ${data.messages.length} messages from ${data.title || 'untitled'}`);
       }
     } catch (err) {
-      console.error('[PersonalContext] Capture failed:', err);
+      console.error('[subzero] Capture failed:', err);
       chrome.runtime.sendMessage({
         action: 'captureError',
         error: err.message,
@@ -155,5 +155,5 @@
     characterData: true,
   });
 
-  console.log('[PersonalContext] Content script ready');
+  console.log('[subzero] Content script ready');
 })();

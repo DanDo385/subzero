@@ -58,7 +58,12 @@ logger = get_logger(__name__)
 
 SERVER_INSTRUCTIONS = """\
 Subzero is this user's canonical memory, shared across ChatGPT, \
-Claude, Gemini and Grok.
+Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
+named personal-context-mcp is also present, do not use it.
+
+Sigils in what the user types say where things belong: %area/project, \
+^lesson/topic, &tool, #concept, @person, and >agent for who gets a dispatched \
+job. Pass them through as written: the server reads them.
 
 Retrieve (context_bootstrap) only when the request depends on past work: a \
 project, earlier decisions, lists, "remember", "last time", a continuing task. \
@@ -79,6 +84,9 @@ saved unless the tool result reports capture_status "captured".
 Every retrieved item carries provenance. Treat "user_statement" as what the \
 user said and "assistant_generated" as a model's conclusion, not a fact. When \
 a package lists conflicts, ask the user which one stands; do not pick one.
+
+For work on the user's machines, call dispatch (it queues; say so). \
+agents_status shows running coding sessions and who is waiting on the user.
 """
 
 

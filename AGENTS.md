@@ -125,6 +125,17 @@ or without it. Keep that test honest when adding routes.
 `Settings.validate_startup()` reports *every* unsafe configuration at once and the server refuses to
 boot on one (`auth_mode=none|static` in prod, plain HTTP in prod, OAuth without an allowlist).
 
+**Sigils are parsed by code, before Jev** (`sigils.py`): `%project`, `^lesson`, `&setup`, `#concept`,
+`@person`, `>agent`. Read in `session_checkpoint`, `note_write` and `context_bootstrap`; a `%project`
+only names an existing project and never creates one.
+
+**Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
+tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
+the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
+`scout`. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`) runs on each machine:
+hooks must never fail the harness, and the board serves only 127.0.0.1 and never sends the device
+token to the page.
+
 **Embeddings are optional.** `SUBZERO_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
 full-text search alone, so nothing may assume a vector is present.
 

@@ -11,7 +11,7 @@ const SYNC_ALARM = 'periodicSync';
 // --- Lifecycle ---
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[PersonalContext] Extension installed');
+  console.log('[subzero] Extension installed');
 
   // Create alarm for queue processing (every 30s when items exist).
   chrome.alarms.create(PROCESS_ALARM, { periodInMinutes: 0.5 });
@@ -87,14 +87,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       sendResponse({ ok: true });
     }).catch((err) => {
-      console.error('[PersonalContext] Enqueue failed:', err);
+      console.error('[subzero] Enqueue failed:', err);
       sendResponse({ ok: false, error: err.message });
     });
     return true; // async
   }
 
   if (request.action === 'captureError') {
-    console.error(`[PersonalContext] Capture error on ${request.provider}:`, request.error);
+    console.error(`[subzero] Capture error on ${request.provider}:`, request.error);
     sendResponse({ ok: true });
     return false;
   }
@@ -189,7 +189,7 @@ async function handleBackfill(provider, dryRun = true) {
           const data = await fetchFn(convs[i].id || convs[i].uuid);
           if (data) captured.push(data);
         } catch (err) {
-          console.error(`[PersonalContext] Backfill error for ${convs[i].id || convs[i].uuid}:`, err);
+          console.error(`[subzero] Backfill error for ${convs[i].id || convs[i].uuid}:`, err);
         }
         // Be gentle: one request per 2 seconds.
         await new Promise((r) => setTimeout(r, 2000));
@@ -203,4 +203,4 @@ async function handleBackfill(provider, dryRun = true) {
   return results[0]?.result || { ok: false, error: 'No result' };
 }
 
-console.log('[PersonalContext] Service worker ready');
+console.log('[subzero] Service worker ready');

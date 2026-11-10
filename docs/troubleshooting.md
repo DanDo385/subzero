@@ -46,8 +46,8 @@ are stored through the same canonical writers as imported conversations.
 | `Refusing to start. Fix the configuration problems above` | A setting is missing or unsafe. | The lines above it say exactly which; `check` shows them too. |
 | `SUBZERO_AUTH_MODE=static is refused when SUBZERO_ENVIRONMENT=prod` | Test settings are being used online. | Run `init` again and choose `online`. |
 | `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
-| `still use the old PC_ prefix` from `check` | This project was called subzero; its settings started with `PC_`. They still work. | Rename each `SUBZERO_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
-| `command not found: subzero` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
+| `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
+| `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
 
 ## Database
 
@@ -110,3 +110,17 @@ See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#c
 Open an issue using the **Setup help** template on GitHub. Include what you ran, what you expected and
 what you saw, plus the output of `check`. **Never include your `.env.local` or any secret**; `check` doesn't
 print any.
+
+## Agents, hooks and the board
+
+See [guide 14](guides/14-agents-messages-and-the-board.md#when-something-goes-wrong) for the full
+table. The common ones:
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Not connected. Run: subzero connect ...` | This machine has no device token. | `subzero pair-device` on the server, then `subzero connect <address>` here. |
+| `The server refused this device` | The device token was revoked. | Connect again with a new pairing code. |
+| No master prompt in Claude Code | Hooks not installed, or the session predates them. | `subzero hooks install`; start a new session; read `~/.cache/subzero/hook-errors.log`. |
+| `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
+| `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |
+

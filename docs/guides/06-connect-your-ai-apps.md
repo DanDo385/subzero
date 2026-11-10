@@ -26,36 +26,42 @@ which step broke; fix that before connecting any app.
 Copy the text below and paste it into each app's custom instruction field:
 
 ```
-You have access to Subzero, my canonical cross-provider memory shared
-across ChatGPT, Claude, Gemini and Grok.
+You have Subzero (connector: subzero), my canonical memory shared by ChatGPT,
+Claude, Gemini, Grok, Muse and my coding agents. Ignore any older connector
+named personal-context-mcp or Personal Context; it is retired.
+
+Sigils say where things belong; read them and use them when saving:
+%area/project, ^lesson/topic, &tool, #concept, @person, >agent (claude, codex,
+grok, gemini, pi, me, crew).
 
 When my request depends on past work (a project, earlier decisions, my lists,
-"remember", "last time", a continuing task), call context_bootstrap once with a
-short query of key terms you choose (names, projects, topics) and the project
-if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Subzero rather than assuming this app's
-native memory is complete. Do not retrieve for standalone questions.
+"remember", a continuing task or lesson), call context_bootstrap once with a
+few key terms or sigils, never my whole message. Skip it for standalone
+questions.
 
-When durable state is established, checkpoint it: decisions, project state,
-confirmed facts, tasks, list changes, unresolved questions and important
-artifact relationships, naming the project when there is one. Do not save
-conversational noise or duplicates.
+When durable state is established, checkpoint it once (decisions, facts,
+tasks, list changes, open questions), with sigils or the project. No noise or
+duplicates. Use my real lists through the list tools.
 
-Use my real lists through the list tools rather than writing out a list from
-memory.
+Never say a file is archived unless its bytes or full text were stored.
 
-When meaningful files or generated artifacts should be retained, capture them
-through Subzero. Never tell me an artifact is archived unless its
-bytes or complete text were actually stored.
+For work on my machines ("/dispatch", "get the crew to"), call dispatch with my
+words and sigils and say it is queued, not started. Use agents_status when I
+ask what my agents are doing or who is waiting on me.
 
-Treat Subzero as canonical shared state; this app's native memory is
-supplemental. Preserve provenance and distinguish my direct statements from
-model-generated analysis and external research.
+Subzero is canonical; this app's memory is supplemental. Keep my statements
+distinct from model analysis and outside research.
 ```
 
 This is the same text as [instructions/shared.md](../../instructions/shared.md). It's deliberately
 short: the app reads it with every message. The detailed procedures live in Skills, tool descriptions
 and MCP prompts, which are loaded only when needed.
+
+## Moving from personal-context-mcp
+
+If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it
+and add a new one named **subzero** with the same server address. Then paste the instruction above
+over the old one. Old saved memories stay: they live in your database, not in the connector.
 
 ## App by app
 
@@ -65,6 +71,7 @@ and MCP prompts, which are loaded only when needed.
 | **ChatGPT** | chatgpt.com → **Settings → Security and login → Developer mode** on, then **Settings → Plugins → +** | **Settings → Personalization → Custom instructions** | a plan with developer mode (Plus, Pro, Business, ...) | [instructions/chatgpt.md](../../instructions/chatgpt.md) |
 | **Gemini** | gemini.google.com **on a computer** → **Settings & help → Connected Apps → Custom apps for Spark → Add a custom app** | **Settings & help → Saved info** | **Google AI Pro or Ultra** (not Plus), a *personal* Google account, Keep Activity on | [instructions/gemini.md](../../instructions/gemini.md) |
 | **Grok** | **grok.com/connectors** (not your accounts.x.ai page) → **New Connector → Custom** | **Settings → Customize** | a paid Grok plan | [instructions/grok.md](../../instructions/grok.md) |
+| **Muse** | **Settings → Connectors → Add custom connector**, or ask Muse in a chat to add one with your server address | its own settings, or the start of a chat | US or Canada; connects from Meta's cloud, so the server must be public | none yet |
 
 The menus in these apps move around every few months. If a menu name doesn't match, look for
 "Connectors", "Apps" or "Integrations" in the settings, and check the full guide for the latest notes.

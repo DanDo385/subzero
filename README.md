@@ -93,6 +93,7 @@ Follow the guides in order. Each one ends with a check that tells you it worked.
 | 11 | [Gemini without custom apps](docs/guides/11-gemini-without-custom-apps.md) | 15 min | Only if on Gemini Plus/free |
 | 12 | [Daily use: what to expect](docs/guides/12-daily-use.md) | 5 min | Read after connecting |
 | 13 | [Run it on your Mac over Tailscale](docs/guides/13-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
+| 14 | [Agents, messages and the board](docs/guides/14-agents-messages-and-the-board.md) | 15 min | Optional: coding agents share one prompt, message each other, take jobs; a live board |
 
 The quickest possible start, if you already have the tools:
 

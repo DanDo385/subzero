@@ -45,8 +45,18 @@ ENV_EXEMPT = {
     "deploy/install-tailnet-server.sh",
 }
 
+#: Text that names the old project on purpose (notes about the rename, the
+#: retired connector). Each is swapped for a placeholder before rewriting.
 PROTECT = {
     "personal-context-mcp-seven.vercel.app": "\x00VERCEL\x00",
+    "This project was called personal-context-mcp": "\x00CALLED\x00",
+    "`PC_NAME`": "\x00PCNAME\x00",
+    "`command not found: personal-context-mcp`": "\x00NOTFOUND\x00",
+    'the old "personal-context-mcp" connector': "\x00OLDCONN\x00",
+    "named personal-context-mcp or Personal Context": "\x00RETIRED\x00",
+    "named personal-context-mcp": "\x00NAMED\x00",
+    "Moving from personal-context-mcp": "\x00MOVING\x00",
+    "named **personal-context-mcp** (or **Personal Context**)": "\x00NAMEDBOLD\x00",
     '("personal context mcp")': "\x00LOOSE\x00",
     'personal-context-mcp = "subzero.cli:main"': "\x00ALIAS\x00",
 }
@@ -63,6 +73,9 @@ LITERALS: list[tuple[str, str]] = [
     ("--transport http personal-context ", "--transport http subzero "),
     ("**personal-context**", "**subzero**"),
     ("Personal Context MCP", "Subzero"),
+    ("PersonalContextError", "SubzeroError"),
+    ("[PersonalContext]", "[subzero]"),
+    ("__personalContextLoaded", "__subzeroLoaded"),
     ("Personal Context", "Subzero"),
     ('env_prefix="PC_"', 'env_prefix="SUBZERO_"'),
 ]

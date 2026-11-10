@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from subzero.config import EMBEDDING_DIM
-from subzero.errors import PersonalContextError
+from subzero.errors import SubzeroError
 from subzero.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -37,7 +37,7 @@ class OpenAIEmbeddingProvider:
             },
         )
         if response.status_code != 200:
-            raise PersonalContextError(f"Embedding request failed: HTTP {response.status_code}")
+            raise SubzeroError(f"Embedding request failed: HTTP {response.status_code}")
         data = sorted(response.json()["data"], key=lambda d: d["index"])
         return [item["embedding"] for item in data]
 
@@ -73,7 +73,7 @@ class GeminiEmbeddingProvider:
             },
         )
         if response.status_code != 200:
-            raise PersonalContextError(f"Embedding request failed: HTTP {response.status_code}")
+            raise SubzeroError(f"Embedding request failed: HTTP {response.status_code}")
         return [item["values"] for item in response.json()["embeddings"]]
 
     async def aclose(self) -> None:
