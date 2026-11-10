@@ -34,6 +34,7 @@ from uuid import UUID
 
 import asyncpg
 
+from subzero import sigils
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
@@ -363,6 +364,17 @@ SELECT * FROM (
             AS r(q)
      WHERE coalesce(s.project_id, c.project_id) = $1)
 ) h
+"""
+
+#: A lesson or setup home's handoff: its newest session summaries.
+_HOME_HANDOFF_SQL = """
+SELECT s.id, s.title, s.summary AS body, s.provenance::text AS provenance,
+       s.updated_at AS effective_at, s.provider, s.conversation_id, s.open_questions,
+       NULL::text AS status, NULL::uuid AS superseded_by, NULL::text AS project_slug
+FROM session_summaries s JOIN conversations c ON c.id = s.conversation_id
+WHERE c.metadata->>'home' = $1
+ORDER BY s.updated_at DESC
+LIMIT $2
 """
 
 #: Newer rows in the same project that share several topic words with a
@@ -719,12 +731,24 @@ class RetrievalService:
             notes.append(
                 "user_message is deprecated; pass query (key terms). Reduced to key terms."
             )
+        # %project picks the project; ^lesson or &setup picks a home whose own
+        # sessions become the handoff. Sigil words stay as search terms.
+        marks = sigils.parse(text)
+        home = None
+        if marks.any:
+            text = marks.plain
+            if marks.project and not project:
+                project = marks.project
+            if marks.home and not marks.home.startswith("projects/"):
+                home = marks.home
+            notes.append("Sigils read: " + " ".join(marks.found))
         return await self._build_package(
             query=text,
             token_budget=token_budget or self._settings.default_token_budget,
             project=project,
             include_handoff=True,
             notes=notes,
+            home=home,
         )
 
     async def _build_package(
@@ -735,6 +759,7 @@ class RetrievalService:
         project: str | None,
         include_handoff: bool,
         notes: list[str] | None = None,
+        home: str | None = None,
     ) -> ContextPackage:
         """Gather candidates from every layer, then fill the budget by priority.
 
@@ -755,8 +780,12 @@ class RetrievalService:
 
         # -- 1. handoff candidates ---------------------------------------
         handoffs: list[list[ContextItem]] = []
+        home_handoff = include_handoff and home is not None and focus is None
         if not include_handoff:
             layers.append(LayerReport(name="handoff", status="skipped", reason="topic package"))
+        elif home_handoff:
+            assert home is not None
+            handoffs.append(await self._home_handoff(home, item_cap=item_cap))
         elif focus is None and not candidates:
             layers.append(LayerReport(name="handoff", status="skipped", reason="no project"))
         else:
@@ -926,7 +955,11 @@ class RetrievalService:
                 LayerReport(
                     name="handoff",
                     status="ran",
-                    reason=None if focus else "short handoff per candidate project",
+                    reason=None
+                    if focus
+                    else f"sessions filed under {home}"
+                    if home_handoff
+                    else "short handoff per candidate project",
                     items=counts["handoff"] or None,
                 )
             )
@@ -1055,6 +1088,27 @@ class RetrievalService:
             # project; a single weak hint is reported, not acted on.
             [m.project for m in found.candidates[:2]] if found.tied else [],
         )
+
+    async def _home_handoff(self, home: str, *, item_cap: int) -> list[ContextItem]:
+        """Newest sessions filed under a lesson or setup home, newest first.
+
+        Lessons and setups are homes, not projects, so they have no tasks or
+        decisions of their own; their sessions and open questions are the
+        handoff that lets any app continue yesterday's lesson.
+        """
+        rows = await self._db.fetch(_HOME_HANDOFF_SQL, home, 3)
+        items: list[ContextItem] = []
+        for row in rows:
+            items.append(
+                _item(
+                    kind="summary",
+                    row=dict(row),
+                    content=row["body"],
+                    title=row["title"],
+                    max_tokens=item_cap,
+                )
+            )
+        return items
 
     async def _handoff(
         self,

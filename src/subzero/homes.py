@@ -15,7 +15,10 @@ Home = Annotated[str, Field(pattern=HOME_PATTERN)]
 
 
 def home_metadata(
-    home: str | None, project_slug: str | None, concepts: list[str] | None = None
+    home: str | None,
+    project_slug: str | None,
+    concepts: list[str] | None = None,
+    people: list[str] | None = None,
 ) -> dict:
     """Validate caller-selected semantics; code never guesses a lesson or tool."""
     chosen = home or (f"projects/{project_slug}" if project_slug else "other")
@@ -35,4 +38,8 @@ def home_metadata(
                 "Concept names must contain letters or numbers and fit in 80 characters."
             )
         tags.append(f"concept/{name}")
+    for handle in people or []:
+        name = handle.removeprefix("person/").removeprefix("@").lower()
+        if re.fullmatch(r"[a-z0-9_.-]{1,64}", name):
+            tags.append(f"person/{name}")
     return {"home": chosen, "tags": [chosen, *sorted(set(tags))]}

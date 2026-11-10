@@ -18,6 +18,7 @@ from uuid import UUID
 
 import asyncpg
 
+from subzero import sigils
 from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
@@ -242,6 +243,20 @@ class SessionService:
             if n:
                 bucket[key] = bucket.get(key, 0) + n
 
+        # ---- 0. sigils the user typed beat any model judgement -----------
+        # %project only names a project (matched below, never created); a
+        # ^lesson or &setup home is used as is; #concepts and @people tag.
+        marks = sigils.parse_all(title, summary)
+        people: list[str] | None = list(marks.people) or None
+        if marks.any:
+            if marks.project and not project and not (home or "").startswith("projects/"):
+                project = marks.project
+            if not home and marks.home and not marks.home.startswith("projects/"):
+                home = marks.home
+            if concepts is None and marks.concepts:
+                concepts = list(marks.concepts)
+            notes_out.append("Sigils read: " + " ".join(marks.found))
+
         # ---- 1. classify first, so routing informs what we write ---------
         # A project the caller names outright decides where the session goes.
         # It is matched like a search filter (slug, name, alias, near
@@ -349,6 +364,9 @@ class SessionService:
                     for t in previous.get("tags", [])
                     if t.startswith("concept/")
                 ],
+                people
+                if people is not None
+                else [t for t in previous.get("tags", []) if t.startswith("person/")],
             )
             await conn.execute(
                 "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",

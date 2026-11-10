@@ -83,6 +83,7 @@ class NoteService:
         append: bool = False,
         home: str | None = None,
         concepts: list[str] | None = None,
+        people: list[str] | None = None,
         conn: asyncpg.Connection | None = None,
     ) -> tuple[UUID, bool, int]:
         """Create or update a note. Returns (id, created, version).
@@ -107,6 +108,7 @@ class NoteService:
                     append=append,
                     home=home,
                     concepts=concepts,
+                    people=people,
                     conn=tx,
                 )
         executor = conn
@@ -137,13 +139,19 @@ class NoteService:
                 for t in previous.get("tags", [])
                 if t.startswith("concept/")
             ],
+            people,
         )
 
-        metadata["tags"] = [
-            t
-            for t in previous.get("tags", [])
-            if t != previous.get("home") and not t.startswith("concept/")
-        ] + metadata["tags"]
+        metadata["tags"] = list(
+            dict.fromkeys(
+                [
+                    t
+                    for t in previous.get("tags", [])
+                    if t != previous.get("home") and not t.startswith("concept/")
+                ]
+                + metadata["tags"]
+            )
+        )
 
         if append:
             incoming_hash = sha256_text(content.strip())
