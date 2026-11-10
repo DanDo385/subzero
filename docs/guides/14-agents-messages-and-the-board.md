@@ -10,10 +10,11 @@ should join.
 
 ## 1. Connect each machine (once)
 
-On the machine running the **server**, make a one-time code:
+On the machine running the **server**, make a one-time code. `--agents` matters: a code made
+without it (like the browser extension's) can save chats but can't drive agents.
 
 ```bash
-uv run subzero pair-device --device-name mbp
+uv run subzero pair-device --agents --device-name mbp
 ```
 
 On the machine whose agents should join (it can be the same one):
@@ -123,7 +124,8 @@ scaffolding but leave the lines that teach the idea as `TODO(you): ...`, then ru
 subzero agent status waiting "Type the comptime List(T) fn in src/list.zig:30"
 ```
 
-The board shows a **Your turn** banner. Open the file in Neovim, type it, then tell the agent
+(The prompt gives each session its id; it adds `--session <id>` so two sessions in one folder
+never answer for each other.) The board shows a **Your turn** banner. Open the file in Neovim, type it, then tell the agent
 "done". It checks your code, explains it, and carries on.
 
 ## 7. The board
@@ -152,6 +154,7 @@ The board runs only on your machine (127.0.0.1) and never shows your device toke
 | You see | What it means | Fix |
 | --- | --- | --- |
 | `Not connected. Run: subzero connect ...` | This machine has no device token. | Step 1. |
+| `this device is not paired for agents` | The code was made without `--agents` (or it's the extension's token). | `subzero pair-device --agents`, then `subzero connect` again. |
 | `That pairing code is wrong or expired` | Codes last a few minutes and work once. | Make a new one with `subzero pair-device`. |
 | No master prompt in Claude Code | The hooks aren't installed, or the session started before you installed them. | `subzero hooks install`, then a new session. Check `~/.cache/subzero/hook-errors.log`. |
 | `No session for this folder` | `agent status` couldn't tell which session you mean. | Run it inside the folder the session started in, or start one with `subzero agent start`. |

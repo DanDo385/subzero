@@ -115,7 +115,9 @@ def hook_session_start(payload: dict[str, Any], harness: str) -> str:
             params={"q": query, "project": marks.project or "", "budget": 900},
             timeout=5,
         )
-    beat = client.api("POST", f"/api/v1/agents/{session['id']}/beat", json_body={}, timeout=3)
+    beat = client.api(
+        "POST", f"/api/v1/agents/{session['id']}/beat", json_body={"deliver": True}, timeout=3
+    )
     return prompt.build(
         cwd=cwd,
         # Claude Code already loads the repo's CLAUDE.md (AGENTS.md here).
@@ -123,6 +125,7 @@ def hook_session_start(payload: dict[str, Any], harness: str) -> str:
         package=package,
         messages=beat.get("messages"),
         session_name=session["name"],
+        session_id=session["id"],
         home=session.get("home"),
     )
 
@@ -132,10 +135,13 @@ def hook_prompt(payload: dict[str, Any], harness: str) -> str | None:
     cached = client.session_for_external(external)
     if cached is None:
         cached, _ = _start_session(payload, harness)
-    body: dict[str, Any] = {"status": "working"}
-    typed = sigils.parse(str(payload.get("prompt") or ""))
-    if typed.home:
-        body["home"] = typed.home
+    body: dict[str, Any] = {"status": "working", "deliver": True}
+    # Only a prompt that opens with a home sigil ("^cfa2 next topic") moves the
+    # session; a sigil further into the text is just being talked about.
+    words = str(payload.get("prompt") or "").split(maxsplit=1)
+    opening = sigils.parse(words[0]) if words else sigils.parse("")
+    if opening.home:
+        body["home"] = opening.home
     beat = client.api("POST", f"/api/v1/agents/{cached['id']}/beat", json_body=body, timeout=3)
     text = prompt.render_messages(beat.get("messages") or [])
     return f"## Messages for you (from other subzero sessions)\n\n{text}" if text else None
@@ -168,18 +174,32 @@ HOOKS = {
 }
 
 
+#: Appended to every hook command (a shell comment), so reinstalling and
+#: uninstalling find our hooks even when the executable's path has spaces.
+HOOK_MARK = "# subzero-hook"
+
+
+def _ours(hook: dict[str, Any]) -> bool:
+    command = str(hook.get("command", ""))
+    return HOOK_MARK in command or "subzero hook " in command
+
+
 def _merge_hooks(settings: dict[str, Any], command: str) -> dict[str, Any]:
     hooks = settings.setdefault("hooks", {})
     for event, (name, timeout) in HOOK_EVENTS.items():
         kept = [
             entry
             for entry in hooks.get(event, [])
-            if not any("subzero hook " in str(h.get("command", "")) for h in entry.get("hooks", []))
+            if not any(_ours(h) for h in entry.get("hooks", []))
         ]
         kept.append(
             {
                 "hooks": [
-                    {"type": "command", "command": f"{command} hook {name}", "timeout": timeout}
+                    {
+                        "type": "command",
+                        "command": f"{command} hook {name} {HOOK_MARK}",
+                        "timeout": timeout,
+                    }
                 ]
             }
         )
@@ -191,9 +211,7 @@ def _remove_hooks(settings: dict[str, Any]) -> dict[str, Any]:
     hooks = settings.get("hooks", {})
     for event in list(hooks):
         hooks[event] = [
-            entry
-            for entry in hooks[event]
-            if not any("subzero hook " in str(h.get("command", "")) for h in entry.get("hooks", []))
+            entry for entry in hooks[event] if not any(_ours(h) for h in entry.get("hooks", []))
         ]
         if not hooks[event]:
             del hooks[event]
@@ -369,9 +387,10 @@ def register(main: click.Group) -> None:
     @agent.command(name="status")
     @click.argument("status", type=click.Choice(["working", "waiting", "idle", "done"]))
     @click.argument("task", required=False)
-    def agent_status(status: str, task: str | None) -> None:
-        """Set this folder's session status; 'waiting' puts a your-turn sign on the board."""
-        session = _current_session()
+    @click.option("--session", "session_id", default=None, help="Session id (from your prompt).")
+    def agent_status(status: str, task: str | None, session_id: str | None) -> None:
+        """Set this session's status; 'waiting' puts a your-turn sign on the board."""
+        session = {"id": session_id, "name": session_id} if session_id else _current_session()
         if session is None:
             _fail("No session for this folder. Start one with `subzero agent start`.")
         body: dict[str, Any] = {"status": status}
@@ -383,9 +402,10 @@ def register(main: click.Group) -> None:
     @main.command()
     @click.argument("to")
     @click.argument("text", nargs=-1, required=True)
-    def msg(to: str, text: tuple[str, ...]) -> None:
+    @click.option("--session", "session_id", default=None, help="Send as this session id.")
+    def msg(to: str, text: tuple[str, ...], session_id: str | None) -> None:
         """Message a session (name or id), a home (^zig) or 'me'."""
-        session = _current_session()
+        session = {"id": session_id} if session_id else _current_session()
         _call(
             "POST",
             "/api/v1/messages",

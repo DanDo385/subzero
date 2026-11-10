@@ -104,12 +104,21 @@ def build(
     package: dict[str, Any] | None = None,
     messages: list[dict[str, Any]] | None = None,
     session_name: str | None = None,
+    session_id: str | None = None,
     home: str | None = None,
 ) -> str:
     parts = [CORE]
     if session_name:
         where = f" in {home}" if home else ""
-        parts.append(f"You are registered as `{session_name}`{where}.")
+        line = f"You are registered as `{session_name}`{where}."
+        if session_id:
+            short = session_id[:8]
+            line += (
+                f" Your session id is {short}: add `--session {short}` to "
+                "`subzero agent status`, `subzero msg` and `subzero claim`, so they act as you "
+                "even when other sessions share this folder."
+            )
+        parts.append(line)
     if agents_md:
         from subzero.client import repo_root
 

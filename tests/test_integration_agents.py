@@ -12,7 +12,7 @@ import pytest
 from conftest import requires_db
 from subzero.classifier.base import Answer, ClassificationResult
 from subzero.classifier.questions import QUESTIONS_VERSION
-from subzero.errors import ValidationError
+from subzero.errors import NotFoundError, ValidationError
 
 pytestmark = requires_db
 
@@ -75,15 +75,58 @@ async def test_beat_moves_and_reports_status(services) -> None:
         await services.agents.beat(sid, status="sleeping")
 
 
-async def test_end_finishes_a_claimed_job(services) -> None:
+async def test_ending_a_session_fails_its_unfinished_job(services) -> None:
     s = await _session(services)
     job = await services.agents.dispatch("tidy the README >claude")
     await services.agents.claim(UUID(s["id"]), targets=["claude"])
-    await services.agents.end(UUID(s["id"]), summary="README tidied")
+    await services.agents.end(UUID(s["id"]), summary="clear")
     row = await services.db.fetchrow(
         "SELECT status, result FROM dispatch_jobs WHERE id = $1", UUID(job["id"])
     )
-    assert (row["status"], row["result"]) == ("done", "README tidied")
+    assert row["status"] == "failed"
+    assert "before the job was marked done" in row["result"]
+
+
+async def test_claim_refuses_a_second_job_and_unknown_sessions(services) -> None:
+    s = await _session(services)
+    await services.agents.dispatch("one >claude")
+    await services.agents.dispatch("two >claude")
+    await services.agents.claim(UUID(s["id"]), targets=["claude"])
+    with pytest.raises(ValidationError):
+        await services.agents.claim(UUID(s["id"]), targets=["claude"])
+    with pytest.raises(NotFoundError):
+        await services.agents.claim(
+            UUID("00000000-0000-0000-0000-000000000000"), targets=["claude"]
+        )
+
+
+async def test_same_folder_sessions_get_distinct_names(services) -> None:
+    a = await _session(services, ext="one")
+    b = await _session(services, ext="two")
+    assert a["name"] == "claude-code@mbp:subzero"
+    assert b["name"] == "claude-code@mbp:subzero#2"
+
+
+async def test_ambiguous_or_wildcard_addresses_are_refused(services) -> None:
+    second = await services.agents.start(harness="cli", name="twin", external_id="t2")
+    await services.agents.start(harness="cli", name="twin", external_id="t1")
+    assert second["name"] == "twin"
+    # A duplicate can still appear (say, a race between two starts): never guess.
+    await services.db.execute("UPDATE agent_sessions SET name = 'twin'")
+    with pytest.raises(ValidationError):
+        await services.agents.resolve_session("twin")
+    with pytest.raises(NotFoundError):
+        await services.agents.resolve_session("______")
+
+
+async def test_a_heartbeat_that_does_not_show_messages_does_not_consume_them(services) -> None:
+    s = await _session(services, home="lesson/zig")
+    await services.agents.send(to=s["id"][:8], body="direct")
+    await services.agents.send(to="^zig", body="to the lesson")
+    quiet = await services.agents.beat(UUID(s["id"]), status="idle")
+    assert quiet["messages"] == []
+    shown = await services.agents.beat(UUID(s["id"]), deliver=True)
+    assert sorted(m["body"] for m in shown["messages"]) == ["direct", "to the lesson"]
 
 
 # ------------------------------------------------------------------ messages
@@ -97,8 +140,8 @@ async def test_direct_message_is_delivered_once(services) -> None:
         from_session=UUID(a["id"]),
         from_label=a["name"],
     )
-    first = await services.agents.beat(UUID(b["id"]))
-    second = await services.agents.beat(UUID(b["id"]))
+    first = await services.agents.beat(UUID(b["id"]), deliver=True)
+    second = await services.agents.beat(UUID(b["id"]), deliver=True)
     assert [m["body"] for m in first["messages"]] == ["rebase on main first"]
     assert second["messages"] == []
 
@@ -108,10 +151,10 @@ async def test_home_message_reaches_each_session_there_but_not_the_sender(servic
     b = await _session(services, ext="b", home="lesson/zig")
     c = await _session(services, ext="c", home="projects/other")
     await services.agents.send(to="^zig", body="use 0.15 syntax", from_session=UUID(a["id"]))
-    assert (await services.agents.beat(UUID(a["id"])))["messages"] == []
-    assert len((await services.agents.beat(UUID(b["id"])))["messages"]) == 1
-    assert (await services.agents.beat(UUID(b["id"])))["messages"] == []
-    assert (await services.agents.beat(UUID(c["id"])))["messages"] == []
+    assert (await services.agents.beat(UUID(a["id"]), deliver=True))["messages"] == []
+    assert len((await services.agents.beat(UUID(b["id"]), deliver=True))["messages"]) == 1
+    assert (await services.agents.beat(UUID(b["id"]), deliver=True))["messages"] == []
+    assert (await services.agents.beat(UUID(c["id"]), deliver=True))["messages"] == []
 
 
 async def test_messages_for_me(services) -> None:
@@ -180,7 +223,9 @@ async def test_claim_prefers_named_jobs_then_crew(services) -> None:
     await services.agents.dispatch("only for grok >grok")
     s = await _session(services)
     first = await services.agents.claim(UUID(s["id"]), targets=["claude"])
+    await services.agents.finish(UUID(first["id"]))
     second = await services.agents.claim(UUID(s["id"]), targets=["claude"])
+    await services.agents.finish(UUID(second["id"]))
     third = await services.agents.claim(UUID(s["id"]), targets=["claude"])
     assert first["id"] == named["id"]
     assert second["target"] == "crew"
@@ -188,7 +233,7 @@ async def test_claim_prefers_named_jobs_then_crew(services) -> None:
     session = await services.db.fetchrow(
         "SELECT job_id, task FROM agent_sessions WHERE id = $1", UUID(s["id"])
     )
-    assert str(session["job_id"]) == second["id"]
+    assert session["job_id"] is None  # finished jobs are released
 
 
 async def test_finish_records_the_result(services) -> None:
@@ -226,7 +271,7 @@ async def test_board_marks_quiet_sessions_idle_and_streams_events(services) -> N
 async def http(services, live_server):
     async with httpx.AsyncClient(base_url=str(live_server.base_url)) as client:
         await services.db.execute(
-            "INSERT INTO pairing_codes (code, device_name) VALUES ('AGENTS42', 'mbp')"
+            "INSERT INTO pairing_codes (code, device_name, scopes) VALUES ('AGENTS42', 'mbp', '{ingest,agents}')"
         )
         paired = await client.post(
             "/api/v1/auth/pair-device", json={"pairing_code": "AGENTS42", "device_name": "mbp"}
@@ -251,7 +296,9 @@ async def test_a_hook_session_round_trip_over_http(http) -> None:
 
     sent = await http.post("/api/v1/messages", json={"to": "^zig", "body": "hello from the board"})
     assert sent.status_code == 200, sent.text
-    beat = await http.post(f"/api/v1/agents/{sid}/beat", json={"status": "working"})
+    beat = await http.post(
+        f"/api/v1/agents/{sid}/beat", json={"status": "working", "deliver": True}
+    )
     assert [m["body"] for m in beat.json()["messages"]] == ["hello from the board"]
 
     queued = await http.post("/api/v1/dispatch", json={"goal": "^zig write the test >claude"})
@@ -273,6 +320,23 @@ async def test_a_hook_session_round_trip_over_http(http) -> None:
         "job_done",
     }
     assert (await http.post(f"/api/v1/agents/{sid}/end", json={})).json()["status"] == "done"
+
+
+async def test_a_browser_extension_token_cannot_drive_agents(services, live_server) -> None:
+    await services.db.execute(
+        "INSERT INTO pairing_codes (code, device_name) VALUES ('BROWSER42', 'brave')"
+    )
+    async with httpx.AsyncClient(base_url=str(live_server.base_url)) as client:
+        paired = await client.post("/api/v1/auth/pair-device", json={"pairing_code": "BROWSER42"})
+        headers = {"authorization": f"Bearer {paired.json()['device_token']}"}
+        for method, path in (
+            ("POST", "/api/v1/dispatch"),
+            ("POST", "/api/v1/messages"),
+            ("GET", "/api/v1/bootstrap?q=x"),
+            ("GET", "/api/v1/agents/board"),
+        ):
+            response = await client.request(method, path, json={}, headers=headers)
+            assert response.status_code == 403, path
 
 
 async def test_http_errors_are_plain(http) -> None:

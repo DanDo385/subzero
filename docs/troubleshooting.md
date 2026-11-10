@@ -120,6 +120,7 @@ table. The common ones:
 | --- | --- | --- |
 | `Not connected. Run: subzero connect ...` | This machine has no device token. | `subzero pair-device` on the server, then `subzero connect <address>` here. |
 | `The server refused this device` | The device token was revoked. | Connect again with a new pairing code. |
+| `this device is not paired for agents` | The token can only save chats (the extension's kind). | `subzero pair-device --agents` on the server, then `subzero connect` again. |
 | No master prompt in Claude Code | Hooks not installed, or the session predates them. | `subzero hooks install`; start a new session; read `~/.cache/subzero/hook-errors.log`. |
 | `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
 | `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |

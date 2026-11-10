@@ -37,10 +37,13 @@ STALE_AFTER = timedelta(minutes=30)
 BOARD_WINDOW = timedelta(hours=2)
 
 #: Words that make a job risky enough to plan before doing.
+#: Matched at the start of a word, so "deleting", "rotated" and "--force" count.
+#: Over-matching only costs a plan step; under-matching can lock you out.
 _RISKY = re.compile(
-    r"\b(acl|acls|firewall|dns|tailscale|ssh|sudo|credential|credentials|secret|secrets|"
-    r"token|tokens|password|passwords|delete|deletes|remove|rm|drop|truncate|wipe|"
-    r"force[- ]push|migrate|migration|deploy|production|prod)\b",
+    r"(?<![a-z0-9])(acl|firewall|dns|tailscale|ssh|sudo|chmod|chown|credential|secret|"
+    r"token|password|api[ _-]?key|key rotation|rotat|revok|delet|remov|rm\b|drop|"
+    r"truncat|wipe|purge|force|push|reset --hard|rebase|merge|migrat|deploy|release|"
+    r"publish|production|prod\b|billing|payment|invoice|dns|domain|cert)",
     re.IGNORECASE,
 )
 
@@ -121,6 +124,12 @@ class AgentService:
                 if existing["ended_at"] is not None:
                     await self._event(conn, "spawn", row["id"], detail={"revived": True})
             else:
+                taken = await conn.fetchval(
+                    "SELECT count(*) FROM agent_sessions WHERE ended_at IS NULL AND lower(name) = lower($1)",
+                    label,
+                )
+                if taken:
+                    label = f"{label}#{taken + 1}"
                 row = await conn.fetchrow(
                     """
                     INSERT INTO agent_sessions
@@ -148,8 +157,13 @@ class AgentService:
         status: str | None = None,
         task: str | None = None,
         home: str | None = None,
+        deliver: bool = False,
     ) -> dict[str, Any]:
-        """Heartbeat; optionally change status, task or home. Returns new messages."""
+        """Heartbeat; optionally change status, task or home.
+
+        With ``deliver`` it returns new messages and marks them read, so only
+        a caller that shows them to the agent (the prompt hook) should ask.
+        """
         if status is not None and status not in STATUSES:
             raise ValidationError(f"status must be one of {', '.join(STATUSES)}.")
         async with self._db.transaction() as conn:
@@ -187,7 +201,7 @@ class AgentService:
                     session_id,
                     detail={"status": row["status"], "task": row["task"]},
                 )
-            messages = await self._take_messages(conn, row)
+            messages = await self._take_messages(conn, row) if deliver else []
         return {"session": _row(row), "messages": messages}
 
     async def end(self, session_id: UUID, *, summary: str | None = None) -> dict[str, Any]:
@@ -204,33 +218,48 @@ class AgentService:
                 raise NotFoundError("No such agent session.")
             await self._event(conn, "end", session_id, detail={"summary": _clean(summary, 500)})
             if row["job_id"]:
+                # Ending is not finishing: `subzero done` finishes a job. A
+                # session that stops first leaves it failed, visibly.
                 await conn.execute(
                     """
-                    UPDATE dispatch_jobs SET status = 'done', updated_at = now(),
+                    UPDATE dispatch_jobs SET status = 'failed', updated_at = now(),
                            result = coalesce(result, $2)
                      WHERE id = $1 AND status = 'claimed'
                     """,
                     row["job_id"],
-                    _clean(summary, 4000),
+                    f"session ended ({_clean(summary, 200) or 'no reason given'}) before the job was marked done",
+                )
+                await conn.execute(
+                    "UPDATE agent_sessions SET job_id = NULL WHERE id = $1", session_id
                 )
         return _row(row)
 
     async def resolve_session(self, ref: str) -> dict[str, Any]:
-        """A session by id, id prefix (6+ characters) or name, newest first."""
+        """A session by id, id prefix (6+ hex characters) or exact name.
+
+        Never guesses: if a name or prefix matches more than one live session,
+        it refuses and lists their ids.
+        """
         ref = ref.strip()
+        prefix = ref.lower() if re.fullmatch(r"[0-9a-f-]{6,36}", ref.lower()) else None
         rows = await self._db.fetch(
             """
             SELECT * FROM agent_sessions
-             WHERE id::text = $1 OR (length($1) >= 6 AND id::text LIKE $1 || '%')
-                OR lower(name) = lower($1) OR external_id = $1
-             ORDER BY (ended_at IS NULL) DESC, last_seen_at DESC LIMIT 2
+             WHERE (ended_at IS NULL OR id::text = $2)
+               AND (left(id::text, length($2)) = $2 OR lower(name) = lower($1)
+                    OR external_id = $1)
+             ORDER BY last_seen_at DESC LIMIT 5
             """,
             ref,
+            prefix or "~",  # never a prefix of a uuid
         )
         if not rows:
             raise NotFoundError(
-                f"No agent session matches {ref!r}. Run `subzero agents` to list them."
+                f"No running agent session matches {ref!r}. Run `subzero agents` to list them."
             )
+        if len(rows) > 1:
+            ids = ", ".join(str(r["id"])[:8] for r in rows)
+            raise ValidationError(f"{ref!r} matches several sessions ({ids}); use one of the ids.")
         return _row(rows[0])
 
     # ----------------------------------------------------------- messages
@@ -413,6 +442,16 @@ class AgentService:
         """The oldest queued job for any of ``targets`` (plus 'crew'), or None."""
         names = sorted({t.lower() for t in targets} | {"crew"})
         async with self._db.transaction() as conn:
+            holder = await conn.fetchrow(
+                "SELECT job_id FROM agent_sessions WHERE id = $1 FOR UPDATE", session_id
+            )
+            if holder is None:
+                raise NotFoundError("No such agent session.")
+            if holder["job_id"] is not None:
+                raise ValidationError(
+                    f"This session already holds job {str(holder['job_id'])[:8]}; "
+                    "finish it with `subzero done` first."
+                )
             job = await conn.fetchrow(
                 """
                 SELECT * FROM dispatch_jobs

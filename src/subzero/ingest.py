@@ -36,7 +36,7 @@ async def _validate_device_token(db, token: str) -> dict[str, Any] | None:
     """Validate a device token. Returns device record or None."""
     row = await db.fetchrow(
         """
-        SELECT id, device_id, device_name
+        SELECT id, device_id, device_name, scopes
         FROM device_tokens
         WHERE token = $1 AND revoked_at IS NULL
         """,
@@ -114,7 +114,7 @@ def build_ingest_routes(settings: Settings) -> list:
         async with db.transaction() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT id, device_name
+                SELECT id, device_name, scopes
                 FROM pairing_codes
                 WHERE code = $1 AND used_at IS NULL AND expires_at > now()
                 FOR UPDATE
@@ -128,12 +128,13 @@ def build_ingest_routes(settings: Settings) -> list:
             token = _make_token()
             await conn.execute(
                 """
-                INSERT INTO device_tokens (device_id, token, device_name)
-                VALUES ($1, $2, $3)
+                INSERT INTO device_tokens (device_id, token, device_name, scopes)
+                VALUES ($1, $2, $3, $4)
                 """,
                 device_id,
                 token,
                 device_name or row["device_name"] or "unknown",
+                row["scopes"],
             )
             await conn.execute(
                 "UPDATE pairing_codes SET used_at = now(), used_by_device_id = $1 WHERE id = $2",

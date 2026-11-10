@@ -22,6 +22,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -66,7 +67,10 @@ def load_config() -> ClientConfig:
 def save_config(config: ClientConfig) -> Path:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = config_path()
-    path.write_text(json.dumps(config.__dict__, indent=2) + "\n")
+    # Created private: the token is never readable by others, not even briefly.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(json.dumps(config.__dict__, indent=2) + "\n")
     path.chmod(0o600)
     return path
 
@@ -74,7 +78,9 @@ def save_config(config: ClientConfig) -> Path:
 def pair(url: str, code: str, machine: str) -> ClientConfig:
     """Trade a one-time pairing code for a device token."""
     url = url.rstrip("/")
-    if not url.startswith(("https://", "http://127.0.0.1", "http://localhost")):
+    parsed = urlparse(url)
+    local = parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    if not (parsed.scheme == "https" and parsed.hostname) and not local:
         raise ClientError("Use the server's https:// address (http only for localhost).")
     try:
         response = httpx.post(

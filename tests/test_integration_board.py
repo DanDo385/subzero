@@ -18,7 +18,7 @@ pytestmark = requires_db
 @pytest.fixture
 async def board(services, live_server):
     await services.db.execute(
-        "INSERT INTO pairing_codes (code, device_name) VALUES ('BOARD42', 'mbp')"
+        "INSERT INTO pairing_codes (code, device_name, scopes) VALUES ('BOARD42', 'mbp', '{ingest,agents}')"
     )
     config = await asyncio.to_thread(client.pair, str(live_server.base_url), "BOARD42", "mbp")
     server = make_server(0, config)

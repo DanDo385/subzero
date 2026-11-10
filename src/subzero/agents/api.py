@@ -1,11 +1,11 @@
 """HTTP routes for coding-agent hooks, the subzero CLI and the board.
 
-Same device tokens as the browser extension (``subzero pair-device``, then
-``subzero connect``). Every route answers 401 to a missing or revoked token
+Device tokens paired with ``subzero pair-device --agents`` (then
+``subzero connect``); a browser extension's token is refused with 403. Every route answers 401 to a missing or revoked token
 before doing anything else, so an unauthenticated caller learns nothing.
 
     POST /api/v1/agents/start                 register or revive a session
-    POST /api/v1/agents/{id}/beat             heartbeat; returns new messages
+    POST /api/v1/agents/{id}/beat             heartbeat; new messages if deliver=true
     POST /api/v1/agents/{id}/end              session finished
     GET  /api/v1/agents/board?after=<event>   everything the board draws
     POST /api/v1/messages                     send to me, a home or a session
@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import UUID
 
+import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -41,12 +42,19 @@ def _authed(handler: Handler) -> Callable[[Request], Awaitable[JSONResponse]]:
         device = await _validate_device_token(get_services().db, token)
         if device is None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if "agents" not in (device.get("scopes") or []):
+            # A browser extension's token can save chats, not drive agents.
+            return JSONResponse(
+                {"error": "this device is not paired for agents; use pair-device --agents"},
+                status_code=403,
+            )
         try:
             return JSONResponse(await handler(request, device))
         except ValidationError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-        except NotFoundError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=404)
+        except (NotFoundError, asyncpg.ForeignKeyViolationError) as exc:
+            detail = str(exc) if isinstance(exc, NotFoundError) else "No such session or job."
+            return JSONResponse({"error": detail}, status_code=404)
 
     return endpoint
 
@@ -98,6 +106,7 @@ async def beat(request: Request, device: dict[str, Any]) -> Any:
         status=_str(body, "status"),
         task=_str(body, "task"),
         home=_str(body, "home"),
+        deliver=body.get("deliver") is True,
     )
 
 

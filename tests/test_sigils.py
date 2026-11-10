@@ -56,3 +56,17 @@ def test_parse_all_reads_title_before_summary() -> None:
 def test_empty_input() -> None:
     assert not parse(None).any
     assert not parse("").any
+
+
+def test_code_and_keystrokes_are_not_sigils() -> None:
+    for text in ('printf("%s\\n")', "press ^C to stop", "50 %20 off", "if x >2", "@a"):
+        s = parse(text)
+        assert s.home is None and s.targets == () and s.people == (), text
+
+
+def test_brackets_still_open_a_sigil() -> None:
+    assert parse("(%Code/site) fix").project == "site"
+
+
+def test_concepts_may_start_with_a_digit() -> None:
+    assert parse("#401k plan").concepts == ("401k",)

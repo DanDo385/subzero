@@ -206,7 +206,13 @@ def migrate(status: bool) -> None:
 
 @main.command(name="pair-device")
 @click.option("--device-name", default="", help="Label for the browser being paired.")
-def pair_device(device_name: str) -> None:
+@click.option(
+    "--agents",
+    is_flag=True,
+    help="For a machine running coding agents (`subzero connect`): may also register "
+    "sessions, send messages, dispatch jobs and read context. Browsers do not need it.",
+)
+def pair_device(device_name: str, agents: bool) -> None:
     """Generate a one-time pairing code for a browser extension.
 
     Run this, then enter the code in the extension popup within 5 minutes.
@@ -223,11 +229,12 @@ def pair_device(device_name: str) -> None:
         try:
             await db.execute(
                 """
-                INSERT INTO pairing_codes (code, device_name)
-                VALUES ($1, $2)
+                INSERT INTO pairing_codes (code, device_name, scopes)
+                VALUES ($1, $2, $3)
                 """,
                 code,
                 device_name or None,
+                ["ingest", "agents"] if agents else ["ingest"],
             )
         finally:
             await db.close()

@@ -22,8 +22,9 @@ from dataclasses import dataclass, field
 from subzero.util import slugify
 
 #: The symbol must open a word (start of text, or after whitespace or an
-#: opening bracket/quote) and be followed directly by a letter or digit.
-_SIGIL = re.compile(r"(?:^|(?<=[\s(\[{\"'`]))([%^&#@>])([A-Za-z0-9][A-Za-z0-9_./-]*)", re.MULTILINE)
+#: opening bracket) and be followed directly by a letter or digit. Quotes do
+#: not count, so code such as printf("%s") is never read as a sigil.
+_SIGIL = re.compile(r"(?:^|(?<=[\s(\[{]))([%^&#@>])([A-Za-z0-9][A-Za-z0-9_./-]*)", re.MULTILINE)
 _TRAILING = "./-_"
 
 HOME_KINDS = {"%": "projects", "^": "lesson", "&": "setup"}
@@ -77,6 +78,10 @@ def parse(text: str | None) -> Sigils:
         symbol, raw = match.group(1), _clean(match.group(2))
         parts = [p for p in raw.split("/") if p]
         if not parts:
+            continue
+        # Homes, people and agents are names: a letter first, two or more
+        # characters. That keeps ^C, %20 and >2 out.
+        if symbol != "#" and not re.match(r"[A-Za-z][A-Za-z0-9_.-]", parts[0]):
             continue
         found.append(f"{symbol}{raw}")
         if symbol == "%":

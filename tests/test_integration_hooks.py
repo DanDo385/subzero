@@ -46,7 +46,7 @@ async def _run(*args: str, stdin: str | None = None, cwd: Path | None = None):
 @pytest.fixture
 async def connected(services, live_server, home):
     await services.db.execute(
-        "INSERT INTO pairing_codes (code, device_name) VALUES ('HOOKS42', 'mbp')"
+        "INSERT INTO pairing_codes (code, device_name, scopes) VALUES ('HOOKS42', 'mbp', '{ingest,agents}')"
     )
     result = await _run(
         "connect", str(live_server.base_url), "--code", "HOOKS42", "--machine", "mbp"
@@ -150,8 +150,10 @@ async def test_dispatch_claim_done_from_the_cli(connected) -> None:
     claimed = await _run("claim", "--as", "claude", "--session", session_id)
     job = json.loads(claimed.output)
     assert job["goal"].startswith("^zig write")
-    assert (await _run("claim", "--as", "claude", "--session", session_id)).output == ""
+    holding = await _run("claim", "--as", "claude", "--session", session_id)
+    assert "already holds job" in holding.output
     assert (await _run("done", job["id"], "--result", "PR #12")).exit_code == 0
+    assert (await _run("claim", "--as", "claude", "--session", session_id)).output == ""
     listing = await _run("agents")
     assert "firstmate" in listing.output
 
