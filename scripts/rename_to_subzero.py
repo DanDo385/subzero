@@ -42,6 +42,7 @@ ENV_EXEMPT = {
     "deploy/go-live.sh",
     "deploy/preflight.sh",
     "deploy/vercel-env.sh",
+    "deploy/install-tailnet-server.sh",
 }
 
 PROTECT = {

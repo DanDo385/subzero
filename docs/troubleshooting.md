@@ -6,6 +6,30 @@ with it.
 
 Find what you're seeing below. Each guide also ends with a table for its own step.
 
+## Named actions: email and vault
+
+Browser capture returning HTTP 400 means its payload was rejected. An unknown
+provider, non-text message content, or non-list `messages`/`attachments` must be
+corrected by updating the extension. Captures and their original message times
+are stored through the same canonical writers as imported conversations.
+
+| You see | What to do |
+| --- | --- |
+| `AgentMail is not configured` | Leave email in `dry_run=true`, or configure the two `SUBZERO_AGENTMAIL_*` settings using [daily use](guides/12-daily-use.md#optional-email-setup). Restart the server. |
+| No `email` tool appears | Grant the client `email:send` in `SUBZERO_CLIENT_SCOPE_POLICY`, then reconnect it. Read-only clients cannot send. |
+| `Resolve recipients explicitly` | Supply the full address confirmed by the user, not a name or display-name address. |
+| `send_at must be in the future with an explicit timezone` | Ask for a timezone and choose a future time. Do not silently send immediately. |
+| `Confirmation does not match the preview` | Read the existing draft, show it and get confirmation again. |
+| `That email key already names a different draft` | For an intentional content change, create a new draft and review it. For a retry, use the original ID and confirmation. |
+| `AgentMail did not return a usable receipt` | Retry the same draft. Do not invent a new key or assume the email failed to send. |
+| `Email delivery is uncertain` | The safe retry window has expired. Reconcile the sending inbox in AgentMail before taking further action. |
+| `The approved send time has passed` | Check the original schedule in AgentMail if a send was attempted. For an unsent draft, review and confirm a new time. |
+| `This sensitivity level cannot be sent to AgentMail` | The content's privacy level is blocked by `SUBZERO_NO_EXTERNAL_SENSITIVITY`. Keep it local; do not lower the level just to send it. |
+| `A project home must match an existing project` | Use `project_search` to find the existing project slug or select `other`. |
+| `This object already has a different vault path` | No second copy was queued. Keep the original home, or relocate the managed file and update its tracked path before retrying. Files are not auto-moved. |
+| Vault result is `not_queued` | Check `SUBZERO_OBSIDIAN_ENABLED`, the request's `queue_for_vault` flag and sensitivity. Only normal notes are queued. |
+| Vault result is `busy`, `failed` or `conflict` | The note is not confirmed written. Inspect `sync_status` and the helper's log; preserve human edits when resolving conflicts. |
+
 ## Installing
 
 | You see | What it means | Fix |
@@ -22,8 +46,8 @@ Find what you're seeing below. Each guide also ends with a table for its own ste
 | `Refusing to start. Fix the configuration problems above` | A setting is missing or unsafe. | The lines above it say exactly which; `check` shows them too. |
 | `SUBZERO_AUTH_MODE=static is refused when SUBZERO_ENVIRONMENT=prod` | Test settings are being used online. | Run `init` again and choose `online`. |
 | `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
-| `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
-| `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
+| `still use the old PC_ prefix` from `check` | This project was called subzero; its settings started with `PC_`. They still work. | Rename each `SUBZERO_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
+| `command not found: subzero` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
 
 ## Database
 

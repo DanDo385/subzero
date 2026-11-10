@@ -18,10 +18,12 @@ from subzero.classifier.jev import build_classifier
 from subzero.classifier.service import ClassificationService
 from subzero.config import Settings
 from subzero.db.pool import Database
+from subzero.email import EmailService
 from subzero.embeddings.service import EmbeddingService, build_embedding_provider
 from subzero.lists.service import ListService
 from subzero.memory.service import MemoryService
 from subzero.notes.service import NoteService
+from subzero.notes.write import NoteWriter
 from subzero.obsidian.paths import VaultPaths
 from subzero.obsidian.queue import SyncQueue
 from subzero.projects.service import ProjectService
@@ -52,6 +54,8 @@ class Services:
     sync_queue: SyncQueue
     vault_paths: VaultPaths
     oauth_kv: PostgresKeyValue
+    email: EmailService
+    note_writer: NoteWriter
 
     async def aclose(self) -> None:
         await self.embeddings.aclose()
@@ -114,6 +118,18 @@ async def build_services(settings: Settings, db: Database) -> Services:
         sync_queue=sync_queue,
         vault_paths=vault_paths,
         oauth_kv=PostgresKeyValue(db),
+        email=EmailService(db, settings),
+        note_writer=NoteWriter(
+            db=db,
+            settings=settings,
+            notes=notes,
+            projects=projects,
+            classification=classification,
+            lists=lists,
+            queue=sync_queue,
+            paths=vault_paths,
+            audit=audit,
+        ),
     )
 
 

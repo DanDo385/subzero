@@ -46,7 +46,12 @@ def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
             "list_type": list_row.get("list_type"),
             "project": list_row.get("project_slug"),
             "updated": list_row.get("updated_at"),
-            "tags": ["subzero/list", "type/list"],
+            "home": (list_row.get("metadata") or {}).get("home"),
+            "tags": [
+                "subzero/list",
+                "type/list",
+                *(list_row.get("metadata") or {}).get("tags", []),
+            ],
         }
     )
     body = [front, "", f"# {list_row['name']}", ""]
@@ -125,6 +130,7 @@ def render_note(
             "pc_id": note["id"],
             "title": note["title"],
             "note_class": note.get("note_class"),
+            "home": meta.get("home"),
             "project": note.get("project_slug"),
             "source_provider": note.get("source_provider"),
             "source_conversation": note.get("source_conversation_id"),
