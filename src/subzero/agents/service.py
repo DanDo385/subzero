@@ -161,7 +161,10 @@ class AgentService:
             row = await conn.fetchrow(
                 """
                 UPDATE agent_sessions
-                   SET last_seen_at = now(), status = coalesce($2, status),
+                   SET last_seen_at = now(),
+                       -- A turn ending (idle) must not clear a lesson's your-turn sign.
+                       status = CASE WHEN $2 = 'idle' AND status = 'waiting' THEN status
+                                     ELSE coalesce($2, status) END,
                        task = CASE WHEN $3::text IS NULL THEN task ELSE nullif($3, '') END,
                        home = coalesce($4, home),
                        ended_at = CASE WHEN coalesce($2, status) = 'done'

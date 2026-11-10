@@ -19,6 +19,7 @@ from typing import Any
 
 import click
 
+from subzero.cli_agents import register as register_agent_commands
 from subzero.config import Settings, get_settings, legacy_env_names
 from subzero.db.migrate import apply_migrations, migration_status
 from subzero.db.pool import Database, set_database
@@ -971,6 +972,9 @@ def review(limit: int) -> None:
             set_services(None)
 
     asyncio.run(run())
+
+
+register_agent_commands(main)
 
 
 if __name__ == "__main__":  # pragma: no cover
