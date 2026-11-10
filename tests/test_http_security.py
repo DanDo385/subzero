@@ -166,6 +166,26 @@ async def test_worker_api_requires_the_shared_secret(client) -> None:
         assert response.json() == {"error": "unauthorized"}
 
 
+async def test_agent_api_requires_a_device_token(client) -> None:
+    http_client, _ = client
+    session = "00000000-0000-0000-0000-000000000000"
+    for method, path in (
+        ("POST", "/api/v1/agents/start"),
+        ("POST", f"/api/v1/agents/{session}/beat"),
+        ("POST", f"/api/v1/agents/{session}/end"),
+        ("GET", "/api/v1/agents/board"),
+        ("POST", "/api/v1/messages"),
+        ("GET", "/api/v1/messages/me"),
+        ("POST", "/api/v1/dispatch"),
+        ("POST", "/api/v1/dispatch/claim"),
+        ("POST", f"/api/v1/dispatch/{session}/finish"),
+        ("GET", "/api/v1/bootstrap?q=anything"),
+    ):
+        response = await http_client.request(method, path, json={})
+        assert response.status_code == 401, path
+        assert response.json() == {"error": "unauthorized"}, path
+
+
 async def test_worker_api_rejects_a_wrong_secret(client) -> None:
     http_client, _ = client
     response = await http_client.post(

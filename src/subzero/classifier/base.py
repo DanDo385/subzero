@@ -117,6 +117,10 @@ class Classifier(Protocol):
 
     async def classify_note_link(self, state: dict[str, Any]) -> ClassificationResult: ...
 
+    async def classify_dispatch(
+        self, state: dict[str, Any], target_candidates: dict[str, str]
+    ) -> ClassificationResult: ...
+
     async def classify_moc(
         self, state: dict[str, Any], moc_candidates: dict[str, str]
     ) -> ClassificationResult: ...

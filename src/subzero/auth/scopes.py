@@ -37,6 +37,8 @@ ARTIFACTS_READ = "artifacts:read"
 ARTIFACTS_WRITE = "artifacts:write"
 REVIEW = "review:write"
 EMAIL_SEND = "email:send"
+AGENTS_READ = "agents:read"
+AGENTS_WRITE = "agents:write"
 
 ALL_SCOPES: tuple[str, ...] = (
     CONTEXT_READ,
@@ -54,6 +56,8 @@ ALL_SCOPES: tuple[str, ...] = (
     ARTIFACTS_WRITE,
     REVIEW,
     EMAIL_SEND,
+    AGENTS_READ,
+    AGENTS_WRITE,
 )
 
 READ_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s.endswith(":read"))

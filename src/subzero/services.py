@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from subzero.agents.service import AgentService
 from subzero.artifacts.service import ArtifactService
 from subzero.audit.service import AuditService
 from subzero.auth.kv import PostgresKeyValue
@@ -56,6 +57,7 @@ class Services:
     oauth_kv: PostgresKeyValue
     email: EmailService
     note_writer: NoteWriter
+    agents: AgentService
 
     async def aclose(self) -> None:
         await self.embeddings.aclose()
@@ -130,6 +132,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
             paths=vault_paths,
             audit=audit,
         ),
+        agents=AgentService(db, classifier),
     )
 
 
