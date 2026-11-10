@@ -76,6 +76,16 @@ def _uuid(value: Any, name: str = "id") -> UUID:
         raise ValidationError(f"{name} must be an id.") from exc
 
 
+async def _session(value: Any, name: str = "session_id") -> UUID:
+    """A full session id, or the 8-character one the master prompt gives each session."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError(f"{name} must be a session id.")
+    try:
+        return UUID(value)
+    except ValueError:
+        return UUID(str((await get_services().agents.resolve_session(value))["id"]))
+
+
 def _str(body: dict[str, Any], key: str) -> str | None:
     value = body.get(key)
     if value is None:
@@ -102,7 +112,7 @@ async def start(request: Request, device: dict[str, Any]) -> Any:
 async def beat(request: Request, device: dict[str, Any]) -> Any:
     body = await _body(request)
     return await get_services().agents.beat(
-        _uuid(request.path_params["session_id"]),
+        await _session(request.path_params["session_id"]),
         status=_str(body, "status"),
         task=_str(body, "task"),
         home=_str(body, "home"),
@@ -113,7 +123,7 @@ async def beat(request: Request, device: dict[str, Any]) -> Any:
 async def end(request: Request, device: dict[str, Any]) -> Any:
     body = await _body(request)
     return await get_services().agents.end(
-        _uuid(request.path_params["session_id"]), summary=_str(body, "summary")
+        await _session(request.path_params["session_id"]), summary=_str(body, "summary")
     )
 
 
@@ -129,13 +139,14 @@ async def send(request: Request, device: dict[str, Any]) -> Any:
     body = await _body(request)
     sender = _str(body, "from_session")
     agents = get_services().agents
-    label = "me"
+    label, sender_id = "me", None
     if sender:
-        label = (await agents.resolve_session(sender))["name"]
+        row = await agents.resolve_session(sender)
+        label, sender_id = row["name"], UUID(str(row["id"]))
     return await agents.send(
         to=_str(body, "to") or "",
         body=_str(body, "body") or "",
-        from_session=_uuid(sender, "from_session") if sender else None,
+        from_session=sender_id,
         from_label=label,
     )
 
@@ -160,9 +171,7 @@ async def claim(request: Request, device: dict[str, Any]) -> Any:
     targets = body.get("targets") or []
     if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
         raise ValidationError("targets must be a list of agent names.")
-    job = await get_services().agents.claim(
-        _uuid(body.get("session_id"), "session_id"), targets=targets
-    )
+    job = await get_services().agents.claim(await _session(body.get("session_id")), targets=targets)
     return {"job": job}
 
 

@@ -124,12 +124,22 @@ class AgentService:
                 if existing["ended_at"] is not None:
                     await self._event(conn, "spawn", row["id"], detail={"revived": True})
             else:
-                taken = await conn.fetchval(
-                    "SELECT count(*) FROM agent_sessions WHERE ended_at IS NULL AND lower(name) = lower($1)",
-                    label,
-                )
-                if taken:
-                    label = f"{label}#{taken + 1}"
+                taken = {
+                    r["name"].lower()
+                    for r in await conn.fetch(
+                        """
+                        SELECT name FROM agent_sessions
+                         WHERE ended_at IS NULL
+                           AND (lower(name) = lower($1) OR starts_with(lower(name), lower($1) || '#'))
+                        """,
+                        label,
+                    )
+                }
+                if label.lower() in taken:
+                    n = 2
+                    while f"{label}#{n}".lower() in taken:
+                        n += 1
+                    label = f"{label}#{n}"
                 row = await conn.fetchrow(
                     """
                     INSERT INTO agent_sessions

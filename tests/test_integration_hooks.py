@@ -176,3 +176,21 @@ def test_prompt_offline_has_the_rules_and_stays_small(home, tmp_path: Path) -> N
     assert len(text) <= prompt.MAX_CHARS + 20
     assert "## AGENTS.md" in text
     assert "## AGENTS.md" not in prompt.build(cwd=str(tmp_path), agents_md=False)
+
+
+async def test_the_short_id_from_the_prompt_works_everywhere(connected, services) -> None:
+    folder = connected / "shared"
+    folder.mkdir()
+    full = (await _run("agent", "start", "--harness", "cli", cwd=folder)).output.strip()
+    short = full[:8]
+    waiting = await _run("agent", "status", "waiting", "type it", "--session", short)
+    assert waiting.exit_code == 0, waiting.output
+    row = await services.db.fetchrow("SELECT status FROM agent_sessions WHERE id = $1::uuid", full)
+    assert row["status"] == "waiting"
+    sent = await _run("msg", "me", "from the short id", "--session", short)
+    assert sent.exit_code == 0, sent.output
+    label = await services.db.fetchval("SELECT from_label FROM agent_messages")
+    assert label != "me"
+    await _run("dispatch", "scaffold", "it", ">claude")
+    claimed = await _run("claim", "--as", "claude", "--session", short)
+    assert json.loads(claimed.output)["goal"].startswith("scaffold it")

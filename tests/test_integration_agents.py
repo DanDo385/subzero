@@ -105,6 +105,8 @@ async def test_same_folder_sessions_get_distinct_names(services) -> None:
     b = await _session(services, ext="two")
     assert a["name"] == "claude-code@mbp:subzero"
     assert b["name"] == "claude-code@mbp:subzero#2"
+    c = await _session(services, ext="three")
+    assert c["name"] == "claude-code@mbp:subzero#3"
 
 
 async def test_ambiguous_or_wildcard_addresses_are_refused(services) -> None:
@@ -340,7 +342,9 @@ async def test_a_browser_extension_token_cannot_drive_agents(services, live_serv
 
 
 async def test_http_errors_are_plain(http) -> None:
-    assert (await http.post("/api/v1/agents/not-an-id/beat", json={})).status_code == 400
+    unknown = await http.post("/api/v1/agents/not-an-id/beat", json={})
+    assert unknown.status_code == 404
+    assert "No running agent session" in unknown.json()["error"]
     missing = "00000000-0000-0000-0000-000000000000"
     assert (await http.post(f"/api/v1/agents/{missing}/beat", json={})).status_code == 404
     assert (await http.post("/api/v1/dispatch", content=b"[]")).status_code == 400
