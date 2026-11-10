@@ -449,6 +449,34 @@ def register(main: click.Group) -> None:
             click.echo(json.dumps(job))
 
     @main.command()
+    @click.option("--port", default=7777, show_default=True, help="Local port (127.0.0.1 only).")
+    @click.option("--no-open", is_flag=True, help="Do not open a browser.")
+    def board(port: int, no_open: bool) -> None:
+        """Open the 2D board: agents, lessons, jobs and vault notes, live."""
+        import webbrowser
+
+        from subzero.board.server import make_server
+
+        try:
+            config = client.load_config()
+        except client.ClientError as exc:
+            _fail(str(exc))
+        try:
+            server = make_server(port, config)
+        except OSError:
+            _fail(f"Port {port} is busy. Try: subzero board --port {port + 1}")
+        url = f"http://127.0.0.1:{server.server_address[1]}/"
+        click.secho(f"Board at {url}  (Ctrl-C to stop)", fg="green")
+        if not no_open:
+            webbrowser.open(url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            click.echo("Stopped.")
+        finally:
+            server.server_close()
+
+    @main.command()
     @click.argument("job_id")
     @click.option("--failed", is_flag=True)
     @click.option("--result", default=None, help="One or two lines: what happened, PR link.")

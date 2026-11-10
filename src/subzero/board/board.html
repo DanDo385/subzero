@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>subzero board</title>
+<style>
+:root {
+  --bg: #f6f3ec; --ink: #23211c; --quiet: #6f6a5f; --line: #ddd6c7; --room: #fffdf8;
+  --accent: #2f6fdf; --working: #2e9e5b; --waiting: #d99a1e; --idle: #a39d90; --vault: #7b5bd6;
+  --card: #ffffff; --shadow: 0 1px 2px rgba(35,33,28,.08), 0 4px 14px rgba(35,33,28,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181b; --ink: #ecebe6; --quiet: #9b988f; --line: #2d2f34; --room: #1e2024;
+          --card: #24262b; --shadow: 0 1px 2px rgba(0,0,0,.4); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: baseline; gap: 16px; padding: 14px 20px 6px; flex-wrap: wrap; }
+h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+.counts { color: var(--quiet); }
+.conn { margin-left: auto; color: var(--quiet); font-size: 12px; }
+.conn.bad { color: #c2410c; }
+main { display: grid; grid-template-columns: 170px 1fr 230px; gap: 14px; padding: 8px 20px 110px; position: relative; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+.zone { background: var(--room); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); }
+.zone h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--quiet); margin: 0 0 8px; font-weight: 600; }
+#dock { align-self: start; }
+.floor { position: relative; min-height: 70px; margin: 6px -4px 0; border-radius: 8px;
+         background: repeating-linear-gradient(90deg, transparent 0 63px, color-mix(in srgb, var(--line) 30%, transparent) 63px 64px); }
+.turn { margin-top: 6px; background: color-mix(in srgb, var(--waiting) 18%, var(--card)); border: 1px solid var(--waiting);
+        border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.turn b { color: color-mix(in srgb, var(--waiting) 70%, var(--ink)); }
+#rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; align-content: start; min-height: 300px; }
+.room { min-height: 120px; position: relative; }
+.room .sigil { display: inline-block; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+               padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.room .kind { color: var(--quiet); font-size: 12px; margin-left: 6px; }
+.room .jobs { margin-top: 8px; display: grid; gap: 6px; }
+.job { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.job .meta { color: var(--quiet); font-size: 11px; }
+.side { display: grid; gap: 14px; align-content: start; }
+#you .msg, #vault .note { font-size: 12px; padding: 5px 0; border-top: 1px dashed var(--line); }
+#you .msg:first-of-type, #vault .note:first-of-type { border-top: 0; }
+#vault .note { display: flex; gap: 6px; align-items: baseline; }
+#vault .note::before { content: ""; width: 8px; height: 10px; border-radius: 2px; background: var(--vault); flex: none; transform: translateY(1px); }
+#vault .note.fresh { animation: land .9s ease-out; }
+@keyframes land { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.empty { color: var(--quiet); font-size: 12px; }
+
+#layer { position: absolute; inset: 0; pointer-events: none; }
+.agent { position: absolute; width: 60px; text-align: center; pointer-events: auto; cursor: pointer;
+         transition: left 1.4s cubic-bezier(.45,.05,.3,1), top 1.4s cubic-bezier(.45,.05,.3,1), opacity .6s; }
+.agent .dot { width: 30px; height: 30px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
+              font: 700 11px ui-monospace, Menlo, monospace; color: #fff; box-shadow: var(--shadow);
+              outline: 3px solid var(--idle); outline-offset: 2px; }
+.agent.working .dot { outline-color: var(--working); animation: pulse 1.8s ease-in-out infinite; }
+.agent.waiting .dot { outline-color: var(--waiting); }
+.agent.done { opacity: .25; }
+.agent .label { font-size: 10px; color: var(--quiet); white-space: nowrap; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
+.agent .flag { position: absolute; top: -4px; right: 10px; width: 14px; height: 14px; border-radius: 50%; background: var(--waiting);
+               color: #1f1600; font: 700 10px/14px ui-sans-serif, system-ui; text-align: center; }
+@keyframes pulse { 50% { outline-offset: 5px; } }
+.envelope { position: absolute; width: 14px; height: 10px; border-radius: 2px; background: var(--accent); pointer-events: none;
+            transition: left 1s ease-in-out, top 1s ease-in-out, opacity .3s; }
+@media (prefers-reduced-motion: reduce) { .agent, .envelope { transition: none; } .agent.working .dot { animation: none; } }
+
+footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 20px 14px; background: linear-gradient(transparent, var(--bg) 30%); }
+.bar { display: flex; gap: 8px; max-width: 980px; margin: 0 auto; }
+#cmd { flex: 1; font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 10px 12px; border-radius: 10px;
+       border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+#cmd:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hint { max-width: 980px; margin: 6px auto 0; color: var(--quiet); font-size: 12px; }
+.hint code { font: 12px ui-monospace, Menlo, monospace; background: var(--room); border: 1px solid var(--line); padding: 0 4px; border-radius: 4px; }
+#toast { position: fixed; right: 20px; bottom: 96px; background: var(--ink); color: var(--bg); padding: 8px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .3s; }
+#toast.show { opacity: .92; }
+#help { display: none; max-width: 980px; margin: 0 auto 8px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+#help.show { display: block; }
+#help td { padding: 2px 12px 2px 0; vertical-align: top; }
+</style>
+</head>
+<body>
+<header>
+  <h1>subzero board</h1>
+  <span class="counts" id="counts">connecting…</span>
+  <span class="conn" id="conn"></span>
+</header>
+<main id="world">
+  <section class="zone" id="dock"><h2>Dock</h2><div class="floor" id="dock-floor"></div><div class="empty">New agents arrive here.</div></section>
+  <section id="rooms"></section>
+  <div class="side">
+    <section class="zone" id="you"><h2>Your desk</h2><div class="empty">Nothing waiting on you.</div></section>
+    <section class="zone" id="vault"><h2>Vault</h2><div class="empty">No notes written yet.</div></section>
+  </div>
+  <div id="layer"></div>
+</main>
+<footer>
+  <div id="help">
+    <table>
+      <tr><td><code>/d goal</code></td><td>dispatch as scout (plan only). Sigils: <code>%project</code> <code>^lesson</code> <code>&amp;setup</code> <code>&gt;agent</code>. No <code>&gt;agent</code>: Jev picks.</td></tr>
+      <tr><td><code>/ship goal</code></td><td>dispatch and make the change (risky jobs still start as scout)</td></tr>
+      <tr><td><code>/m to text</code></td><td>message a session (click an agent to fill its id), a home like <code>^zig</code>, or <code>me</code></td></tr>
+      <tr><td><code>/</code> <code>d</code> <code>m</code> <code>?</code> <code>Esc</code></td><td>focus the bar, start a dispatch, start a message, this help, clear</td></tr>
+    </table>
+  </div>
+  <form class="bar" id="form" autocomplete="off">
+    <input id="cmd" placeholder="/d ^zig write the arena allocator test >claude     ·  /m ^zig use 0.15 syntax     ·  ? for help" aria-label="Command">
+  </form>
+  <div class="hint">Plain text without a command dispatches it. Click an agent to message it.</div>
+</footer>
+<div id="toast" role="status"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const COLORS = { "claude-code": "#d97757", firstmate: "#2f6fdf", codex: "#111827", grok: "#4b5563",
+                 gemini: "#1a73e8", pi: "#0f766e", cli: "#7c3aed", chat: "#be185d" };
+const INITIALS = { "claude-code": "CC", firstmate: "FM", codex: "CX", grok: "GK", gemini: "GM", pi: "PI", cli: "SH" };
+let lastEvent = 0, seenVault = new Set(), firstLoad = true, state = { sessions: [] };
+const agents = new Map();           // session id -> element
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function sigilOf(home) {
+  if (!home) return "unfiled";
+  const [kind, name] = home.split("/");
+  return ({ projects: "%", lesson: "^", setup: "&" }[kind] || "") + (name || home);
+}
+function kindOf(home) { return home ? ({ projects: "project", lesson: "lesson", setup: "setup" }[home.split("/")[0]] || "") : ""; }
+function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
+
+async function api(path, body) {
+  const opts = body ? { method: "POST", headers: { "content-type": "application/json", "x-subzero-board": "1" }, body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function roomsFor(data) {
+  const homes = new Set();
+  for (const s of data.sessions) if (s.status !== "done") homes.add(s.home || "");
+  for (const j of data.jobs) if (j.status === "queued" || j.status === "claimed") homes.add(j.home || "");
+  return [...homes].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
+}
+
+function renderRooms(data) {
+  const box = $("rooms"), homes = roomsFor(data);
+  box.innerHTML = homes.length ? "" : '<section class="zone room"><h2>Rooms</h2><div class="empty">Projects and lessons appear here when an agent or a job is in one.</div></section>';
+  for (const home of homes) {
+    const room = document.createElement("section");
+    room.className = "zone room"; room.dataset.home = home;
+    const jobs = data.jobs.filter((j) => (j.home || "") === home && (j.status === "queued" || j.status === "claimed"));
+    const turns = data.sessions.filter((s) => (s.home || "") === home && s.status === "waiting");
+    room.innerHTML = `<div><span class="sigil">${esc(sigilOf(home))}</span><span class="kind">${esc(kindOf(home))}</span></div>
+      <div class="floor"></div>
+      ${turns.map((s) => `<div class="turn"><b>Your turn</b> · ${esc(s.task || "")}</div>`).join("")}
+      <div class="jobs">${jobs.map((j) => `<div class="job">${esc(j.goal)}<div class="meta">${esc(j.status)} · &gt;${esc(j.target)} · ${esc(j.mode)} · ${esc(j.routed_by)}${j.routed_by === "jev" && j.confidence != null ? " " + j.confidence.toFixed(2) : ""}</div></div>`).join("")}</div>`;
+    box.appendChild(room);
+  }
+}
+
+function renderSide(data) {
+  const waiting = data.sessions.filter((s) => s.status === "waiting");
+  const you = $("you");
+  const items = [...waiting.map((s) => `<div class="msg"><b>Your turn</b> · ${esc(s.name)}<br>${esc(s.task || "")}</div>`),
+                 ...data.inbox.map((m) => `<div class="msg"><b>${esc(m.from_label)}</b>: ${esc(m.body)}</div>`)];
+  you.innerHTML = "<h2>Your desk</h2>" + (items.join("") || '<div class="empty">Nothing waiting on you.</div>');
+  const vault = $("vault");
+  const notes = data.vault.slice(0, 12);
+  vault.innerHTML = "<h2>Vault</h2>" + (notes.map((v) => {
+    const fresh = !firstLoad && !seenVault.has(v.id + v.status);
+    seenVault.add(v.id + v.status);
+    const name = v.vault_path.split("/").pop().replace(/\.md$/, "");
+    return `<div class="note${fresh ? " fresh" : ""}" title="${esc(v.vault_path)}">${esc(name)} <span class="empty">${esc(v.status)}</span></div>`;
+  }).join("") || '<div class="empty">No notes written yet.</div>');
+}
+
+function floorOf(zone) { return zone.querySelector(".floor") || zone; }
+function spot(zone, index) {
+  const world = $("world").getBoundingClientRect(), r = floorOf(zone).getBoundingClientRect();
+  const perRow = Math.max(1, Math.floor(r.width / 64));
+  return { x: r.left - world.left + 2 + (index % perRow) * 64,
+           y: r.top - world.top + 8 + Math.floor(index / perRow) * 64 };
+}
+
+function placeAgents(data) {
+  const layer = $("layer"), live = new Set();
+  const slots = new Map();
+  for (const s of data.sessions) {
+    live.add(s.id);
+    let el = agents.get(s.id);
+    const target = s.status === "done" ? $("vault") : (document.querySelector(`.room[data-home="${CSS.escape(s.home || "")}"]`) || $("dock"));
+    const key = target.id || target.dataset.home;
+    const n = slots.get(key) || 0; slots.set(key, n + 1);
+    const to = spot(target, n);
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "agent";
+      el.innerHTML = '<div class="dot"></div><div class="label"></div>';
+      el.addEventListener("click", () => { $("cmd").value = `/m ${s.id.slice(0, 8)} `; $("cmd").focus(); });
+      const from = spot($("dock"), agents.size % 6);
+      el.style.left = from.x + "px"; el.style.top = from.y + "px";
+      layer.appendChild(el); agents.set(s.id, el);
+      if (!reduced) el.getBoundingClientRect();   // start the walk from the dock
+    }
+    el.className = "agent " + s.status;
+    el.dataset.id = s.id;
+    const dot = el.querySelector(".dot");
+    dot.style.background = COLORS[s.harness] || "#64748b";
+    dot.textContent = INITIALS[s.harness] || s.harness.slice(0, 2).toUpperCase();
+    el.querySelector(".label").textContent = (s.name.split(":").pop() || s.name);
+    el.title = `${s.name}\n${s.status}${s.task ? ": " + s.task : ""}`;
+    let flag = el.querySelector(".flag");
+    if (s.status === "waiting" && !flag) { flag = document.createElement("div"); flag.className = "flag"; flag.textContent = "!"; el.appendChild(flag); }
+    else if (s.status !== "waiting" && flag) flag.remove();
+    el.style.left = to.x + "px"; el.style.top = to.y + "px";
+  }
+  for (const [id, el] of agents) if (!live.has(id)) { el.style.opacity = 0; setTimeout(() => el.remove(), 700); agents.delete(id); }
+}
+
+function flyEnvelope(fromId, toId) {
+  const a = agents.get(fromId), b = agents.get(toId);
+  if (!a || !b || reduced) return;
+  const env = document.createElement("div");
+  env.className = "envelope";
+  env.style.left = a.style.left; env.style.top = a.style.top;
+  $("layer").appendChild(env);
+  requestAnimationFrame(() => { env.style.left = b.style.left; env.style.top = b.style.top; });
+  setTimeout(() => env.remove(), 1200);
+}
+
+function react(events) {
+  for (const e of events) {
+    if (e.kind === "message" && e.detail && e.detail.to_session) flyEnvelope(e.session_id, e.detail.to_session);
+    if (!firstLoad && e.kind === "dispatch") toast(`Job queued for >${e.detail.target}: ${e.detail.goal}`);
+    if (!firstLoad && e.kind === "spawn") toast(`New agent: ${(e.detail && e.detail.name) || "agent"}`);
+  }
+}
+
+async function tick() {
+  try {
+    const data = await api("/data?after=" + lastEvent);
+    state = data;
+    renderRooms(data); renderSide(data);
+    requestAnimationFrame(() => placeAgents(data));
+    react(data.events);
+    if (data.events.length) lastEvent = data.events[data.events.length - 1].id;
+    const live = data.sessions.filter((s) => s.status !== "done");
+    const waiting = live.filter((s) => s.status === "waiting").length;
+    const open = data.jobs.filter((j) => j.status === "queued" || j.status === "claimed").length;
+    $("counts").textContent = `${live.length} agents · ${waiting} waiting on you · ${open} open jobs`;
+    $("conn").textContent = "live"; $("conn").classList.remove("bad");
+    firstLoad = false;
+  } catch (err) {
+    $("conn").textContent = "can't reach subzero: " + err.message; $("conn").classList.add("bad");
+  }
+}
+
+async function run(text) {
+  text = text.trim();
+  if (!text) return;
+  if (text === "?") { $("help").classList.toggle("show"); return; }
+  let m;
+  if ((m = text.match(/^\/(m|msg)\s+(\S+)\s+([\s\S]+)$/))) {
+    await api("/send", { to: m[2], body: m[3] }); toast(`Sent to ${m[2]}`);
+  } else if ((m = text.match(/^\/(d|dispatch|ship)\s+([\s\S]+)$/))) {
+    const job = await api("/dispatch", { goal: m[2], ship: m[1] === "ship" });
+    toast(`Queued for >${job.target} as ${job.mode} (${job.routed_by})` + (job.notes && job.notes.length ? " · " + job.notes[0] : ""));
+  } else if (text.startsWith("/")) {
+    throw new Error("Unknown command. Type ? for help.");
+  } else {
+    const job = await api("/dispatch", { goal: text, ship: false });
+    toast(`Queued for >${job.target} as scout (${job.routed_by})`);
+  }
+  tick();
+}
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const input = $("cmd");
+  try { await run(input.value); input.value = ""; } catch (err) { toast(err.message); }
+});
+document.addEventListener("keydown", (ev) => {
+  const input = $("cmd");
+  if (ev.key === "Escape") { input.value = ""; input.blur(); $("help").classList.remove("show"); return; }
+  if (document.activeElement === input) return;
+  if (ev.key === "/") { ev.preventDefault(); input.focus(); }
+  else if (ev.key === "d") { ev.preventDefault(); input.value = "/d "; input.focus(); }
+  else if (ev.key === "m") { ev.preventDefault(); input.value = "/m "; input.focus(); }
+  else if (ev.key === "?") { $("help").classList.toggle("show"); }
+});
+addEventListener("resize", () => placeAgents(state));
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
