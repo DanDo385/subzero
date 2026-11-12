@@ -25,7 +25,7 @@ a credit card.
 
 1. Open <https://console.cloud.google.com/auth/branding> (menu: **Google Auth Platform → Branding**).
    If it asks you to **Get started**, click it.
-2. **App name:** `Personal Context`. **User support email:** your email.
+2. **App name:** `Subzero`. **User support email:** your email.
 3. **Audience:** choose **External**. (*Internal* only exists for company Google accounts and would
    lock out personal Gmail addresses.)
 4. **Contact information:** your email. Agree to the policy and click **Create**.

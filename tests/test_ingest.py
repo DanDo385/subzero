@@ -13,11 +13,11 @@ import pytest
 from starlette.testclient import TestClient
 
 from conftest import requires_db
-from personal_context_mcp.config import Settings
-from personal_context_mcp.db.pool import Database, set_database
-from personal_context_mcp.logging_setup import configure_logging
-from personal_context_mcp.server import create_app
-from personal_context_mcp.services import set_services
+from subzero.config import Settings
+from subzero.db.pool import Database, set_database
+from subzero.logging_setup import configure_logging
+from subzero.server import create_app
+from subzero.services import set_services
 
 pytestmark = [pytest.mark.anyio, requires_db]
 
@@ -38,7 +38,7 @@ async def client():
     configure_logging("INFO")
 
     # Initialize database so get_services() works.
-    from personal_context_mcp.db.migrate import apply_migrations
+    from subzero.db.migrate import apply_migrations
 
     db = await Database.connect(settings)
     await apply_migrations(db)

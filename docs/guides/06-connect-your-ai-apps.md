@@ -26,14 +26,14 @@ which step broke; fix that before connecting any app.
 Copy the text below and paste it into each app's custom instruction field:
 
 ```
-You have access to Personal Context, my canonical cross-provider memory shared
+You have access to Subzero, my canonical cross-provider memory shared
 across ChatGPT, Claude, Gemini and Grok.
 
 When my request depends on past work (a project, earlier decisions, my lists,
 "remember", "last time", a continuing task), call context_bootstrap once with a
 short query of key terms you choose (names, projects, topics) and the project
 if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Personal Context rather than assuming this app's
+previously discussed, search Subzero rather than assuming this app's
 native memory is complete. Do not retrieve for standalone questions.
 
 When durable state is established, checkpoint it: decisions, project state,
@@ -45,10 +45,10 @@ Use my real lists through the list tools rather than writing out a list from
 memory.
 
 When meaningful files or generated artifacts should be retained, capture them
-through Personal Context. Never tell me an artifact is archived unless its
+through Subzero. Never tell me an artifact is archived unless its
 bytes or complete text were actually stored.
 
-Treat Personal Context as canonical shared state; this app's native memory is
+Treat Subzero as canonical shared state; this app's native memory is
 supplemental. Preserve provenance and distinguish my direct statements from
 model-generated analysis and external research.
 ```
@@ -76,17 +76,17 @@ The menus in these apps move around every few months. If a menu name doesn't mat
 
 ## Recommended: turn off each app's built-in memory
 
-Each app also keeps its own private memory of you. Left on, it competes with Personal Context: an
+Each app also keeps its own private memory of you. Left on, it competes with Subzero: an
 app may answer from its own stale notes instead of checking the shared record, and the four apps drift
 apart. With it off, every app gets its memory from the same place.
 
 **First, download your history** from each app ([guide 9](09-import-your-history.md), step 1), so
 nothing is lost. Turning memory off doesn't delete your chats, but the export is what gets your past
-conversations into Personal Context.
+conversations into Subzero.
 
 | App | Where | Turn **off** | Keep **on** |
 | --- | --- | --- | --- |
-| **Claude** | **Settings → Capabilities** (or **Settings → Memory**) | *Generate memory from chat history* and *Search and reference chats* | the Personal Context connector |
+| **Claude** | **Settings → Capabilities** (or **Settings → Memory**) | *Generate memory from chat history* and *Search and reference chats* | the Subzero connector |
 | **ChatGPT** | **Settings → Personalization → Memory** | *Reference saved memories* and *Reference chat history* | Custom instructions |
 | **Gemini** | **Settings → Personal Intelligence** (older versions: **Personal context** or **Past chats**) | *Your past chats with Gemini* | **Gemini Apps Activity / Keep Activity**: custom apps stop working without it. Also keep Saved info, where your instruction lives. |
 | **Grok** | **Settings → Customize** or **Data controls** | *Memory* / *Personalize with memories* | Custom instructions |
@@ -94,7 +94,7 @@ conversations into Personal Context.
 Optional: each app also has a switch that allows your chats to be used to train its models (Claude:
 **Privacy → Help improve Claude**; ChatGPT: **Data controls → Improve the model for everyone**;
 Grok: **Data controls → Improve the model**; Gemini: tied to Keep Activity, so leave it on). Turning
-it off doesn't affect Personal Context.
+it off doesn't affect Subzero.
 
 Menu names change often. If one doesn't match, search the app's settings for "memory" or "past chats".
 

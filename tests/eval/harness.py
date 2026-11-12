@@ -263,7 +263,7 @@ class QueryCounter:
     METHODS = ("fetch", "fetchrow", "fetchval", "execute")
 
     def __init__(self, monkeypatch: Any) -> None:
-        from personal_context_mcp.db.pool import Database
+        from subzero.db.pool import Database
 
         self.count = 0
         for name in self.METHODS:

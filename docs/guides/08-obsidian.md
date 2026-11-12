@@ -24,22 +24,22 @@ ln -s ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents ~/Obsidian
 
 (Obsidian must be installed on the Mac for that iCloud folder to exist. If `~/Obsidian` already exists,
 skip the shortcut and, in the next step, use the full address instead:
-`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal Context`.) Your notes are stored in iCloud and show up
-in Obsidian on your phone; `~/Obsidian/Personal Context` is just an easier way to refer to them.
+`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Subzero`.) Your notes are stored in iCloud and show up
+in Obsidian on your phone; `~/Obsidian/Subzero` is just an easier way to refer to them.
 
-**Mac only?** Skip the shortcut. `~/Obsidian/Personal Context` will then be an ordinary local folder.
+**Mac only?** Skip the shortcut. `~/Obsidian/Subzero` will then be an ordinary local folder.
 
 Open your `.env.local` and set:
 
 ```
-OBSIDIAN_SYNC_VAULT_PATH=~/Obsidian/Personal Context
+OBSIDIAN_SYNC_VAULT_PATH=~/Obsidian/Subzero
 ```
 
 (the setup wizard already added this line, and the matching `OBSIDIAN_SYNC_API_URL` and
 `OBSIDIAN_SYNC_API_KEY`). Create the folder if it doesn't exist:
 
 ```bash
-mkdir -p ~/Obsidian/"Personal Context"
+mkdir -p ~/Obsidian/"Subzero"
 ```
 
 Then in Obsidian: **Open folder as vault** and pick that folder.

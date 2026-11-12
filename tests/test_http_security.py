@@ -12,8 +12,8 @@ from typing import Any
 import httpx
 import pytest
 
-from personal_context_mcp.config import Settings
-from personal_context_mcp.server import create_app
+from subzero.config import Settings
+from subzero.server import create_app
 
 #: Strings that must never appear in an unauthenticated response body.
 FORBIDDEN_MARKERS = (
@@ -64,7 +64,7 @@ async def test_root_reveals_only_service_identity(client) -> None:
     response = await http_client.get("/")
     assert response.status_code == 200
     body = response.json()
-    assert body["service"] == "personal-context-mcp"
+    assert body["service"] == "subzero"
     assert body["authorization"] == "required"
     # It names the endpoint - which is not a secret - and nothing else.
     assert set(body) == {"service", "mcp_endpoint", "authorization", "documentation"}
@@ -100,7 +100,7 @@ async def test_authenticated_browser_request_does_not_reflect_origin(client) -> 
     """
     import httpx
 
-    from personal_context_mcp.server import create_app
+    from subzero.server import create_app
 
     _http_client, settings = client
     app = create_app(settings)
@@ -277,7 +277,7 @@ async def test_root_metadata_does_not_reveal_a_server_id_path(tmp_path) -> None:
 
 async def test_request_log_never_contains_the_credential(client, caplog) -> None:
     http_client, settings = client
-    caplog.set_level("INFO", logger="personal_context_mcp.server")
+    caplog.set_level("INFO", logger="subzero.server")
     await http_client.post(
         settings.mcp_path,
         json={
@@ -305,7 +305,7 @@ async def test_request_log_never_contains_the_credential(client, caplog) -> None
 
 async def test_request_log_never_contains_a_scheme_less_credential(client, caplog) -> None:
     http_client, settings = client
-    caplog.set_level("INFO", logger="personal_context_mcp.server")
+    caplog.set_level("INFO", logger="subzero.server")
     await http_client.post(
         settings.mcp_path,
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
@@ -322,7 +322,7 @@ async def test_request_log_never_contains_a_scheme_less_credential(client, caplo
 
 
 def test_request_log_summarises_the_rpc_envelope_without_values() -> None:
-    from personal_context_mcp.server import _rpc_summary
+    from subzero.server import _rpc_summary
 
     body = (
         b'{"jsonrpc":"2.0","id":7,"method":"tools/call","params":'
@@ -345,7 +345,7 @@ def test_request_log_summarises_the_rpc_envelope_without_values() -> None:
 
 async def _through_basic_middleware(path: str, body: bytes, authorization: str | None) -> bytes:
     """What the OAuth handler behind BasicClientIdMiddleware receives as its body."""
-    from personal_context_mcp.server import BasicClientIdMiddleware
+    from subzero.server import BasicClientIdMiddleware
 
     seen = bytearray()
 
@@ -409,7 +409,7 @@ def memory_client_store(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep OAuth client registrations in memory instead of Postgres."""
     from key_value.aio.stores.memory import MemoryStore
 
-    from personal_context_mcp import server
+    from subzero import server
 
     monkeypatch.setattr(server, "PostgresKeyValue", MemoryStore)
 

@@ -62,15 +62,15 @@ because the project still reads `.env.local`. 1Password may ask you to approve a
 
 ## B. Secret references (`op://` files)
 
-Every value in 1Password has an address like `op://Private/Personal Context/Server/worker_api_key`.
+Every value in 1Password has an address like `op://Private/Subzero/Server/worker_api_key`.
 Instead of secrets, your files hold these addresses, and the
 [1Password CLI](https://developer.1password.com/docs/cli/get-started/) (`op`) swaps in the real values
 only while a command runs.
 
 1. Install and sign in to `op` (its getting-started guide takes five minutes). Check with `op whoami`.
-2. Create one 1Password item, for example *Personal Context*, with three sections, `Server`,
+2. Create one 1Password item, for example *Subzero*, with three sections, `Server`,
    `Google OAuth` and `Supabase`, holding the values from your `.env.local`. Tip: reference the item by its
-   **id** (from `op item get "Personal Context" --format json`), so renaming it never breaks anything.
+   **id** (from `op item get "Subzero" --format json`), so renaming it never breaks anything.
 3. Copy the templates and replace `<vault>` and `<item-id>`:
 
    ```bash

@@ -3,7 +3,7 @@
 Gemini can only connect to your server directly with **custom apps**, which need a **Google AI Pro or
 Ultra** plan ([guide 6](06-connect-your-ai-apps.md)). On Plus or the free plan, use this instead:
 
-- Once a week your Mac writes a **digest** of your Personal Context (who you are, how you like to
+- Once a week your Mac writes a **digest** of your Subzero (who you are, how you like to
   work, your projects and decisions, open to-dos, recent conversations, open questions) into **one
   Google Doc** in your Drive.
 - A **Gemini Gem** uses that Doc as knowledge, so chats with the Gem know your context.
@@ -62,7 +62,7 @@ Google Drive files that you use with this app".
 uv run personal-context-mcp gemini-sync push
 ```
 
-✅ It prints `Created Personal Context (for Gemini): https://docs.google.com/document/d/...`. Open the
+✅ It prints `Created Subzero (for Gemini): https://docs.google.com/document/d/...`. Open the
 link to see what Gemini will know. (`gemini-sync push --dry-run` builds the digest without uploading
 it, and `personal-context-mcp digest` prints it.)
 
@@ -71,16 +71,16 @@ Every later push replaces the text of **the same Doc**, so its link never change
 ## Step 5: Make a Gem that uses it
 
 1. At <https://gemini.google.com>, open **Gems** (in the side menu, or **Explore Gems**) → **New Gem**.
-2. **Name:** `Personal Context`.
+2. **Name:** `Subzero`.
 3. **Instructions:**
 
    ```
-   The attached document is my Personal Context: my shared memory across my AI apps,
+   The attached document is my Subzero: my shared memory across my AI apps,
    updated weekly. Use it as background about me, my projects, decisions and preferences.
    Prefer what I say in the conversation over it, and don't quote it back unless I ask.
    ```
 
-4. **Knowledge:** click **+** → **Drive** → choose **Personal Context (for Gemini)**.
+4. **Knowledge:** click **+** → **Drive** → choose **Subzero (for Gemini)**.
 5. **Save.**
 
 Start chats from this Gem (on the web or in the Gemini phone app) whenever your context matters.

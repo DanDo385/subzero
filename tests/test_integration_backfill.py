@@ -11,14 +11,14 @@ from typing import Any
 import pytest
 
 from conftest import requires_db
-from personal_context_mcp.classifier.base import Answer, ClassificationResult
-from personal_context_mcp.classifier.questions import QUESTIONS_VERSION
-from personal_context_mcp.classifier.service import ClassificationService
-from personal_context_mcp.importers.reclassify import (
+from subzero.classifier.base import Answer, ClassificationResult
+from subzero.classifier.questions import QUESTIONS_VERSION
+from subzero.classifier.service import ClassificationService
+from subzero.importers.reclassify import (
     reclassify_conversations,
     stale_conversations,
 )
-from personal_context_mcp.importers.runner import ImportRunner
+from subzero.importers.runner import ImportRunner
 
 pytestmark = requires_db
 

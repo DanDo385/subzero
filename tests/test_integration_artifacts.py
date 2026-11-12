@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import requires_db
-from personal_context_mcp.errors import NotFoundError, ValidationError
+from subzero.errors import NotFoundError, ValidationError
 
 pytestmark = requires_db
 

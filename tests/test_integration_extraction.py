@@ -8,13 +8,13 @@ from types import SimpleNamespace
 from typing import Any
 
 from conftest import requires_db
-from personal_context_mcp.extraction.deep import (
+from subzero.extraction.deep import (
     DeepExtractor,
     ExtractionPayload,
     extraction_candidates,
     render_transcript,
 )
-from personal_context_mcp.importers.runner import ImportRunner
+from subzero.importers.runner import ImportRunner
 from test_integration_backfill import CountingJev, _claude_zip, _conversation, _swap_classifier
 
 pytestmark = requires_db

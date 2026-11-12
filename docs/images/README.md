@@ -8,7 +8,7 @@ GitHub.
 
 ### `google-oauth-branding.png`
 The Google Cloud Console branding screen after clicking "Get started".
-Show: App name "Personal Context" filled in, User support email field, Audience "External" selected.
+Show: App name "Subzero" filled in, User support email field, Audience "External" selected.
 
 ### `google-oauth-redirect-uri.png`
 The "Create client" page with the Authorised redirect URIs section visible.

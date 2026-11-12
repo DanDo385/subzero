@@ -103,7 +103,7 @@ flowchart LR
     B["B. Live durable state<br/>model explicitly calls<br/>checkpoint / list / artifact tools"] --> D
     C["C. Complete raw history<br/>imported from provider exports"] --> D
     E["D. Artifact bytes<br/>only when the client actually<br/>hands them to a tool"] --> D
-    D[(Personal Context)]
+    D[(Subzero)]
 ```
 
 **And it does not give the server your uploaded files.** If you attach an image
@@ -172,7 +172,7 @@ personal-context-mcp/
 ├── instructions/             # per-provider setup + the shared instruction
 ├── skills/                   # 8 portable workflow skills
 ├── scripts/                  # per-provider import wrappers
-├── src/personal_context_mcp/
+├── src/subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── server.py             # Starlette app, routes, lifespan
 │   ├── services.py           # explicit service wiring
@@ -907,7 +907,7 @@ uv run mypy src
 
 # Integration tests need a throwaway Postgres with pgvector.
 # The fixture refuses a database whose name does not contain "test".
-export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_context_mcp_test
+export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/subzero_test
 uv run pytest
 ```
 

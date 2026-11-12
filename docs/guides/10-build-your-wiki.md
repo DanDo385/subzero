@@ -98,7 +98,7 @@ All four commands only do new work: notes already linked and placed are skipped 
 ## Tuning (advanced)
 
 The confidence needed to act is set in
-[`src/personal_context_mcp/classifier/questions.py`](../../src/personal_context_mcp/classifier/questions.py):
+[`src/subzero/classifier/questions.py`](../../src/subzero/classifier/questions.py):
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

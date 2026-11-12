@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from personal_context_mcp.config import Settings
-from personal_context_mcp.importers.base import NormalizedConversation, NormalizedMessage
-from personal_context_mcp.importers.runner import classification_transcript
-from personal_context_mcp.vault_plan import recency_bonus, score
+from subzero.config import Settings
+from subzero.importers.base import NormalizedConversation, NormalizedMessage
+from subzero.importers.runner import classification_transcript
+from subzero.vault_plan import recency_bonus, score
 
 
 def _settings() -> Settings:

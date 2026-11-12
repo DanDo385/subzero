@@ -18,10 +18,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from personal_context_mcp.errors import PathSecurityError
-from personal_context_mcp.obsidian.paths import resolve_in_vault
-from personal_context_mcp.obsidian.render import PC_ID_PREFIX
-from personal_context_mcp.util import sha256_bytes
+from subzero.errors import PathSecurityError
+from subzero.obsidian.paths import resolve_in_vault
+from subzero.obsidian.render import PC_ID_PREFIX
+from subzero.util import sha256_bytes
 
 _ID_MARKER = re.compile(rf"<!--\s*{re.escape(PC_ID_PREFIX)}([0-9a-fA-F-]{{36}})\s*-->")
 _CHECKBOX = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.*)$")

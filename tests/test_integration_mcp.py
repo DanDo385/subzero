@@ -52,7 +52,7 @@ async def test_probe_handshake_passes_with_zero_schema_failures(services, live_s
     """initialize, tools/list with every schema checked, and the read-only calls."""
     import asyncio
 
-    from personal_context_mcp.probe import run_probe
+    from subzero.probe import run_probe
 
     lines: list[str] = []
     report = await asyncio.to_thread(
@@ -257,7 +257,7 @@ async def test_status_resource_reports_counts_not_content(mcp_client) -> None:
     import json
 
     await mcp_client.call_tool("memory_save", {"content": "A private thought."})
-    contents = await mcp_client.read_resource("personal-context-mcp://status")
+    contents = await mcp_client.read_resource("subzero://status")
     payload = json.loads(contents[0].text)
 
     assert payload["memories"] == 1
@@ -266,7 +266,7 @@ async def test_status_resource_reports_counts_not_content(mcp_client) -> None:
 
 
 async def test_skill_guides_are_served_as_resources(mcp_client) -> None:
-    contents = await mcp_client.read_resource("personal-context-mcp://guide/recall-context")
+    contents = await mcp_client.read_resource("subzero://guide/recall-context")
     assert "Recall context" in contents[0].text
 
 
@@ -281,7 +281,7 @@ async def test_guide_resource_refuses_path_traversal(mcp_client) -> None:
 
     try:
         contents = await mcp_client.read_resource(
-            "personal-context-mcp://guide/..%2F..%2F..%2Fetc%2Fpasswd"
+            "subzero://guide/..%2F..%2F..%2Fetc%2Fpasswd"
         )
     except MCPError:
         return

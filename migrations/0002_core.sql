@@ -22,7 +22,7 @@ INSERT INTO providers (id, name) VALUES
     ('claude',  'Claude'),
     ('gemini',  'Gemini'),
     ('grok',    'Grok'),
-    ('system',  'Personal Context')
+    ('system',  'Subzero')
 ON CONFLICT (id) DO NOTHING;
 
 -- ----------------------------------------------------------------- projects

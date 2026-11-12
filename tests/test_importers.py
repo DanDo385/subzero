@@ -6,15 +6,15 @@ import json
 import zipfile
 from pathlib import Path
 
-from personal_context_mcp.artifacts.archives import ArchiveLimits
-from personal_context_mcp.importers.adapters import (
+from subzero.artifacts.archives import ArchiveLimits
+from subzero.importers.adapters import (
     ChatGPTImporter,
     ClaudeImporter,
     GeminiImporter,
     GrokImporter,
     detect_importer,
 )
-from personal_context_mcp.importers.runner import derive_summary
+from subzero.importers.runner import derive_summary
 
 
 def _zip(path: Path, members: dict[str, object]) -> Path:
