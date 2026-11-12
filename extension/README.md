@@ -20,8 +20,8 @@ Firefox not supported in v1 (Manifest V3 differences).
 ## Setup
 
 1. Click the extension icon → the popup opens
-2. The extension auto-registers with the Subzero server
-3. Configure the server URL if needed (defaults to MBP over Tailscale)
+2. The extension pairs with the Subzero server (MBP over Tailscale, Vercel fallback)
+3. Configure the server URL if needed (stored in extension settings)
 
 ## Scripts
 

@@ -2,8 +2,8 @@
 // Sends conversations to the server. Never auto-registers on 401;
 // the user must pair the browser with a code from the server CLI.
 
-const DEFAULT_SERVER_URL = 'https://subzero-eta.vercel.app';
-const FALLBACK_SERVER_URL = 'https://mbp.tailfbd394.ts.net';
+const DEFAULT_SERVER_URL = 'https://mbp.tailfbd394.ts.net';
+const FALLBACK_SERVER_URL = 'https://subzero-eta.vercel.app';
 
 /**
  * Get the configured server URL, with fallback.
