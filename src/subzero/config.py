@@ -141,6 +141,11 @@ class Settings(BaseSettings):
     #: from MCP auth: the worker is our own code, not a model.
     worker_api_key: SecretStr = SecretStr("")
 
+    #: Capability token used only by the CLI coding harness to create bridge
+    #: sessions and append messages. It is deliberately separate from both
+    #: browser device tokens and the local worker key.
+    harness_api_key: SecretStr = SecretStr("")
+
     rate_limit_per_minute: int = 120
     rate_limit_burst: int = 40
 

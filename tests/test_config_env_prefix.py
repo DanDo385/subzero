@@ -46,3 +46,15 @@ def test_new_name_in_env_local_wins_over_old(tmp_path: Path) -> None:
 def test_legacy_env_names_lists_old_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PC_PORT", "1")
     assert "PC_PORT" in legacy_env_names()
+
+
+def test_approved_bridge_key_still_reads_pc_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SUBZERO_HARNESS_API_KEY", raising=False)
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "bridge-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "bridge-test-key"
+
+
+def test_bridge_key_obeys_new_prefix_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "legacy-test-key")
+    monkeypatch.setenv("SUBZERO_HARNESS_API_KEY", "new-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "new-test-key"
