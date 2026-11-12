@@ -85,9 +85,7 @@ def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
 #: Everything between these markers is regenerated on every write and is
 #: stripped from a human edit before it is stored, so links and sources never
 #: leak into the canonical body.
-GENERATED_START = (
-    "<!-- pc:generated - maintained by subzero; edits here are replaced -->"
-)
+GENERATED_START = "<!-- pc:generated - maintained by subzero; edits here are replaced -->"
 GENERATED_END = "<!-- /pc:generated -->"
 
 _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n?", re.S)

@@ -280,9 +280,7 @@ async def test_guide_resource_refuses_path_traversal(mcp_client) -> None:
     from mcp.shared.exceptions import MCPError
 
     try:
-        contents = await mcp_client.read_resource(
-            "subzero://guide/..%2F..%2F..%2Fetc%2Fpasswd"
-        )
+        contents = await mcp_client.read_resource("subzero://guide/..%2F..%2F..%2Fetc%2Fpasswd")
     except MCPError:
         return
     assert "root:" not in contents[0].text
