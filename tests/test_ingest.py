@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 
 import pytest
 from starlette.testclient import TestClient
 
-from conftest import requires_db
+from conftest import _test_dsn, requires_db
 from subzero.config import Settings
 from subzero.db.pool import Database, set_database
 from subzero.logging_setup import configure_logging
 from subzero.server import create_app
-from subzero.services import set_services
+from subzero.services import get_services, set_services
 
 pytestmark = [pytest.mark.anyio, requires_db]
 
@@ -25,7 +26,7 @@ pytestmark = [pytest.mark.anyio, requires_db]
 @pytest.fixture(scope="module")
 async def client():
     """Create a test client with a fresh app and initialized services."""
-    dsn = os.environ["PC_TEST_DATABASE_URL"]
+    dsn = _test_dsn()
     settings = Settings(
         environment="dev",
         database_url=dsn,
@@ -33,15 +34,19 @@ async def client():
         classifier="rules",
         embedding_provider="none",
         storage_backend="local",
-        local_storage_root="/tmp/pc-test-storage",
+        local_storage_root="/tmp/subzero-test-storage",
     )
     configure_logging("INFO")
 
     # Initialize database so get_services() works.
     from subzero.db.migrate import apply_migrations
 
+    # Start from a clean schema, as the shared `db` fixture does, so a rerun
+    # does not find the conversations an earlier run created.
     db = await Database.connect(settings)
-    await apply_migrations(db)
+    async with db.acquire() as conn:
+        await conn.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
+        await apply_migrations(conn)
     set_database(db)
 
     app = create_app(settings)
@@ -53,17 +58,27 @@ async def client():
     set_services(None)
 
 
-@pytest.fixture(scope="module")
-def device_token(client):
-    """Register a device and return its token."""
+def _pair(client, device_name: str) -> dict:
+    """Pair a device the way the extension does: CLI-issued code, then pair-device."""
+    code = secrets.token_hex(4).upper()
+    client.portal.call(
+        get_services().db.execute,
+        "INSERT INTO pairing_codes (code, device_name) VALUES ($1, $2)",
+        code,
+        device_name,
+    )
     resp = client.post(
-        "/api/v1/auth/register-device",
-        json={"device_name": "test-browser"},
+        "/api/v1/auth/pair-device",
+        json={"pairing_code": code, "device_name": device_name},
     )
     assert resp.status_code == 200
-    data = resp.json()
-    assert "device_token" in data
-    return data["device_token"]
+    return {**resp.json(), "pairing_code": code}
+
+
+@pytest.fixture(scope="module")
+def device_token(client):
+    """Pair a device and return its token."""
+    return _pair(client, "test-browser")["device_token"]
 
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "..", "extension", "tests", "fixtures")
@@ -75,23 +90,30 @@ def _load_fixture(provider: str) -> dict:
         return json.load(f)
 
 
-@pytest.mark.parametrize("test_provider", ["claude", "chatgpt", "gemini", "grok"])
-def test_register_device(client, test_provider):
-    """Can register a device and receive a token."""
-    resp = client.post(
-        "/api/v1/auth/register-device",
-        json={"device_name": f"test-{test_provider}"},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
+def test_pair_device(client):
+    """A valid pairing code returns a device token."""
+    data = _pair(client, "test-pair")
     assert data["device_token"].startswith("pcd_")
     assert data["device_id"].startswith("dev_")
 
 
-def test_register_device_no_body(client):
-    """Registration with no body returns 400 (requires JSON)."""
-    resp = client.post("/api/v1/auth/register-device")
-    assert resp.status_code == 400
+def test_pair_device_code_is_single_use(client):
+    """A pairing code cannot be redeemed twice."""
+    data = _pair(client, "test-single-use")
+    resp = client.post("/api/v1/auth/pair-device", json={"pairing_code": data["pairing_code"]})
+    assert resp.status_code == 403
+
+
+def test_pair_device_unknown_code(client):
+    """An unknown pairing code is rejected."""
+    resp = client.post("/api/v1/auth/pair-device", json={"pairing_code": "NOTACODE"})
+    assert resp.status_code == 403
+
+
+def test_register_device_route_is_gone(client):
+    """Open registration was removed: tokens come only from pairing codes."""
+    resp = client.post("/api/v1/auth/register-device", json={"device_name": "anyone"})
+    assert resp.status_code in (404, 405)
 
 
 def test_unauthorized_ingest(client):
@@ -203,12 +225,7 @@ def test_ingest_append_messages(client, device_token, provider):
 
 def test_revoke_device(client, device_token):
     """Revoking a device token invalidates it."""
-    # First, register to get the device_id.
-    resp = client.post(
-        "/api/v1/auth/register-device",
-        json={"device_name": "revoke-test"},
-    )
-    data = resp.json()
+    data = _pair(client, "revoke-test")
     device_token_new = data["device_token"]
     device_id = data["device_id"]
 
