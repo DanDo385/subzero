@@ -4,8 +4,8 @@ POST /api/v1/ingest/conversation
     Idempotent upsert of a conversation with messages.
     Auth: Bearer <device-token>
 
-POST /api/v1/auth/register-device
-    Register a browser and receive a device token.
+POST /api/v1/auth/pair-device
+    Exchange a one-time pairing code from `subzero pair-device` for a device token.
 
 DELETE /api/v1/auth/devices/{device_id}
     Revoke a device token.
@@ -67,48 +67,6 @@ def build_ingest_routes(settings: Settings) -> list:
 
     # ---- Auth routes ----
 
-    async def register_device(request: Request) -> JSONResponse:
-        """Register a browser and return a device token."""
-        try:
-            body = await request.json()
-        except Exception:
-            return JSONResponse({"error": "invalid json"}, status_code=400)
-
-        device_name = body.get("device_name", "unknown") if isinstance(body, dict) else "unknown"
-        device_id = f"dev_{secrets.token_urlsafe(12)}"
-        token = _make_token()
-
-        try:
-            db = get_services().db
-            await db.execute(
-                """
-                INSERT INTO device_tokens (device_id, token, device_name)
-                VALUES ($1, $2, $3)
-                """,
-                device_id,
-                token,
-                device_name,
-            )
-        except Exception as exc:
-            logger.exception("device registration failed")
-            return JSONResponse(
-                {"error": "registration failed", "detail": str(exc)},
-                status_code=500,
-            )
-
-        logger.info(
-            "device registered",
-            extra={"device_id": device_id, "device_name": device_name},
-        )
-
-        return JSONResponse(
-            {
-                "device_id": device_id,
-                "device_token": token,
-                "device_name": device_name,
-            }
-        )
-
     async def revoke_device(request: Request) -> JSONResponse:
         """Revoke a device token by device_id."""
         device_id = request.path_params.get("device_id", "")
@@ -153,12 +111,13 @@ def build_ingest_routes(settings: Settings) -> list:
 
         db = get_services().db
 
-        # Look up the code — must exist, be unused, and not expired.
+        # Claim the code in one statement so two requests racing on the same
+        # code cannot both get a token. It must be unused and not expired.
         row = await db.fetchrow(
             """
-            SELECT id, device_name
-            FROM pairing_codes
+            UPDATE pairing_codes SET used_at = now()
             WHERE code = $1 AND used_at IS NULL AND expires_at > now()
+            RETURNING id, device_name
             """,
             pairing_code,
         )
@@ -180,9 +139,8 @@ def build_ingest_routes(settings: Settings) -> list:
             device_name or row["device_name"] or "unknown",
         )
 
-        # Mark code as used.
         await db.execute(
-            "UPDATE pairing_codes SET used_at = now(), used_by_device_id = $1 WHERE id = $2",
+            "UPDATE pairing_codes SET used_by_device_id = $1 WHERE id = $2",
             device_id,
             row["id"],
         )
@@ -413,7 +371,6 @@ def build_ingest_routes(settings: Settings) -> list:
     from starlette.routing import Route
 
     return [
-        Route("/api/v1/auth/register-device", register_device, methods=["POST"]),
         Route("/api/v1/auth/pair-device", pair_device, methods=["POST"]),
         Route("/api/v1/auth/devices/{device_id}", revoke_device, methods=["DELETE"]),
         Route("/api/v1/ingest/conversation", ingest_conversation, methods=["POST"]),
