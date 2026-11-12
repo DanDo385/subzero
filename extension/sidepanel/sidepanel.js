@@ -1,4 +1,4 @@
-// Personal Context — side panel script.
+// Subzero — side panel script.
 // Shows the project handoff text and copies it to clipboard on request.
 
 async function init() {

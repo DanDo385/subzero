@@ -1,4 +1,4 @@
-// Personal Context — synthetic session matcher.
+// Subzero — synthetic session matcher.
 // Client-side matching is minimal; real matching happens on the server
 // via reconcile-sessions. This module provides helpers for the backfill
 // dry-run reporting.

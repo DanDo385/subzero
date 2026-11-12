@@ -1,4 +1,4 @@
-// Personal Context — popup script.
+// Subzero — popup script.
 // Shows sync status per provider, pause toggle, pairing flow.
 
 import { isPaired, pairDevice } from '../lib/api.js';

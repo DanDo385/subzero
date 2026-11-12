@@ -1,4 +1,4 @@
-// Personal Context — content script.
+// Subzero — content script.
 // Runs in each provider tab. Detects the provider, listens for page changes,
 // and extracts conversation data on demand (user click or auto-capture).
 
@@ -6,8 +6,8 @@
   'use strict';
 
   // Prevent double-injection.
-  if (window.__personalContextLoaded) return;
-  window.__personalContextLoaded = true;
+  if (window.__subzeroLoaded) return;
+  window.__subzeroLoaded = true;
 
   /**
    * Detect which provider we're on.
