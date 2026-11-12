@@ -3,7 +3,7 @@
 ## The basics
 
 **Do I have to stop using ChatGPT's (or Claude's...) own memory?**
-No. The apps keep their built-in memory. personal-context-mcp is the shared layer underneath that all
+No. The apps keep their built-in memory. subzero is the shared layer underneath that all
 of them can see, and the custom instruction tells each app to treat it as the main record.
 
 **Does this work on my phone?**
@@ -14,7 +14,7 @@ Obsidian notes reach your phone if your vault is in iCloud (iPhone/iPad) or sync
 Only for notes to arrive in Obsidian. The AI apps talk to your online server, not your computer.
 
 **Can other people use my server?**
-Only the Google account(s) listed in `PC_ALLOWED_SUBJECTS`. Someone who finds the address can't get in
+Only the Google account(s) listed in `SUBZERO_ALLOWED_SUBJECTS`. Someone who finds the address can't get in
 even if they sign in with their own Google account.
 
 **Can I share one server with my family?**
@@ -35,8 +35,8 @@ folder. The authors of this project can't see anything. Details:
 **What gets sent to TypeSafe or Anthropic?**
 Only if you add their keys, and only what the sorting and close-reading steps need, with emails and
 keys removed first. Anything screened *highly sensitive* (passwords, keys, ID or card numbers) is never
-sent. You can keep more local with `PC_NO_EXTERNAL_SENSITIVITY=private,highly_sensitive`, or everything
-with `PC_IMPORT_DEFAULT_SENSITIVITY=highly_sensitive`.
+sent. You can keep more local with `SUBZERO_NO_EXTERNAL_SENSITIVITY=private,highly_sensitive`, or everything
+with `SUBZERO_IMPORT_DEFAULT_SENSITIVITY=highly_sensitive`.
 
 **How much does it cost?**
 The hosting and database can be free. The optional sorting and close-reading steps are pay-as-you-go,
@@ -72,10 +72,10 @@ It needs a public **https** address. See [Architecture: Deployment](architecture
 
 **Can I use a different database than Supabase?**
 Any recent PostgreSQL with the `pgvector` extension works for the data (the tests run on PostgreSQL 16; the Docker setup uses 17). File storage is Supabase Storage
-or a local folder (`PC_STORAGE_BACKEND=local`), which suits a home server but not Vercel.
+or a local folder (`SUBZERO_STORAGE_BACKEND=local`), which suits a home server but not Vercel.
 
 **How do I update to a new version?**
-`git pull`, `uv sync`, `uv run personal-context-mcp migrate`, `vercel deploy --prod`.
+`git pull`, `uv sync`, `uv run subzero migrate`, `vercel deploy --prod`.
 
 **How do I back up my data?**
 Your data is your Supabase database: Supabase keeps daily backups on paid plans, and you can export any

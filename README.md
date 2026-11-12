@@ -1,4 +1,4 @@
-# personal-context-mcp
+# subzero
 
 **One shared memory for ChatGPT, Claude, Gemini and Grok, and a tidy Obsidian notebook built from it.**
 
@@ -7,7 +7,7 @@ to Claude on Tuesday and to Gemini on Wednesday. Each app remembers a little, no
 what the others were told, and years of useful conversations sit in four separate apps you can't search
 together.
 
-personal-context-mcp fixes that. It's a small server **you** own, and all four apps connect to it:
+subzero fixes that. It's a small server **you** own, and all four apps connect to it:
 
 - **Tell one app, and all of them know.** Decisions, preferences, projects, to-do lists and files are
   saved in one place that every app reads from and writes to.
@@ -33,7 +33,7 @@ flowchart LR
         C[Gemini]
         D[Grok]
     end
-    Apps -->|"connect with a web address<br/>and sign in once"| S["Your personal-context server<br/>(free hosting, e.g. Vercel)"]
+    Apps -->|"connect with a web address<br/>and sign in once"| S["Your subzero server<br/>(free hosting, e.g. Vercel)"]
     S --> DB[("Your database<br/>(free Supabase account)")]
     S -.->|notes| W["A small helper on your computer"]
     W --> O[("Your Obsidian notebook")]
@@ -92,14 +92,15 @@ Follow the guides in order. Each one ends with a check that tells you it worked.
 | 10 | [Build your wiki: links and maps](docs/guides/10-build-your-wiki.md) | 10 min | Optional |
 | 11 | [Gemini without custom apps](docs/guides/11-gemini-without-custom-apps.md) | 15 min | Only if on Gemini Plus/free |
 | 12 | [Daily use: what to expect](docs/guides/12-daily-use.md) | 5 min | Read after connecting |
+| 13 | [Run it on your Mac over Tailscale](docs/guides/13-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
 
 The quickest possible start, if you already have the tools:
 
 ```bash
-git clone https://github.com/DanDo385/personal-context-mcp.git
-cd personal-context-mcp
+git clone https://github.com/DanDo385/subzero.git
+cd subzero
 uv sync
-uv run personal-context-mcp init      # answers a few questions and writes your settings to .env.local
+uv run subzero init      # answers a few questions and writes your settings to .env.local
 ```
 
 **Where your settings go:** everything personal (addresses, keys, passwords) lives in one file,

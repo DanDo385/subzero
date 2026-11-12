@@ -46,14 +46,14 @@ RUN chmod 555 /app/docker-entrypoint.sh
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PC_PORT=8080 \
+    SUBZERO_PORT=8080 \
     FORWARDED_ALLOW_IPS="*"
 
 USER app
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["python", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PC_PORT\",\"8080\")}/healthz', timeout=4).status==200 else 1)"]
+    CMD ["python", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"SUBZERO_PORT\",\"8080\")}/healthz', timeout=4).status==200 else 1)"]
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["personal-context-mcp", "serve"]
+CMD ["subzero", "serve"]

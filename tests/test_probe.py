@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from personal_context_mcp.probe import schema_problems
+from subzero.probe import schema_problems
 
 
 def test_a_clean_schema_has_no_problems() -> None:
@@ -44,8 +44,8 @@ def test_a_non_object_root_is_reported() -> None:
 
 async def test_registered_tool_schemas_pass_the_probe() -> None:
     """The live tool list satisfies the same checker `probe` uses on tools/list."""
-    from personal_context_mcp.config import Settings
-    from personal_context_mcp.server import build_mcp
+    from subzero.config import Settings
+    from subzero.server import build_mcp
 
     settings = Settings(
         auth_mode="none",

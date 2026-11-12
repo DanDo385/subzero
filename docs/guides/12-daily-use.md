@@ -10,7 +10,7 @@ few things worth knowing before they surprise you.
 3. **The app will ask permission.** Claude asks before the first write to each tool. ChatGPT confirms
    with a button. Gemini asks every time. You can usually choose "always allow" for tools you trust.
 4. **Check it worked.** In a **different** app, start a new chat and ask: *"What's my mode preference?
-   Check my personal context."* It should find what the first app saved.
+   Check subzero."* It should find what the first app saved.
 
 ## What the apps do on their own
 
@@ -34,8 +34,8 @@ You don't need special commands. But these phrases help when you want to be expl
 
 | You say | The app does |
 | --- | --- |
-| "Check my personal context." | Searches everything saved across all apps for relevant information. |
-| "Save this to personal context." | Saves the current state of the conversation: decisions, facts, tasks. |
+| "Check subzero." | Searches everything saved across all apps for relevant information. |
+| "Save this to subzero." | Saves the current state of the conversation: decisions, facts, tasks. |
 | "Add [something] to my [list name] list." | Updates your real list. |
 | "What did we decide about [topic]?" | Searches past decisions, even from a different app. |
 | "Save this file to my [project] project." | Stores the actual file bytes, not just a reference. |
@@ -61,17 +61,17 @@ reasonable default for a shared memory system and worth leaving on.
 The "purple giraffe" test, anytime you want confidence:
 
 1. In one app: *"Remember that my test phrase is 'purple giraffe'."*
-2. In a different app, new chat: *"What's my test phrase? Check my personal context."*
+2. In a different app, new chat: *"What's my test phrase? Check subzero."*
 
 If the second app finds it, cross-app memory is working.
 
 ## When something doesn't feel right
 
 - **An app never uses the connector on its own.** The custom instruction might be missing. Open the
-  app's settings and check it's there. Or ask explicitly: "Check my personal context."
+  app's settings and check it's there. Or ask explicitly: "Check subzero."
 - **The connector disappeared.** Remove and re-add it. This is a known quirk, especially with ChatGPT.
 - **A save didn't show up in another app.** Wait a moment, then ask again. If it still doesn't show,
-  run `uv run personal-context-mcp check` to make sure the server is healthy.
+  run `uv run subzero check` to make sure the server is healthy.
 - **Gemini stopped working.** "Gemini Apps Activity / Keep Activity" might have been turned off.
   Custom apps require it.
 

@@ -1,4 +1,4 @@
-# Personal Context — shared custom instruction
+# Subzero — shared custom instruction
 
 Paste this into each provider's custom-instruction field. It is deliberately
 short: it has to be worth its cost on **every** turn, including the ones where
@@ -8,14 +8,14 @@ MCP prompts, which are loaded only when needed.
 ---
 
 ```
-You have access to Personal Context, my canonical cross-provider memory shared
+You have access to Subzero, my canonical cross-provider memory shared
 across ChatGPT, Claude, Gemini and Grok.
 
 When my request depends on past work (a project, earlier decisions, my lists,
 "remember", "last time", a continuing task), call context_bootstrap once with a
 short query of key terms you choose (names, projects, topics) and the project
 if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Personal Context rather than assuming this app's
+previously discussed, search Subzero rather than assuming this app's
 native memory is complete. Do not retrieve for standalone questions.
 
 When durable state is established, checkpoint it: decisions, project state,
@@ -27,10 +27,10 @@ Use my real lists through the list tools rather than writing out a list from
 memory.
 
 When meaningful files or generated artifacts should be retained, capture them
-through Personal Context. Never tell me an artifact is archived unless its
+through Subzero. Never tell me an artifact is archived unless its
 bytes or complete text were actually stored.
 
-Treat Personal Context as canonical shared state; this app's native memory is
+Treat Subzero as canonical shared state; this app's native memory is
 supplemental. Preserve provenance and distinguish my direct statements from
 model-generated analysis and external research.
 ```
@@ -47,7 +47,7 @@ tools, how to resolve a list name — belong where they are loaded on demand:
 - **MCP tool descriptions**, which the model reads when it considers a tool
 - **MCP prompts**, exposed by this server as `recall_context`,
   `checkpoint_session`, `capture_artifacts` and `manage_lists`
-- **MCP resources**, at `personal-context-mcp://guide/<skill-name>`, which serve
+- **MCP resources**, at `subzero://guide/<skill-name>`, which serve
   the full text of each skill to clients that have no skills mechanism
 
 A provider with no skills support is not left worse off: the same guidance is

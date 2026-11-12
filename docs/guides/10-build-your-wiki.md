@@ -19,7 +19,7 @@ Imported conversations stay in the database. The vault gets four index notes, on
 plus maps that point at notes you already have:
 
 ```bash
-uv run personal-context-mcp vault-fill
+uv run subzero vault-fill
 ```
 
 That command reads summaries already stored. It does not extract history and it does not ask Jev.
@@ -47,21 +47,21 @@ Let it suggest maps from topics that came up in at least three imported conversa
 close-reading step from [guide 9](09-import-your-history.md)):
 
 ```bash
-uv run personal-context-mcp wiki seed-mocs --min-mentions 3
+uv run subzero wiki seed-mocs --min-mentions 3
 ```
 
 and/or add your own:
 
 ```bash
-uv run personal-context-mcp wiki add-moc "Home renovation" --description "Everything about the house project."
-uv run personal-context-mcp wiki add-moc "Kitchen" --parent "Home renovation"
+uv run subzero wiki add-moc "Home renovation" --description "Everything about the house project."
+uv run subzero wiki add-moc "Kitchen" --parent "Home renovation"
 ```
 
 ## Step 2: Find links and place notes on maps
 
 ```bash
-uv run personal-context-mcp wiki links --limit 500
-uv run personal-context-mcp wiki mocs --limit 500
+uv run subzero wiki links --limit 500
+uv run subzero wiki mocs --limit 500
 ```
 
 ✅ Each prints what it did: how many links were made from exact titles, how many were judged, and how
@@ -70,7 +70,7 @@ many were accepted, sent to review or rejected.
 ## Step 3: Send it to Obsidian
 
 ```bash
-uv run personal-context-mcp wiki render
+uv run subzero wiki render
 ```
 
 This queues every note and map that changed. The Obsidian helper ([guide 8](08-obsidian.md)) writes
@@ -80,14 +80,14 @@ bottom changes.
 ## Step 4: Check the health of your wiki
 
 ```bash
-uv run personal-context-mcp wiki doctor
+uv run subzero wiki doctor
 ```
 
 It reports notes with no links at all ("orphans", with a few examples), notes on no map, empty maps,
 and how many decisions are waiting for review. Look at those with:
 
 ```bash
-uv run personal-context-mcp review
+uv run subzero review
 ```
 
 ## Run it again whenever you like
@@ -98,7 +98,7 @@ All four commands only do new work: notes already linked and placed are skipped 
 ## Tuning (advanced)
 
 The confidence needed to act is set in
-[`src/personal_context_mcp/classifier/questions.py`](../../src/personal_context_mcp/classifier/questions.py):
+[`src/subzero/classifier/questions.py`](../../src/subzero/classifier/questions.py):
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

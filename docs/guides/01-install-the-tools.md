@@ -63,8 +63,8 @@ on a Mac or Linux, but it also runs by hand in WSL.
 
 ```bash
 cd ~
-git clone https://github.com/DanDo385/personal-context-mcp.git
-cd personal-context-mcp
+git clone https://github.com/DanDo385/subzero.git
+cd subzero
 uv sync
 ```
 
@@ -74,13 +74,13 @@ time takes a minute.
 ✅ Check it worked:
 
 ```bash
-uv run personal-context-mcp --help
+uv run subzero --help
 ```
 
 You should see a list of commands (`init`, `serve`, `migrate`, `check`, `import`, ...).
 
 > **Every later guide assumes you're inside this folder.** If you open a new Terminal, go back with
-> `cd ~/personal-context-mcp` first.
+> `cd ~/subzero` first.
 
 ## Optional: Docker, for trying it locally
 

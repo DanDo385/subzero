@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
-from personal_context_mcp.mcp.compact import dump, list_item, list_summary
-from personal_context_mcp.models import ListItemRecord, ListRecord
+from subzero.mcp.compact import dump, list_item, list_summary
+from subzero.models import ListItemRecord, ListRecord
 
 
 def test_list_summary_omits_empty_and_defaults() -> None:

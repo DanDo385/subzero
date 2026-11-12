@@ -4,7 +4,7 @@
 
 Claude web/desktop → **Settings → Connectors → Add custom connector**.
 
-- **Name:** Personal Context
+- **Name:** Subzero
 - **URL:** `https://<your-host>/mcp` (or `/mcp/<server-id>` if you set one)
 
 Claude discovers the OAuth metadata from
@@ -25,7 +25,7 @@ When my request depends on past work (a project, earlier decisions, my lists,
 "remember", "last time", a continuing task), call context_bootstrap once with a
 short query of key terms you choose (names, projects, topics) and the project
 if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Personal Context rather than assuming this app's
+previously discussed, search Subzero rather than assuming this app's
 native memory is complete. Do not retrieve for standalone questions.
 
 When durable state is established, checkpoint it: decisions, project state,
@@ -37,17 +37,17 @@ Use my real lists through the list tools rather than writing out a list from
 memory.
 
 When meaningful files or generated artifacts should be retained, capture them
-through Personal Context. Never tell me an artifact is archived unless its
+through Subzero. Never tell me an artifact is archived unless its
 bytes or complete text were actually stored.
 
-Treat Personal Context as canonical shared state; this app's native memory is
+Treat Subzero as canonical shared state; this app's native memory is
 supplemental. Preserve provenance and distinguish my direct statements from
 model-generated analysis and external research.
 ```
 
 > ⚠️ **Also paste this extra line after the shared instruction:**
 >
-> When you use Personal Context, say briefly what you retrieved or saved, so I can tell memory from inference.
+> When you use Subzero, say briefly what you retrieved or saved, so I can tell memory from inference.
 
 ## 3. Skills
 
@@ -60,8 +60,8 @@ Claude supports Agent Skills. Install the workflow skills from `skills/`:
 ## Turn off built-in memory (recommended)
 
 Export your history first ([docs/guides/09-import-your-history.md](../docs/guides/09-import-your-history.md)), then:
-Settings → **Capabilities** (or **Memory**): turn off *Generate memory from chat history* and *Search and reference chats*. Keep the Personal Context connector enabled.
-Personal Context then becomes this app's only long-term memory, shared with the other three.
+Settings → **Capabilities** (or **Memory**): turn off *Generate memory from chat history* and *Search and reference chats*. Keep the Subzero connector enabled.
+Subzero then becomes this app's only long-term memory, shared with the other three.
 
 ## 4. Surfaces and limitations
 
@@ -82,7 +82,7 @@ status `pending_import`. Import your Claude export to fill in the bytes.
 
 ## For developers only
 
-Skip this unless you're working on the personal-context-mcp code itself.
+Skip this unless you're working on the subzero code itself.
 
 Keep these separate from TypeSafe's official SDK skill, which is a development
 aid for this repository, not a runtime workflow:

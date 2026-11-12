@@ -1,6 +1,6 @@
 """Integration tests for the browser extension ingest endpoint.
 
-These tests run against a real database (PC_TEST_DATABASE_URL).
+These tests run against a real database (SUBZERO_TEST_DATABASE_URL).
 They verify idempotent upsert, message dedup, and device token auth.
 """
 
@@ -13,11 +13,11 @@ import pytest
 from starlette.testclient import TestClient
 
 from conftest import requires_db
-from personal_context_mcp.config import Settings
-from personal_context_mcp.db.pool import Database, set_database
-from personal_context_mcp.logging_setup import configure_logging
-from personal_context_mcp.server import create_app
-from personal_context_mcp.services import set_services
+from subzero.config import Settings
+from subzero.db.pool import Database, set_database
+from subzero.logging_setup import configure_logging
+from subzero.server import create_app
+from subzero.services import set_services
 
 pytestmark = [pytest.mark.anyio, requires_db]
 
@@ -25,7 +25,7 @@ pytestmark = [pytest.mark.anyio, requires_db]
 @pytest.fixture(scope="module")
 async def client():
     """Create a test client with a fresh app and initialized services."""
-    dsn = os.environ["PC_TEST_DATABASE_URL"]
+    dsn = os.environ.get("SUBZERO_TEST_DATABASE_URL") or os.environ["PC_TEST_DATABASE_URL"]
     settings = Settings(
         environment="dev",
         database_url=dsn,
@@ -38,7 +38,7 @@ async def client():
     configure_logging("INFO")
 
     # Initialize database so get_services() works.
-    from personal_context_mcp.db.migrate import apply_migrations
+    from subzero.db.migrate import apply_migrations
 
     db = await Database.connect(settings)
     await apply_migrations(db)

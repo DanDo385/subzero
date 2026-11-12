@@ -1,6 +1,6 @@
 # Security
 
-personal-context-mcp holds people's private conversation history, so security reports are taken
+subzero holds people's private conversation history, so security reports are taken
 seriously and handled first.
 
 ## Reporting a vulnerability
@@ -20,10 +20,10 @@ Supabase service key or your Vercel account.
 
 ## For people running it
 
-- Keep `PC_ALLOWED_SUBJECTS` to your own account(s).
-- Never share your `.env.local`, Supabase service role key, Google client secret or `PC_WORKER_API_KEY`.
-- Run `uv run personal-context-mcp check` after changing settings; the server refuses to start with an
+- Keep `SUBZERO_ALLOWED_SUBJECTS` to your own account(s).
+- Never share your `.env.local`, Supabase service role key, Google client secret or `SUBZERO_WORKER_API_KEY`.
+- Run `uv run subzero check` after changing settings; the server refuses to start with an
   unsafe production configuration.
-- Update regularly: `git pull && uv sync && uv run personal-context-mcp migrate && vercel deploy --prod`.
+- Update regularly: `git pull && uv sync && uv run subzero migrate && vercel deploy --prod`.
 
 The design is described in [Architecture: Security model](docs/architecture.md#security-model).

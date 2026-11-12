@@ -5,8 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from personal_context_mcp.lists.service import ListService
-from personal_context_mcp.obsidian.paths import VaultPaths
+from subzero.lists.service import ListService
+from subzero.obsidian.paths import VaultPaths
 
 LIST_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 ITEM_ID = uuid.UUID("00000000-0000-4000-8000-000000000002")

@@ -25,7 +25,7 @@ class WorkerSettings(BaseSettings):
         env_prefix="OBSIDIAN_SYNC_",
     )
 
-    #: Base URL of the Personal Context service (outbound target).
+    #: Base URL of the Subzero service (outbound target).
     api_url: str = "http://localhost:8080"
     api_key: SecretStr = SecretStr("")
     worker_id: str = "macbook"

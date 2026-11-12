@@ -23,7 +23,7 @@ When my request depends on past work (a project, earlier decisions, my lists,
 "remember", "last time", a continuing task), call context_bootstrap once with a
 short query of key terms you choose (names, projects, topics) and the project
 if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Personal Context rather than assuming this app's
+previously discussed, search Subzero rather than assuming this app's
 native memory is complete. Do not retrieve for standalone questions.
 
 When durable state is established, checkpoint it: decisions, project state,
@@ -35,10 +35,10 @@ Use my real lists through the list tools rather than writing out a list from
 memory.
 
 When meaningful files or generated artifacts should be retained, capture them
-through Personal Context. Never tell me an artifact is archived unless its
+through Subzero. Never tell me an artifact is archived unless its
 bytes or complete text were actually stored.
 
-Treat Personal Context as canonical shared state; this app's native memory is
+Treat Subzero as canonical shared state; this app's native memory is
 supplemental. Preserve provenance and distinguish my direct statements from
 model-generated analysis and external research.
 ```
@@ -51,7 +51,7 @@ Grok doesn't support skills files. The instruction you pasted in step 2 is enoug
 
 Export your history first ([docs/guides/09-import-your-history.md](../docs/guides/09-import-your-history.md)), then:
 Settings → **Customize** or **Data controls**: turn off *Memory* / *Personalize with memories*.
-Personal Context then becomes this app's only long-term memory, shared with the other three.
+Subzero then becomes this app's only long-term memory, shared with the other three.
 
 ## 4. Surfaces and limitations
 

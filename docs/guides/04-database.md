@@ -10,7 +10,7 @@ which gives you a proper PostgreSQL database plus file storage, free to start, i
 
 1. Sign up or sign in at <https://supabase.com/dashboard>.
 2. Click **New project**.
-3. **Name:** `personal-context-mcp`. **Region:** the one closest to you.
+3. **Name:** `subzero`. **Region:** the one closest to you.
 4. **Database password:** click **Generate a password**, then **copy it somewhere safe right now**
    (a password manager is ideal). You'll need it in step 2, and Supabase won't show it again.
 5. Click **Create new project** and wait a minute or two while it starts.
@@ -51,7 +51,7 @@ These let the server store files (charts, PDFs, code you ask it to keep).
 ## Step 4: Give them to the setup wizard
 
 ```bash
-uv run personal-context-mcp init
+uv run subzero init
 ```
 
 Choose `online`, and paste the three values when asked:
@@ -68,8 +68,8 @@ Both can be left blank and filled into `.env.local` later.)
 ## Step 5: Create the tables and check
 
 ```bash
-uv run personal-context-mcp migrate
-uv run personal-context-mcp check
+uv run subzero migrate
+uv run subzero check
 ```
 
 ✅ `check` should report `database: connected, schema up to date`, `storage: buckets present and
@@ -85,6 +85,6 @@ You can look at your data any time in the Supabase dashboard under **Table Edito
 | --- | --- |
 | `database: cannot connect (InvalidPasswordError)` | The password in the connection string is wrong or still says `[YOUR-PASSWORD]`. |
 | `database: cannot connect (gaierror)` or a timeout | Copy the **Transaction pooler** string, not *Direct connection*. The direct one needs IPv6, which many home networks lack. |
-| `storage: ... bucket ... is public` | Someone made a bucket public. In **Storage**, make `personal-context-mcp` and `personal-context-mcp-archives` private. The server refuses to use a public bucket on purpose. |
+| `storage: ... bucket ... is public` | Someone made a bucket public. In **Storage**, make `subzero` and `subzero-archives` private. The server refuses to use a public bucket on purpose. |
 
 **Next:** [5. Put it online](05-put-it-online.md)

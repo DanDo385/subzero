@@ -203,7 +203,7 @@ def _uuid(value: Any):
 
 
 async def test_untagged_session_proposals_are_read_only(db, tmp_path) -> None:
-    from personal_context_mcp.sessions.backfill import untagged_sessions, write_csv
+    from subzero.sessions.backfill import untagged_sessions, write_csv
 
     seeded = await seed(db)
     before = await db.fetchval("SELECT count(*) FROM session_summaries WHERE project_id IS NULL")

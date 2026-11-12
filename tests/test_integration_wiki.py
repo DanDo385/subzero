@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from conftest import requires_db
-from personal_context_mcp.classifier.base import Answer, ClassificationResult
-from personal_context_mcp.classifier.questions import QUESTIONS_VERSION
-from personal_context_mcp.classifier.service import ClassificationService
-from personal_context_mcp.obsidian.render import GENERATED_START, extract_note_body
-from personal_context_mcp.wiki.service import WikiService
+from subzero.classifier.base import Answer, ClassificationResult
+from subzero.classifier.questions import QUESTIONS_VERSION
+from subzero.classifier.service import ClassificationService
+from subzero.obsidian.render import GENERATED_START, extract_note_body
+from subzero.wiki.service import WikiService
 
 pytestmark = requires_db
 
@@ -151,7 +151,7 @@ async def test_a_human_decision_is_never_overwritten(services) -> None:
 
 
 async def test_mocs_are_assigned_rendered_and_round_trip_cleanly(services) -> None:
-    from personal_context_mcp.worker_api import _render_job
+    from subzero.worker_api import _render_job
 
     fake = ScriptedJev({}, moc=("mcp", 0.95))
     _use(services, fake)

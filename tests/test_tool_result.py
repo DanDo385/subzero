@@ -12,9 +12,9 @@ from fastmcp import FastMCP
 from fastmcp.server.mixins.mcp_operations import _normalize_call_tool_result
 from mcp.types import TextContent
 
-from personal_context_mcp.mcp import tools_context, tools_lists
-from personal_context_mcp.mcp.result import text_and_structured
-from personal_context_mcp.models import (
+from subzero.mcp import tools_context, tools_lists
+from subzero.mcp.result import text_and_structured
+from subzero.models import (
     ContextItem,
     ContextPackage,
     ListItemRecord,
