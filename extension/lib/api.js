@@ -94,4 +94,67 @@ async function ingestConversation(payload) {
   return resp.json();
 }
 
-export { getServerUrl, getDeviceToken, isPaired, pairDevice, ingestConversation };
+/**
+ * Fetch a session's full message history by session ID.
+ * Returns { session_id, provider, title, model, messages, ... }.
+ */
+async function fetchSession(sessionId) {
+  const serverUrl = await getServerUrl();
+  const token = await getDeviceToken();
+
+  if (!token) {
+    throw new Error('Browser not paired. Use "Pair this browser" in the popup.');
+  }
+
+  const resp = await fetch(`${serverUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+
+  if (resp.status === 401) {
+    await chrome.storage.local.remove(['deviceToken', 'deviceId']);
+    await chrome.storage.local.set({ paired: false });
+    throw new Error('Device token expired or revoked. Re-pair the browser.');
+  }
+
+  if (!resp.ok) {
+    throw new Error(`Fetch session failed: ${resp.status} ${await resp.text()}`);
+  }
+
+  return resp.json();
+}
+
+/**
+ * Send a message into an active session bridge.
+ * Returns { message_id, status, ... }.
+ */
+async function sendSessionMessage(sessionId, text) {
+  const serverUrl = await getServerUrl();
+  const token = await getDeviceToken();
+
+  if (!token) {
+    throw new Error('Browser not paired. Use "Pair this browser" in the popup.');
+  }
+
+  const resp = await fetch(`${serverUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ text }),
+  });
+
+  if (resp.status === 401) {
+    await chrome.storage.local.remove(['deviceToken', 'deviceId']);
+    await chrome.storage.local.set({ paired: false });
+    throw new Error('Device token expired or revoked. Re-pair the browser.');
+  }
+
+  if (!resp.ok) {
+    throw new Error(`Send message failed: ${resp.status} ${await resp.text()}`);
+  }
+
+  return resp.json();
+}
+
+export { getServerUrl, getDeviceToken, isPaired, pairDevice, ingestConversation, fetchSession, sendSessionMessage };

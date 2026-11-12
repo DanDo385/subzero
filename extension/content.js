@@ -18,6 +18,7 @@
     if (host.includes('chatgpt.com')) return 'chatgpt';
     if (host.includes('gemini.google.com')) return 'gemini';
     if (host.includes('grok.com')) return 'grok';
+    if (host.includes('muse.ai')) return 'muse';
     return null;
   }
 
@@ -53,6 +54,11 @@
         }
         case 'grok': {
           const mod = await import(chrome.runtime.getURL('providers/grok.js'));
+          data = await mod.extractCurrentConversation();
+          break;
+        }
+        case 'muse': {
+          const mod = await import(chrome.runtime.getURL('providers/muse.js'));
           data = await mod.extractCurrentConversation();
           break;
         }
@@ -112,6 +118,9 @@
         // Grok: check if message content has stabilized.
         // We use a simple heuristic: no new response- containers in the last 2s.
         return true; // Always consider "finished" — captures on timer.
+      case 'muse':
+        // Muse: streaming indicator not yet mapped — captures on timer.
+        return true;
       default:
         return false;
     }

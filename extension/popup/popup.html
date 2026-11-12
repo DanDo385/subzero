@@ -4,18 +4,27 @@
   <meta charset="utf-8">
   <title>Subzero</title>
   <style>
-    body { width: 300px; font-family: system-ui, sans-serif; font-size: 13px; margin: 0; padding: 12px; }
+    body { width: 320px; font-family: system-ui, sans-serif; font-size: 13px; margin: 0; padding: 12px; }
     h2 { margin: 0 0 8px; font-size: 14px; }
-    .provider { margin: 8px 0; padding: 8px; border-radius: 6px; background: #f5f5f5; }
-    .provider-name { font-weight: 600; }
-    .provider-status { font-size: 11px; color: #666; margin-top: 2px; }
-    .error { color: #d32f2f; }
-    .success { color: #2e7d32; }
-    .controls { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+    .provider { margin: 8px 0; padding: 8px; border-radius: 6px; background: #f5f5f5; display: flex; align-items: center; gap: 8px; }
+    .provider-info { flex: 1; min-width: 0; }
+    .provider-name { font-weight: 600; font-size: 12px; }
+    .provider-status { font-size: 11px; color: #666; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .provider-status.error { color: #d32f2f; }
+    .provider-status.success { color: #2e7d32; }
+    .provider-status.working { color: #1976d2; }
+    .backfill-btn { padding: 4px 8px; border: 1px solid #5b3f87; border-radius: 3px; cursor: pointer; font-size: 10px; background: transparent; color: #5b3f87; white-space: nowrap; }
+    .backfill-btn:hover { background: #5b3f87; color: white; }
+    .backfill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .backfill-btn.working { background: #5b3f87; color: white; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .controls { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
     .pause-btn { background: #ff9800; color: white; }
     .pause-btn.paused { background: #4caf50; }
     .capture-btn { background: #5b3f87; color: white; }
+    .backfill-all-btn { background: #1976d2; color: white; font-size: 11px; }
+    .open-all-btn { background: transparent; border: 1px solid #ccc; color: #333; font-size: 11px; }
     .pair-btn { background: #1976d2; color: white; width: 100%; margin-top: 4px; }
     .dead-letter { margin-top: 8px; font-size: 11px; color: #d32f2f; }
     .hidden { display: none; }
@@ -25,6 +34,9 @@
     .pair-error { color: #d32f2f; font-size: 11px; margin-top: 4px; }
     .pair-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 4px; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-bar { margin: 6px 0; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: #5b3f87; width: 0%; transition: width 0.3s; }
+    .section-header { font-size: 11px; font-weight: 600; color: #888; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
   </style>
 </head>
 <body>
@@ -40,10 +52,19 @@
   </div>
 
   <div id="mainSection" class="hidden">
+    <div class="section-header">Providers</div>
     <div id="providers"></div>
+    <div id="backfillProgress" class="hidden">
+      <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
+      <div id="progressLabel" class="provider-status working"></div>
+    </div>
     <div class="controls">
       <button id="pauseBtn" class="pause-btn">Pause</button>
       <button id="captureBtn" class="capture-btn">Save Now</button>
+    </div>
+    <div style="margin-top: 8px; display: flex; gap: 8px;">
+      <button id="openAllBtn" class="open-all-btn">Open All Tabs</button>
+      <button id="backfillAllBtn" class="backfill-all-btn">Backfill All</button>
     </div>
     <div id="deadLetter" class="dead-letter hidden"></div>
   </div>

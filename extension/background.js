@@ -54,7 +54,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     const tabs = await chrome.tabs.query({});
     const providerHosts = [
       'claude.ai', 'chatgpt.com',
-      'gemini.google.com', 'grok.com',
+      'gemini.google.com', 'grok.com', 'muse.ai',
     ];
 
     for (const tab of tabs) {
@@ -127,6 +127,7 @@ async function handleBackfill(provider, dryRun = true) {
     chatgpt: 'chatgpt.com',
     gemini: 'gemini.google.com',
     grok: 'grok.com',
+    muse: 'muse.ai',
   };
 
   const host = providerHosts[provider];
@@ -171,6 +172,12 @@ async function handleBackfill(provider, dryRun = true) {
           fetchFn = mod.extractCurrentConversation;
           break;
         }
+        case 'muse': {
+          const mod = await import(chrome.runtime.getURL('providers/muse.js'));
+          listFn = mod.listConversations;
+          fetchFn = mod.extractCurrentConversation;
+          break;
+        }
         default:
           throw new Error(`Unknown provider: ${prov}`);
       }
@@ -182,20 +189,30 @@ async function handleBackfill(provider, dryRun = true) {
         return { dryRun: true, provider: prov, conversations: convs.length, items: convs };
       }
 
-      // Fetch each one with a delay.
-      const captured = [];
+      // Fetch each one with a delay and send to service worker for ingestion.
+      let captured = 0;
+      let skipped = 0;
       for (let i = 0; i < convs.length; i++) {
         try {
-          const data = await fetchFn(convs[i].id || convs[i].uuid);
-          if (data) captured.push(data);
+          const convId = convs[i].id || convs[i].uuid;
+          const data = await fetchFn(convId);
+          if (data) {
+            // Send to service worker for enqueue + ingest.
+            chrome.runtime.sendMessage({
+              action: 'capture',
+              payload: data,
+            }).catch(() => {});
+            captured++;
+          }
         } catch (err) {
           console.error(`[PersonalContext] Backfill error for ${convs[i].id || convs[i].uuid}:`, err);
+          skipped++;
         }
         // Be gentle: one request per 2 seconds.
         await new Promise((r) => setTimeout(r, 2000));
       }
 
-      return { dryRun: false, provider: prov, captured: captured.length, items: captured };
+      return { dryRun: false, provider: prov, captured, skipped, total: convs.length };
     },
     args: [provider, dryRun],
   });
