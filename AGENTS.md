@@ -11,21 +11,21 @@ has barely used a terminal (what to type, what success looks like, what to do wh
 user-facing change updates the relevant guide, `docs/troubleshooting.md` for new error messages, and
 `.env.example` for new settings. Keep personal deployment values (domains, emails, 1Password item
 ids) out of committed docs and templates; they live in Git-ignored `deploy/local.env` and
-`deploy/*.env.op`. `personal-context-mcp init` (`setup_wizard.py`) is the supported way to create a
+`deploy/*.env.op`. `subzero init` (`setup_wizard.py`) is the supported way to create a
 `.env`.
 
 ## Commands
 
 ```bash
 uv sync --all-groups                       # install, including dev group
-uv run personal-context-mcp migrate            # apply migrations (--status to see pending)
-uv run personal-context-mcp check              # validate config, DB, migrations, buckets, Jev
-uv run personal-context-mcp serve              # run the MCP server
+uv run subzero migrate            # apply migrations (--status to see pending)
+uv run subzero check              # validate config, DB, migrations, buckets, Jev
+uv run subzero serve              # run the MCP server
 docker compose up -d db                    # Postgres 17 + pgvector on :5432
 
 uv run ruff check src tests
 uv run ruff format src tests
-uv run mypy src                            # packages personal_context_mcp, obsidian_sync
+uv run mypy src                            # packages subzero, obsidian_sync
 uv run pytest
 uv run pytest tests/test_paths.py::test_name -x   # single test
 ```
@@ -40,12 +40,12 @@ Two tiers, split by whether a database is needed:
 - Unit tests (`test_paths`, `test_archives`, `test_classifier`, `test_auth`, `test_obsidian`,
   `test_importers`, `test_http_security`) need nothing external.
 - `test_integration_*` modules carry `pytestmark = requires_db` and **skip** unless
-  `PC_TEST_DATABASE_URL` is set. The `db` fixture drops and recreates the `public` schema on every
+  `SUBZERO_TEST_DATABASE_URL` is set. The `db` fixture drops and recreates the `public` schema on every
   test, and `conftest._test_dsn` aborts the whole run if the database name does not contain
   `test`.
 
 ```bash
-export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_context_mcp_test
+export SUBZERO_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/subzero_test
 uv run pytest
 ```
 
@@ -111,13 +111,13 @@ guards (zip-slip, entry count, per-entry and total size, compression ratio, stre
 against bytes actually read).
 
 **Privacy routing happens before any external call.** `JevClassifier._ask` and the embedding service
-check sensitivity first; content at a level in `PC_NO_EXTERNAL_SENSITIVITY` never leaves the process,
+check sensitivity first; content at a level in `SUBZERO_NO_EXTERNAL_SENSITIVITY` never leaves the process,
 never auto-promotes to the vault, and gets a shorter signed-URL TTL. Text that does go out is
 redacted first.
 
 **Auth is two layers.** Identity (OAuth 2.1 + PKCE against Google/GitHub, or `jwt` mode) plus an
 allowlist of subjects; capability scopes (`auth/scopes.py`) granted server-side per client from
-`PC_CLIENT_SCOPE_POLICY`, defaulting to read-only for an unmatched client. `PC_SERVER_ID` is defence
+`SUBZERO_CLIENT_SCOPE_POLICY`, defaulting to read-only for an unmatched client. `SUBZERO_SERVER_ID` is defence
 in depth only — `tests/test_http_security.py` asserts an unauthenticated caller learns nothing with
 or without it. Keep that test honest when adding routes.
 
@@ -125,7 +125,7 @@ or without it. Keep that test honest when adding routes.
 `Settings.validate_startup()` reports *every* unsafe configuration at once and the server refuses to
 boot on one (`auth_mode=none|static` in prod, plain HTTP in prod, OAuth without an allowlist).
 
-**Embeddings are optional.** `PC_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
+**Embeddings are optional.** `SUBZERO_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
 full-text search alone, so nothing may assume a vector is present.
 
 **Historical backfill is two passes.** Import screens sensitivity deterministically
@@ -139,7 +139,7 @@ Links and maps render into a marked generated block at note-render time (`obsidi
 and `extract_note_body` strips that block, the frontmatter and the title from human edits before
 they are stored. Keep both halves in step.
 
-**Deployment** is Vercel (`vercel.json` framework `python`; `main.py` → `personal_context_mcp.asgi:app`);
+**Deployment** is Vercel (`vercel.json` framework `python`; `main.py` → `subzero.asgi:app`);
 see `docs/guides/05-put-it-online.md` and `deploy/README.md`. The maintainer's own values live in
 Git-ignored `deploy/local.env` and `deploy/*.env.op`, and `.1password/project.toml` routes local runs
 to their 1Password Environment (`project-env`).
@@ -148,4 +148,4 @@ to their 1Password Environment (`project-env`).
 
 - `skills/` - portable workflow skills, including the named search/save/email/vault actions.
 - `instructions/` — per-provider connector setup plus the shared custom instruction.
-- `scripts/` — thin wrappers over `personal-context-mcp import <provider>` / `reclassify`.
+- `scripts/` — thin wrappers over `subzero import <provider>` / `reclassify`.

@@ -4,16 +4,16 @@
 #
 # Settings come from, in order:
 #   deploy/worker.env.op   op:// references, read from 1Password when it starts
-#   .env.local             plain settings written by `personal-context-mcp init`
+#   .env.local             plain settings written by `subzero init`
 # Linux: see docs/guides/08-obsidian.md for the systemd equivalent.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 [[ -f deploy/local.env ]] && source deploy/local.env
 
-LABEL="${WORKER_LABEL:-com.personal-context-mcp.obsidian-sync}"
+LABEL="${WORKER_LABEL:-com.subzero.obsidian-sync}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOGS="$HOME/Library/Logs/personal-context-mcp"
+LOGS="$HOME/Library/Logs/subzero"
 ENV_FILE="${WORKER_ENV_FILE:-}"
 if [[ -z "$ENV_FILE" && -f deploy/worker.env.op ]]; then ENV_FILE=deploy/worker.env.op; fi
 
@@ -23,11 +23,11 @@ if [[ -n "$ENV_FILE" ]]; then
 elif [[ -f .env.local || -f .env ]]; then
   COMMAND="exec .venv/bin/obsidian-sync run"
 else
-  echo "No settings found. Run: uv run personal-context-mcp init" >&2
+  echo "No settings found. Run: uv run subzero init" >&2
   exit 1
 fi
 
-VAULT="${VAULT:-$HOME/Obsidian/Personal Context}"
+VAULT="${VAULT:-$HOME/Obsidian/Subzero}"
 mkdir -p "$VAULT" "$LOGS"
 uv sync --extra worker --quiet
 

@@ -14,8 +14,8 @@ import httpx
 from obsidian_sync.client import SyncClient
 from obsidian_sync.config import WorkerSettings
 from obsidian_sync.vault import Vault
-from personal_context_mcp.logging_setup import configure_logging, get_logger
-from personal_context_mcp.util import sha256_bytes
+from subzero.logging_setup import configure_logging, get_logger
+from subzero.util import sha256_bytes
 
 logger = get_logger(__name__)
 
@@ -54,7 +54,7 @@ class ObsidianSyncWorker:
                     if exc.response.status_code == 401:
                         logger.error(
                             "worker rejected: check OBSIDIAN_SYNC_API_KEY matches "
-                            "PC_WORKER_API_KEY on the server"
+                            "SUBZERO_WORKER_API_KEY on the server"
                         )
                     else:
                         logger.warning(

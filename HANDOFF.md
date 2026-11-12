@@ -4,7 +4,7 @@
 
 The `feat-server-skills` branch is rebased on `origin/main` after the browser pairing security PR merged (`d294678`). It adds named search, save, email and vault workflows, reusing existing MCP tools where possible. The email draft migration `0009_email_drafts.sql` was checked against production's `schema_migrations` ledger in a read-only transaction; its SHA-256 matches. Keep that file unchanged. The pairing migration is `0009_pairing_codes.sql`; migration versions use full filenames, so the ledger records distinct versions.
 
-Email is disabled by default. `PC_AGENTMAIL_API_KEY` and `PC_AGENTMAIL_INBOX_ID` are unset. The branch removes the legacy unauthenticated device registration endpoint, retains one-time pairing, and consumes pairing codes atomically under a row lock.
+Email is disabled by default. `SUBZERO_AGENTMAIL_API_KEY` and `SUBZERO_AGENTMAIL_INBOX_ID` are unset. The branch removes the legacy unauthenticated device registration endpoint, retains one-time pairing, and consumes pairing codes atomically under a row lock.
 
 On the rebased tree, Ruff lint, formatting, and mypy pass. The full suite passes: 481 tests, including database integration tests. The Vercel preview returns the application's 503 not-configured response because the Preview environment has no environment variables. Production settings are not copied into Preview because that would expose the production database to an unmerged build. Supabase inventory returned no projects available to this account, and creating a Supabase project is billable. Configure an isolated preview database and Preview-scoped settings, then verify `/healthz`, `/readyz`, and MCP before merge.
 
@@ -24,7 +24,7 @@ The read-only production ledger check confirms the SHA-256 for both `0009_email_
 
 ### Server
 - **`ingest.py`**: `POST /api/v1/ingest/conversation` — idempotent upsert, `POST /api/v1/auth/pair-device` — code-based pairing, `DELETE /api/v1/auth/devices/{id}` — revocation, `GET /api/v1/handoff` — project handoff
-- **`cli.py`**: `personal-context-mcp pair-device` — generates 8-char pairing code
+- **`cli.py`**: `subzero pair-device` — generates 8-char pairing code
 - **Migrations**: `0008_device_tokens.sql` (device token table), `0009_pairing_codes.sql` (one-time pairing codes, 5-min expiry)
 
 ### Tests
@@ -40,7 +40,7 @@ The read-only production ledger check confirms the SHA-256 for both `0009_email_
 
 ### Needs a browser (manual or Playwright)
 - Load the extension unpacked in Brave at `chrome://extensions/`
-- Pair with `personal-context-mcp pair-device`
+- Pair with `subzero pair-device`
 - Test save-on-click against the live server
 - Run backfill dry run (lists counts per provider)
 - Run real backfill in batches (after dry run approved)
@@ -48,7 +48,7 @@ The read-only production ledger check confirms the SHA-256 for both `0009_email_
 
 ### Needs a running MBP server
 - Point extension at MBP over Tailscale for lower latency
-- The current default is Vercel (`https://personal-context-mcp-seven.vercel.app`)
+- The current default is the MBP over Tailscale; Vercel is the backup endpoint, configured in private deployment settings.
 
 ### Performance tests
 - `npm run perf` — Playwright with Chrome tracing, 200-message chats, 5ms INP budget
@@ -70,9 +70,9 @@ The read-only production ledger check confirms the SHA-256 for both `0009_email_
 2. Enable **Developer mode** (toggle top-right)
 3. Click **Load unpacked**
 4. Select the `extension/` folder from this repo
-5. The Personal Context icon appears in the toolbar
+5. The Subzero icon appears in the toolbar
 6. Click it → "Not paired" section appears
-7. On the server: `personal-context-mcp pair-device`
+7. On the server: `subzero pair-device`
 8. Enter the 8-character code in the popup → paired
 
 ## Backfill steps

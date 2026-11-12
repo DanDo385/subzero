@@ -2,10 +2,10 @@
 
 import pytest
 
-from personal_context_mcp.config import Settings
-from personal_context_mcp.errors import ValidationError
-from personal_context_mcp.homes import home_metadata
-from personal_context_mcp.obsidian.paths import VaultPaths
+from subzero.config import Settings
+from subzero.errors import ValidationError
+from subzero.homes import home_metadata
+from subzero.obsidian.paths import VaultPaths
 
 
 @pytest.mark.parametrize(

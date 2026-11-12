@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from personal_context_mcp.obsidian.paths import VaultPaths
-from personal_context_mcp.sessions.index import (
+from subzero.obsidian.paths import VaultPaths
+from subzero.sessions.index import (
     SessionIndexRow,
     index_date,
     render_session_index,

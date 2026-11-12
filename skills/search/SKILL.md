@@ -3,7 +3,7 @@ name: search
 description: Search shared memory when the user says "search my memory for X", "find what we said about X", or asks to recall a specific topic across chats.
 ---
 
-Use the Personal Context MCP `context_search` tool with a short query you choose:
+Use the Subzero `context_search` tool with a short query you choose:
 names, projects and topic terms. Never paste the user's prompt or transcript.
 Supply a project filter only when known. Start with five results and summaries;
 request raw message excerpts only when those do not answer the question.

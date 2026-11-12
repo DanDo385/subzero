@@ -3,7 +3,7 @@ name: email
 description: Draft and, after confirmation, send or schedule exactly the email the user requests through AgentMail when they say "email this to Y" or "send this email at T".
 ---
 
-Use the Personal Context MCP `email` tool. Resolve recipients to full email
+Use the Subzero `email` tool. Resolve recipients to full email
 addresses explicitly with the user; a name alone is insufficient. Include only
 requested recipients and content. Ask for a timezone when a requested time is
 ambiguous. Never add follow-ups, auto-replies, or unsolicited messages.

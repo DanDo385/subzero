@@ -1,4 +1,4 @@
-// Personal Context — durable capture queue.
+// Subzero — durable capture queue.
 // Queues captures in chrome.storage.local and sends them from the service worker
 // with retries and exponential backoff. Nothing is lost if the browser closes.
 
@@ -36,11 +36,11 @@ async function processOne() {
 
   try {
     const result = await ingestConversation(item);
-    console.log('[PersonalContext] Ingested:', result.status, result.messages_inserted, 'messages');
+    console.log('[Subzero] Ingested:', result.status, result.messages_inserted, 'messages');
     await chrome.storage.local.set({ [QUEUE_KEY]: items });
     return true;
   } catch (err) {
-    console.error('[PersonalContext] Ingest failed:', err.message);
+    console.error('[Subzero] Ingest failed:', err.message);
     item._retries = (item._retries || 0) + 1;
     item._lastError = err.message;
 

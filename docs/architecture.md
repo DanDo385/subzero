@@ -1,4 +1,4 @@
-# personal-context-mcp: architecture and design
+# subzero: architecture and design
 
 > This is the design document, for developers. To set it up, follow the [guides](guides/00-before-you-start.md). They deploy to Vercel; the Cloud Run deployment described below is an alternative.
 
@@ -21,7 +21,7 @@ flowchart TB
 
     EDGE[["Public HTTPS edge<br/>Cloud Run"]] --> MCP
 
-    subgraph Service["personal-context-mcp"]
+    subgraph Service["subzero"]
         MCP[MCP tool surface]
         RULES[Deterministic rules]
         POLICY[Confidence policy engine]
@@ -103,7 +103,7 @@ flowchart LR
     B["B. Live durable state<br/>model explicitly calls<br/>checkpoint / list / artifact tools"] --> D
     C["C. Complete raw history<br/>imported from provider exports"] --> D
     E["D. Artifact bytes<br/>only when the client actually<br/>hands them to a tool"] --> D
-    D[(Personal Context)]
+    D[(Subzero)]
 ```
 
 **And it does not give the server your uploaded files.** If you attach an image
@@ -167,12 +167,12 @@ Three rules that follow from this, and that the code enforces:
 ### Repository layout
 
 ```
-personal-context-mcp/
+subzero/
 ├── migrations/               # numbered SQL, applied once, hash-checked
 ├── instructions/             # per-provider setup + the shared instruction
 ├── skills/                   # portable workflows, including search/save/email/vault
 ├── scripts/                  # per-provider import wrappers
-├── src/personal_context_mcp/
+├── src/subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── email.py              # immutable previews, AgentMail adapter, durable receipts
 │   ├── server.py             # Starlette app, routes, lifespan
@@ -340,7 +340,7 @@ Every returned item carries provenance:
 | `imported_metadata` | Derived mechanically from an import. Weakest. |
 
 **Embeddings are optional.** Retrieval runs on full-text search alone, so
-nothing leaves the process on a read. `PC_EMBEDDING_PROVIDER=none` is the
+nothing leaves the process on a read. `SUBZERO_EMBEDDING_PROVIDER=none` is the
 default, so the system is useful before you have picked an embedding vendor;
 when a provider is set, vectors are stored on write and the read path still
 makes no model call.
@@ -354,7 +354,7 @@ One call, one transaction, idempotent.
 ```mermaid
 sequenceDiagram
     participant M as Model
-    participant S as personal-context-mcp
+    participant S as subzero
     participant J as Jev
     participant D as Postgres
     participant Q as sync_jobs
@@ -569,7 +569,7 @@ defaults to be tuned against your own results.
 
 ```mermaid
 sequenceDiagram
-    participant S as personal-context-mcp (cloud)
+    participant S as subzero (cloud)
     participant D as sync_jobs
     participant W as obsidian-sync (your Mac)
     participant V as Vault
@@ -637,7 +637,7 @@ flowchart LR
     A --> ST[(Private buckets)]
 ```
 
-**A hidden URL is not authentication.** `PC_SERVER_ID` adds a high-entropy path
+**A hidden URL is not authentication.** `SUBZERO_SERVER_ID` adds a high-entropy path
 segment as defence in depth, and the test suite asserts that knowing it gets
 you exactly as far as not knowing it.
 
@@ -665,16 +665,16 @@ Worth stating plainly, because the honest version is less tidy than the
 marketing version:
 
 1. **Identity** — OAuth against Google (or GitHub, or an external IdP). Proves
-   the caller acts for an account on `PC_ALLOWED_SUBJECTS`. A valid token
+   the caller acts for an account on `SUBZERO_ALLOWED_SUBJECTS`. A valid token
    belonging to somebody else is rejected exactly like a forged one.
 2. **Capability** — the `context:read` / `memory:write` / … scopes. Google
    cannot mint scopes it has never heard of, so in proxy mode these are granted
-   **server-side per registered client** from `PC_CLIENT_SCOPE_POLICY`, rather
+   **server-side per registered client** from `SUBZERO_CLIENT_SCOPE_POLICY`, rather
    than requested by the client. It is a real, enforced boundary — FastMCP
    turns an unmet scope into a spec-correct 403 — but it is administered by you
    rather than negotiated in the OAuth flow.
 
-   In `PC_AUTH_MODE=jwt`, where the IdP *does* mint these scopes, the token is
+   In `SUBZERO_AUTH_MODE=jwt`, where the IdP *does* mint these scopes, the token is
    authoritative instead and nothing else changes. The abstraction is there so
    that upgrade is a config change.
 
@@ -683,7 +683,7 @@ A policy entry names a client by the id this server issued it, or by app
 client's registered redirect URIs (`auth/clients.py`), never from its display
 name: anyone can register a client called "ChatGPT", but only ChatGPT receives
 codes at ChatGPT's callback URL. For the same reason sign-in only accepts
-those apps' callback URLs, loopback, and any added in `PC_ALLOWED_REDIRECT_URIS`.
+those apps' callback URLs, loopback, and any added in `SUBZERO_ALLOWED_REDIRECT_URIS`.
 
 A client that matches no policy entry gets **read-only** by default.
 
@@ -714,7 +714,7 @@ production, OAuth without an allowlist).
 
 ### Startup refusals
 
-The server will not boot with an unsafe configuration. `personal-context-mcp check`
+The server will not boot with an unsafe configuration. `subzero check`
 reports every problem at once rather than one per run.
 
 ---
@@ -725,7 +725,7 @@ Three sensitivity levels, set per memory, conversation, note and artifact:
 `normal`, `private`, `highly_sensitive`.
 
 **Privacy routing happens before any external call, not after.** Content at a
-level listed in `PC_NO_EXTERNAL_SENSITIVITY` is never sent to the embedding
+level listed in `SUBZERO_NO_EXTERNAL_SENSITIVITY` is never sent to the embedding
 API and never sent to Jev — the check is the first thing `JevClassifier._ask`
 does, and it falls back to local rules instead. Sensitive content also never
 auto-promotes to the vault, whatever the classifier said, and gets a shorter
@@ -739,11 +739,11 @@ shapes, bearer tokens, long digit runs and PEM private keys.
 ## Bulk import
 
 ```
-personal-context-mcp import chatgpt ~/Downloads/chatgpt-export.zip
-personal-context-mcp import claude  ~/Downloads/claude-export.zip
-personal-context-mcp import gemini  ~/Downloads/takeout.zip
-personal-context-mcp import grok    ~/Downloads/grok-export.zip
-personal-context-mcp import auto    ~/Downloads/unknown-export.zip
+subzero import chatgpt ~/Downloads/chatgpt-export.zip
+subzero import claude  ~/Downloads/claude-export.zip
+subzero import gemini  ~/Downloads/takeout.zip
+subzero import grok    ~/Downloads/grok-export.zip
+subzero import auto    ~/Downloads/unknown-export.zip
 ```
 
 Pipeline: preserve the original archive in cold storage (hashed) → detect and
@@ -787,16 +787,16 @@ Reported by the importer, not hidden:
 ### Local
 
 ```bash
-git clone <this repo> && cd personal-context-mcp
+git clone <this repo> && cd subzero
 uv sync --all-groups
 cp .env.example .env         # then edit it
 
 # Postgres with pgvector, the quick way
 docker compose up -d db
 
-uv run personal-context-mcp migrate
-uv run personal-context-mcp check
-uv run personal-context-mcp serve
+uv run subzero migrate
+uv run subzero check
+uv run subzero serve
 ```
 
 `check` validates configuration, connectivity, migrations, bucket privacy and
@@ -805,8 +805,8 @@ Jev reachability, and prints your MCP endpoint.
 ### Migrations
 
 ```bash
-uv run personal-context-mcp migrate            # apply
-uv run personal-context-mcp migrate --status   # what is pending
+uv run subzero migrate            # apply
+uv run subzero migrate --status   # what is pending
 ```
 
 Migrations are numbered SQL files applied once each inside a transaction and
@@ -824,7 +824,7 @@ switched off; only vault sync pauses.
 PROJECT=your-gcp-project
 REGION=us-central1
 
-gcloud run deploy personal-context-mcp \
+gcloud run deploy subzero \
   --source . \
   --project "$PROJECT" \
   --region "$REGION" \
@@ -833,14 +833,14 @@ gcloud run deploy personal-context-mcp \
   --max-instances 4 \
   --cpu 1 --memory 1Gi \
   --timeout 300 \
-  --set-env-vars "PC_ENVIRONMENT=prod,PC_BASE_URL=https://ctx.example.com,PC_AUTH_MODE=google,PC_STORAGE_BACKEND=supabase,PC_CLASSIFIER=jev" \
-  --set-secrets "PC_DATABASE_URL=pc-database-url:latest,\
-PC_SUPABASE_SERVICE_KEY=pc-supabase-key:latest,\
-PC_OAUTH_CLIENT_ID=pc-oauth-id:latest,\
-PC_OAUTH_CLIENT_SECRET=pc-oauth-secret:latest,\
-PC_OAUTH_SIGNING_KEY=pc-signing-key:latest,\
-PC_TYPESAFE_API_KEY=pc-typesafe-key:latest,\
-PC_WORKER_API_KEY=pc-worker-key:latest"
+  --set-env-vars "SUBZERO_ENVIRONMENT=prod,SUBZERO_BASE_URL=https://ctx.example.com,SUBZERO_AUTH_MODE=google,SUBZERO_STORAGE_BACKEND=supabase,SUBZERO_CLASSIFIER=jev" \
+  --set-secrets "SUBZERO_DATABASE_URL=pc-database-url:latest,\
+SUBZERO_SUPABASE_SERVICE_KEY=pc-supabase-key:latest,\
+SUBZERO_OAUTH_CLIENT_ID=pc-oauth-id:latest,\
+SUBZERO_OAUTH_CLIENT_SECRET=pc-oauth-secret:latest,\
+SUBZERO_OAUTH_SIGNING_KEY=pc-signing-key:latest,\
+SUBZERO_TYPESAFE_API_KEY=pc-typesafe-key:latest,\
+SUBZERO_WORKER_API_KEY=pc-worker-key:latest"
 ```
 
 `--allow-unauthenticated` refers to *Cloud Run's* IAM layer, which must be open
@@ -850,7 +850,7 @@ protects the data.
 Then apply migrations once against the production database:
 
 ```bash
-PC_DATABASE_URL="<prod url>" uv run personal-context-mcp migrate
+SUBZERO_DATABASE_URL="<prod url>" uv run subzero migrate
 ```
 
 ### Why not a provider tunnel
@@ -885,7 +885,7 @@ where this worker writes.
 uv sync
 cat > .env <<'EOF'
 OBSIDIAN_SYNC_API_URL=https://ctx.example.com
-OBSIDIAN_SYNC_API_KEY=<same value as PC_WORKER_API_KEY>
+OBSIDIAN_SYNC_API_KEY=<same value as SUBZERO_WORKER_API_KEY>
 OBSIDIAN_SYNC_VAULT_PATH=~/Obsidian/Vault
 EOF
 
@@ -918,8 +918,8 @@ hard-deleted by an AI-facing tool. Deleting an artifact's bytes is an operator
 action against storage.
 
 **Secret rotation.** Every secret is read from the environment. Rotating
-`PC_OAUTH_SIGNING_KEY` invalidates issued tokens and forces clients to
-re-authorize. Rotating `PC_WORKER_API_KEY` requires updating the worker's
+`SUBZERO_OAUTH_SIGNING_KEY` invalidates issued tokens and forces clients to
+re-authorize. Rotating `SUBZERO_WORKER_API_KEY` requires updating the worker's
 `.env`.
 
 ---
@@ -933,7 +933,7 @@ uv run mypy src
 
 # Integration tests need a throwaway Postgres with pgvector.
 # The fixture refuses a database whose name does not contain "test".
-export PC_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_context_mcp_test
+export SUBZERO_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/subzero_test
 uv run pytest
 ```
 
@@ -1019,7 +1019,7 @@ Jev was exercised against the live `api.typesafe.ai` endpoint. Without a key
 the call returns `TypeSafeAuthenticationError`, the classifier degrades to
 deterministic rules with a complete answer set, and every tool keeps working -
 which is the behaviour that matters. Classification **quality** is unverified
-until a real `PC_TYPESAFE_API_KEY` is configured.
+until a real `SUBZERO_TYPESAFE_API_KEY` is configured.
 
 ### Not verified here
 

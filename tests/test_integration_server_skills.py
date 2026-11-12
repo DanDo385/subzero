@@ -21,8 +21,8 @@ from pydantic import SecretStr
 from conftest import requires_db
 from obsidian_sync.config import WorkerSettings
 from obsidian_sync.worker import ObsidianSyncWorker
-from personal_context_mcp.db.migrate import apply_migrations, load_migrations
-from personal_context_mcp.errors import NotFoundError, ValidationError
+from subzero.db.migrate import apply_migrations, load_migrations
+from subzero.errors import NotFoundError, ValidationError
 
 pytestmark = requires_db
 

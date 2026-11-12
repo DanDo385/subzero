@@ -8,13 +8,13 @@ from types import SimpleNamespace
 from typing import Any
 
 from conftest import requires_db
-from personal_context_mcp.extraction.deep import (
+from subzero.extraction.deep import (
     DeepExtractor,
     ExtractionPayload,
     extraction_candidates,
     render_transcript,
 )
-from personal_context_mcp.importers.runner import ImportRunner
+from subzero.importers.runner import ImportRunner
 from test_integration_backfill import CountingJev, _claude_zip, _conversation, _swap_classifier
 
 pytestmark = requires_db
@@ -198,7 +198,7 @@ async def test_same_subject_notes_merge_and_projects_are_created(services, tmp_p
         [_conversation("a", "Where should memory live?"), _conversation("b", "More on memory.")],
     )
     ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
-    payload = {**PAYLOAD, "project": "Personal Context"}
+    payload = {**PAYLOAD, "project": "Subzero"}
     extractor = DeepExtractor(services, client=FakeClient(FakeMessages(payload)))  # type: ignore[arg-type]
     await extractor.run(ids, destinations=dict.fromkeys(ids, "project"))
 

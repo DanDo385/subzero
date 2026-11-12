@@ -10,9 +10,9 @@ import pytest
 from pydantic import SecretStr
 
 from conftest import requires_db
-from personal_context_mcp.digest import build_digest
-from personal_context_mcp.gemini_sync import DriveSyncError, push
-from personal_context_mcp.util import sha256_text
+from subzero.digest import build_digest
+from subzero.gemini_sync import DriveSyncError, push
+from subzero.util import sha256_text
 
 pytestmark = requires_db
 
@@ -32,7 +32,7 @@ async def test_digest_contains_context_and_leaves_out_sensitive(services) -> Non
         sensitivity="highly_sensitive",
     )
     project_id, _ = await services.projects.create(
-        name="Personal Context", description="Shared memory for four AI apps."
+        name="Subzero", description="Shared memory for four AI apps."
     )
     await services.db.execute(
         "INSERT INTO decisions (statement, statement_sha256, project_id, provenance) "
@@ -46,9 +46,9 @@ async def test_digest_contains_context_and_leaves_out_sensitive(services) -> Non
 
     text = await build_digest(services.db, services.settings, owner="Dan")
 
-    assert "Dan's Personal Context" in text
+    assert "Dan's Subzero" in text
     assert "Prefers answers without em dashes. (you said)" in text
-    assert "### Personal Context (active)" in text
+    assert "### Subzero (active)" in text
     assert "Decided: Use Vercel for hosting. (you said)" in text
     assert "- [ ] Rotate the Google client secret" in text
     assert "medication" not in text  # highly_sensitive never leaves

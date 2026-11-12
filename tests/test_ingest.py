@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from conftest import requires_db
-from personal_context_mcp.auth.principal import Principal
+from subzero.auth.principal import Principal
 
 pytestmark = requires_db
 

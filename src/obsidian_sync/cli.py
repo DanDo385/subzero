@@ -36,7 +36,7 @@ def run(vault: Path | None, api_url: str | None, dry_run: bool, once: bool) -> N
 
     if not settings.api_key.get_secret_value():
         raise click.ClickException(
-            "OBSIDIAN_SYNC_API_KEY is not set. It must match PC_WORKER_API_KEY on the server."
+            "OBSIDIAN_SYNC_API_KEY is not set. It must match SUBZERO_WORKER_API_KEY on the server."
         )
 
     if once:

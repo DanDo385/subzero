@@ -76,7 +76,7 @@ Do **not** retrieve for a self-contained question ("what's 12% of 340",
 
 If retrieval returns nothing, say so plainly - "I don't have anything recorded
 about that" - and answer from the current conversation. Never invent a
-remembered detail. If the tool errors, say Personal Context is unreachable and
+remembered detail. If the tool errors, say Subzero is unreachable and
 continue without it; do not retry in a loop.
 
 ## Examples

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from personal_context_mcp.retrieval.inference import ProjectRow, infer, resolve_reference
-from personal_context_mcp.retrieval.query import parse
+from subzero.retrieval.inference import ProjectRow, infer, resolve_reference
+from subzero.retrieval.query import parse
 
 
 def test_ordinary_question_becomes_or_of_content_words() -> None:

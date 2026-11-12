@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for trying personal-context-mcp! Before posting, check [Troubleshooting](https://github.com/DanDo385/personal-context-mcp/blob/main/docs/troubleshooting.md).
+        Thanks for trying subzero! Before posting, check [Troubleshooting](https://github.com/DanDo385/subzero/blob/main/docs/troubleshooting.md).
         **Never paste your `.env`, keys, passwords or connection strings.** The output of `check` is safe to share.
   - type: dropdown
     id: guide
@@ -42,7 +42,7 @@ body:
   - type: textarea
     id: check
     attributes:
-      label: Output of `uv run personal-context-mcp check`
+      label: Output of `uv run subzero check`
       render: text
   - type: input
     id: system

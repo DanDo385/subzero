@@ -1,4 +1,4 @@
-// Personal Context — Gemini provider extractor.
+// Subzero — Gemini provider extractor.
 // DOM-based extraction. Gemini's batchExecute RPC is too fragile for production,
 // so we use the DOM structure the page renders. Fallback if RPC approach later proves stable.
 
