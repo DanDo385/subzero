@@ -14,6 +14,7 @@
 9. [Import your old chats](guides/09-import-your-history.md)
 10. [Build your wiki: links and maps](guides/10-build-your-wiki.md)
 11. [Gemini without custom apps](guides/11-gemini-without-custom-apps.md) *(Google AI Plus or free)*
+12. [The browser extension](guides/13-browser-extension.md)
 
 ## When you need help
 

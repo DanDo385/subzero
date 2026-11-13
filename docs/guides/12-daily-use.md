@@ -89,5 +89,6 @@ nothing. Then turn the memory switches off (see the table in [guide 6](06-connec
 - **[Guide 8](08-obsidian.md):** set up your Obsidian notebook, if you want one.
 - **[Guide 9](09-import-your-history.md):** bring in years of old chats from all four apps.
 - **[Guide 10](10-build-your-wiki.md):** build links and topic maps from your notes.
+- **[Guide 13](13-browser-extension.md):** capture chats live in the browser, backfill old ones, and bridge coding sessions.
 - **[Troubleshooting](../troubleshooting.md):** when anything goes wrong.
 - **[FAQ](../faq.md):** common questions, short answers.
