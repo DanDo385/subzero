@@ -203,4 +203,8 @@ async function listConversations() {
   return conversations;
 }
 
-export { extractCurrentConversation, listConversations, isConversationPage };
+// Registered for the content script: MV3 content scripts are classic scripts
+// and cannot import ES modules, so providers attach to a shared global.
+(globalThis.__subzeroProviders ||= {}).muse = {
+  extractCurrentConversation, listConversations, isConversationPage,
+};

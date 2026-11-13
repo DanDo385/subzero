@@ -141,83 +141,15 @@ async function handleBackfill(provider, dryRun = true) {
 
   if (!tab) throw new Error(`No ${provider} tab open`);
 
-  // Execute listing + fetching in the tab context.
-  const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: async (prov, isDryRun) => {
-      let listFn, fetchFn;
-
-      switch (prov) {
-        case 'claude': {
-          const mod = await import(chrome.runtime.getURL('providers/claude.js'));
-          listFn = mod.listConversations;
-          fetchFn = mod.fetchConversation;
-          break;
-        }
-        case 'chatgpt': {
-          const mod = await import(chrome.runtime.getURL('providers/chatgpt.js'));
-          listFn = mod.listConversations;
-          fetchFn = mod.fetchConversation;
-          break;
-        }
-        case 'gemini': {
-          const mod = await import(chrome.runtime.getURL('providers/gemini.js'));
-          listFn = mod.listConversations;
-          fetchFn = mod.extractCurrentConversation; // DOM-only, one at a time.
-          break;
-        }
-        case 'grok': {
-          const mod = await import(chrome.runtime.getURL('providers/grok.js'));
-          listFn = mod.listConversations;
-          fetchFn = mod.extractCurrentConversation;
-          break;
-        }
-        case 'muse': {
-          const mod = await import(chrome.runtime.getURL('providers/muse.js'));
-          listFn = mod.listConversations;
-          fetchFn = mod.extractCurrentConversation;
-          break;
-        }
-        default:
-          throw new Error(`Unknown provider: ${prov}`);
-      }
-
-      // List all conversations.
-      const convs = await listFn();
-
-      if (isDryRun) {
-        return { dryRun: true, provider: prov, conversations: convs.length, items: convs };
-      }
-
-      // Fetch each one with a delay and send to service worker for ingestion.
-      let captured = 0;
-      let skipped = 0;
-      for (let i = 0; i < convs.length; i++) {
-        try {
-          const convId = convs[i].id || convs[i].uuid;
-          const data = await fetchFn(convId);
-          if (data) {
-            // Send to service worker for enqueue + ingest.
-            chrome.runtime.sendMessage({
-              action: 'capture',
-              payload: data,
-            }).catch(() => {});
-            captured++;
-          }
-        } catch (err) {
-          console.error(`[PersonalContext] Backfill error for ${convs[i].id || convs[i].uuid}:`, err);
-          skipped++;
-        }
-        // Be gentle: one request per 2 seconds.
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-
-      return { dryRun: false, provider: prov, captured, skipped, total: convs.length };
-    },
-    args: [provider, dryRun],
+  // The content script owns extraction: it runs in the page's isolated world
+  // with the provider modules already loaded as classic scripts, which
+  // executeScript + dynamic import() could never do in MV3.
+  const result = await chrome.tabs.sendMessage(tab.id, {
+    action: 'backfill',
+    dryRun,
   });
 
-  return results[0]?.result || { ok: false, error: 'No result' };
+  return result || { ok: false, error: 'No result from tab' };
 }
 
 console.log('[PersonalContext] Service worker ready');

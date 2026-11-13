@@ -34,35 +34,9 @@
    */
   async function captureCurrent() {
     try {
-      let data = null;
-
-      switch (provider) {
-        case 'claude': {
-          const mod = await import(chrome.runtime.getURL('providers/claude.js'));
-          data = await mod.extractCurrentConversation();
-          break;
-        }
-        case 'chatgpt': {
-          const mod = await import(chrome.runtime.getURL('providers/chatgpt.js'));
-          data = await mod.extractCurrentConversation();
-          break;
-        }
-        case 'gemini': {
-          const mod = await import(chrome.runtime.getURL('providers/gemini.js'));
-          data = await mod.extractCurrentConversation();
-          break;
-        }
-        case 'grok': {
-          const mod = await import(chrome.runtime.getURL('providers/grok.js'));
-          data = await mod.extractCurrentConversation();
-          break;
-        }
-        case 'muse': {
-          const mod = await import(chrome.runtime.getURL('providers/muse.js'));
-          data = await mod.extractCurrentConversation();
-          break;
-        }
-      }
+      const mod = (globalThis.__subzeroProviders || {})[provider];
+      if (!mod) throw new Error(`No provider module registered for ${provider}`);
+      const data = await mod.extractCurrentConversation();
 
       if (data && data.messages && data.messages.length > 0) {
         chrome.runtime.sendMessage({
@@ -81,11 +55,64 @@
     }
   }
 
+  /**
+   * Backfill: list conversations and fetch each one in-page, sending captures
+   * to the service worker as they arrive. Providers with fetchConversation
+   * (API-based) walk their full history; DOM-only providers can only reach
+   * the conversation currently open, and say so in the result.
+   */
+  async function runBackfill(dryRun = true) {
+    const mod = (globalThis.__subzeroProviders || {})[provider];
+    if (!mod) return { ok: false, error: `No provider module registered for ${provider}` };
+
+    const convs = await mod.listConversations();
+    if (dryRun) {
+      return { ok: true, dryRun: true, provider, conversations: convs.length, items: convs };
+    }
+
+    let captured = 0;
+    let skipped = 0;
+
+    if (mod.fetchConversation) {
+      for (const conv of convs) {
+        try {
+          const data = await mod.fetchConversation(conv.id || conv.uuid);
+          if (data) {
+            chrome.runtime.sendMessage({ action: 'capture', payload: data });
+            captured++;
+          }
+        } catch (err) {
+          console.error(`[PersonalContext] Backfill error for ${conv.id || conv.uuid}:`, err);
+          skipped++;
+        }
+        // Be gentle: one request per 2 seconds.
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    } else {
+      // DOM-only provider: only the open conversation is reachable.
+      try {
+        const data = await mod.extractCurrentConversation();
+        if (data && data.messages && data.messages.length > 0) {
+          chrome.runtime.sendMessage({ action: 'capture', payload: data });
+          captured = 1;
+        }
+      } catch (err) {
+        skipped = 1;
+      }
+    }
+
+    return { ok: true, dryRun: false, provider, captured, skipped, total: convs.length };
+  }
+
   // --- Message listener: respond to popup/service worker requests ---
 
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'capture') {
       captureCurrent().then(() => sendResponse({ ok: true }));
+      return true; // async response
+    }
+    if (request.action === 'backfill') {
+      runBackfill(request.dryRun !== false).then(sendResponse);
       return true; // async response
     }
     if (request.action === 'ping') {

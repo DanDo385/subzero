@@ -27,7 +27,14 @@
         "https://grok.com/*",
         "https://muse.ai/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "providers/claude.js",
+        "providers/chatgpt.js",
+        "providers/gemini.js",
+        "providers/grok.js",
+        "providers/muse.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
