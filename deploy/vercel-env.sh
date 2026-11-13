@@ -40,16 +40,24 @@ for line in open(path, encoding="utf-8"):
     raw = re.sub(r"\s+#.*$", "", raw).strip().strip('"').strip("'")
     values[name] = os.environ[name] if resolved else raw
 secret = re.compile(r"(KEY|SECRET|TOKEN|DATABASE_URL|CLIENT_ID)")
-token = ["--token", os.environ["VERCEL_TOKEN"]] if os.environ.get("VERCEL_TOKEN") else []
+# The token travels in the exported VERCEL_TOKEN environment variable only;
+# passing it on argv would put it in process lists and in any traceback.
+token = []
 for name, value in values.items():
     if name.startswith("OBSIDIAN_SYNC_"):
         continue  # the worker's settings stay on your computer
     kind = "--sensitive" if secret.search(name) else "--no-sensitive"
-    subprocess.run(
-        ["vercel", "env", "add", name, "production", "--force", kind,
-         "--project", project, "--yes", "--non-interactive", *token],
-        input=value.encode(), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-    )
+    try:
+        subprocess.run(
+            ["vercel", "env", "add", name, "production", "--force", kind,
+             "--project", project, "--yes", "--non-interactive", *token],
+            input=value.encode(), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as err:
+        # Never print argv: with a token flag it would leak the credential.
+        sys.stderr.write(f"vercel env add {name} failed ({err.returncode}):\n")
+        sys.stderr.write((err.stderr or b"").decode(errors="replace"))
+        sys.exit(err.returncode)
     print(f"  set {name} ({kind.lstrip('-')})")
 PY
 )
