@@ -4,8 +4,9 @@ The extension is the piece that lives in your browser. It does three jobs:
 
 1. **Live capture** — while you chat in Claude, ChatGPT, Gemini, Grok or Muse, it saves the
    conversation into Subzero as you go, so nothing is lost when you close the tab.
-2. **Backfill** — Claude and ChatGPT import history through their internal APIs. Gemini, Grok
-   and Muse capture the open conversation. Their page selectors need live verification as sites change.
+2. **Import** — Claude and ChatGPT import your whole history through the same internal
+   interface their own web pages use. Gemini, Grok and Muse can only save the conversation that
+   is open on screen (see Step 4).
 3. **Session bridge** — it shows a live coding session from your terminal (any CLI harness that
    checkpoints to Subzero) in a side panel, and lets you type replies back from the browser.
 
@@ -37,69 +38,81 @@ button on it.
 
 ## Step 2: Pair your browser
 
-The extension talks to your Subzero server, and the server only accepts browsers you have
-approved. Pairing is a one-time, eight-character code.
+The extension talks to **one** Subzero server: the one you pair it with. A pairing code only
+works on the server that shares its database, so the code has to come from the same settings
+the server runs with.
 
-On the machine that runs Subzero, generate a code:
+1. Make sure the server is running. For the Mac setup in
+   [guide 14](14-run-on-your-mac-over-tailscale.md), open its address followed by `/healthz` in
+   the browser; it should say `ok`.
+2. On the computer that runs the server, in the project folder, make a code with the server's
+   own settings:
+   - **Mac over Tailscale (guide 14):** the install script printed the exact command on its
+     `Browser:` line. Run that.
+   - **Vercel (guide 5):** `op run --env-file=deploy/admin.env.op -- uv run subzero pair-device`
+3. The command prints three lines. Check them before you go on:
 
-The server must be running first — `subzero serve`, or the `op run … serve` form below. If
-nothing is listening, the popup reports *Failed to fetch* instead of a pairing error.
+   ```text
+     Pairing code: ABCD2345
+     Server:       https://your-mac.your-tailnet.ts.net
+     Database:     subzero on this computer (/Users/you/subzero/.data/pg)
+   ```
 
-```bash
-subzero pair-device
-```
+   **Database** must be the database your server uses. If it names a different one (for
+   example a cloud database when your server runs on your Mac), the code will be refused.
+4. Click the Subzero icon in the browser toolbar. Enter the **Server** address and the code,
+   then press **Pair this browser**. The browser asks once for permission to talk to that
+   address; choose **Allow**.
 
-If you run Subzero from this folder instead of an installed command, use:
+The code expires after five minutes; if it does, run the command again.
 
-```bash
-op run --env-file=deploy/admin.env.op -- uv run subzero pair-device
-```
-
-Then click the Subzero icon in your browser toolbar, paste the code, and press
-**Pair this browser**. The code expires after five minutes; if it does, run the command again.
-
-**Success looks like:** the popup stops showing the pairing box and shows your five providers
-instead.
+**Success looks like:** the popup shows *Saving to https://your-…* at the top and your five
+providers below it.
 
 ## Step 3: Live capture
 
 Open any of the five apps and chat as usual. The extension notices when a reply finishes and
-queues the conversation by itself. You do not have to do anything per-message.
+saves the conversation by itself. You do not have to do anything per message.
 
-The popup shows each provider's last confirmed server delivery, including the server address.
-Older capture timestamps do not count as confirmed delivery. Two buttons
-sit under the list:
+Each provider row in the popup shows the last conversation **the server confirmed**: its title,
+how many messages it has, how many were new, and the time. That line only appears after the
+server answers, so it is proof the conversation reached your database. Under the list:
 
-- **Save Now** — capture the conversation in the tab you are looking at, right now.
+- **Save Now** — save the conversation in the tab you are looking at, right now.
 - **Pause / Resume** — stop or restart automatic capture everywhere.
 
-Captured conversations travel through a small queue inside the browser. If your server is
-offline for a while, the queue holds them and retries; the popup shows how many are waiting.
+Conversations travel through a small queue inside the browser and are sent straight away. If
+the server is asleep or offline, they wait and are retried with growing gaps (30 seconds, then
+a minute, up to an hour). The popup shows how many are waiting, and the error the server gave.
+Anything the server refuses outright, or that keeps failing, is kept under *could not be sent*
+with a **Retry** button: nothing is thrown away.
 
-## Step 4: Backfill your history
+## Step 4: Import your history
 
-Backfill imports the conversations that happened *before* the extension was installed.
+Import brings in the conversations from before the extension was installed.
 
 1. In the popup, click **Open All Tabs**. One background tab opens per provider. Sign in to any
    you are not signed in to.
-2. Click **Backfill All**, or press **Import** on a single provider's row to do just that one.
-3. Leave the tabs open while it works. Each row shows what it is doing: *Listing
-   conversations…*, then *Queued N conversations*.
+2. Click **Import All**, or **Import** on a single provider's row to do just that one.
+3. The row first lists your conversations, then counts up: *Importing 120/480 of 512: 118 sent
+   to queue, 32 unchanged*. **Keep that provider's tab open until it says *Imported*.**
 
-**Success looks like:** reopen the popup after the queue processes, normally within a minute
-for one conversation. The provider row shows *Saved to server* and the intended server address.
-Check the conversation in Subzero search. A queued count only confirms browser storage.
-An ingest error appears on the provider row and remains visible in the service worker console.
+**Success looks like:** *Imported 512 at 14:05: 480 sent to queue, 32 unchanged*, and the
+queue line disappears once everything is delivered.
 
 Notes:
 
-- Backfill is gentle on purpose: about one conversation every two seconds, so the apps do not
-  rate-limit you. A large history can take a while; that is normal.
-- Claude and ChatGPT list every conversation through their own internal interface, so backfill
-  can walk available history. Gemini, Grok and Muse capture only the currently open conversation.
-  Open each saved conversation and use Save Now. A missing conversation ID or unrecognized
-  page layout produces an error that needs provider-specific investigation.
-- Running a backfill twice is safe — already-saved messages are skipped.
+- Import fetches about one conversation per second, and slows down by itself if the app asks
+  it to (rate limiting). A history of a few thousand conversations takes an hour or more; that
+  is normal. You can keep using the browser meanwhile.
+- Running Import again is cheap and safe: conversations the server already has, unchanged, are
+  skipped, and the server never stores a message twice. If an import stopped halfway (tab
+  closed, computer asleep), just press **Import** again.
+- **Claude and ChatGPT** import every conversation in your account.
+- **Gemini, Grok and Muse** have no history import. **Import** (and **Save Now**) save only the
+  conversation open on screen; to save an older one, open it and press **Save Now**. These three
+  are read from the page itself, so a redesign of their site can break them until the extension
+  is updated.
 
 ## Step 5: The session bridge
 
@@ -128,14 +141,16 @@ the same text your coding sessions read when they start.
 | What you see | What it means, and what to do |
 | --- | --- |
 | *Could not load icon … Could not load manifest* | The `extension/icons/` folder is missing. Pull the latest version of this project and reload the extension. |
-| The popup only shows the pairing box | The browser is not paired yet, or its pairing was revoked. Run `subzero pair-device` again and re-enter the code. |
-| *Device token expired or revoked. Re-pair the browser.* | The server forgot this browser. Pair again. |
-| *No claude tab open* (or another provider) | Backfill needs a signed-in tab for that app. Click **Open All Tabs**, sign in, then retry. |
-| *Receiving end does not exist* or *Refresh the … tab and allow Subzero site access* | Reload the extension and refresh the provider tab. In extension Details, allow access to that provider site. The extension attempts script recovery on Import and Save Now. |
-| *No conversation ID found* | Open a saved conversation with its own URL and try again. If the error persists, the provider extractor needs an update. |
-| *No confirmed delivery yet* | Capture has not received a server acknowledgement. Check the queue count, the Pause setting, and any delivery error. |
-| A row stuck on *Importing…* | The tab went to sleep or was closed. Reopen the provider tab and press **Import** again; already-saved messages are skipped. |
-| *zsh: command not found: subzero* | You ran the pairing command outside the project. Use the `op run --env-file=…` form from Step 2, or install the command first. |
-| Pairing command fails with a database connection error | The database settings are not loaded. Use the `op run --env-file=deploy/admin.env.op -- …` form, which supplies them. |
+| *Could not reach https://… (Failed to fetch). Is the server running?* | Nothing answered at that address. Open the address followed by `/healthz`; start the server (guide 14: `deploy/install-tailnet-server.sh`) and check the Mac is awake and on Tailscale. Waiting conversations are sent when it is back. |
+| *… does not know that code* | The code was made with different settings from the server's, or it expired. Run the command from Step 2 again and check its **Database** line. |
+| *Subzero needs permission to talk to …* | You chose *Deny* in the permission prompt. Press **Pair** again and choose **Allow**. |
+| *… did not accept this browser's token. Pair it again.* | The server does not know this browser (it was revoked, or the server now uses a different database). Pair again; waiting conversations are kept and sent afterward. |
+| *Open claude in a tab and sign in first* (or another provider) | Import needs a signed-in tab for that app. Click **Open All Tabs**, sign in, then retry. |
+| *Subzero cannot reach the … tab* | Refresh that tab. If it persists, open the extension's **Details** and check *Site access* allows that site. |
+| *No conversation ID found* | Open a saved conversation (one with its own address) and try again. |
+| *No messages found* on Gemini, Grok or Muse | The page layout changed and the extension no longer recognises it. Please open an issue. |
+| *Import stopped at …* | The provider tab was closed or slept. Reopen it and press **Import**; finished conversations are skipped. |
+| *N could not be sent (…)* | The server refused those conversations; the reason is in brackets. Fix it, then press **Retry**. |
+| *zsh: command not found: subzero* | Use the full command from Step 2, run inside the project folder. |
 
 **Next:** [12. Daily use](12-daily-use.md) is where the captured conversations become useful.

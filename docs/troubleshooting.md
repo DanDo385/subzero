@@ -125,21 +125,14 @@ table. The common ones:
 | `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
 | `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |
 
-## Browser capture cannot connect to a tab
+## Browser extension
 
-`Could not establish connection. Receiving end does not exist` means the tab has no active
-Subzero message listener. Reload the extension and refresh the chat tab after installation or
-updates. Allow the provider site in the extension's Site access settings. Import and Save Now
-try injecting the packaged capture scripts when the listener is missing. If recovery fails,
-the popup displays the site and the browser's error in full.
+The full table is in [guide 13](guides/13-browser-extension.md#when-it-goes-wrong). The common ones:
 
-`No conversation ID found` means the extractor cannot identify the saved chat. Open the
-conversation's own URL. Muse, Grok and Gemini capture the open conversation and may need
-selector updates when their sites change.
-
-`Queued N conversations` confirms persistence in browser storage. Reopen the popup after
-queue processing to check `Saved to server` and its server address. For an MBP installation,
-verify that the address belongs to that MBP. `No confirmed delivery yet` means no successful
-ingest response has been recorded. Delivery failures appear in the provider row. Items that
-exhaust retries remain in the failed-item queue. After fixing the server issue, capture the
-conversation again. Server ingestion deduplicates messages with stable provider IDs.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Could not establish connection. Receiving end does not exist` (older versions) | The chat tab had no Subzero script, usually because it was open before the extension was installed or reloaded. | Update the extension (0.2 reconnects tabs by itself), or refresh the tab. |
+| `Could not reach https://… Is the server running?` | Nothing answers at the paired address. The extension never falls back to another server. | Open the address plus `/healthz`; start the server. Waiting conversations are sent when it is back. |
+| `… does not know that code` | The pairing code was made against a different database than the server uses. | Run `pair-device` with the server's settings (guide 14's installer prints the command) and check its `Database:` line. |
+| `… did not accept this browser's token. Pair it again.` | The server does not know this browser. | Pair again; queued conversations are kept. |
+| `No messages found` on Gemini, Grok or Muse | Their page layout changed. | Open an issue; Claude and ChatGPT are unaffected. |

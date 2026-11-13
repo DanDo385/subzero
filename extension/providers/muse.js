@@ -150,13 +150,14 @@ async function extractCurrentConversation() {
     const content = extractContent(container);
     if (!content) continue;
 
-    // Generate a stable ID from content hash.
-    const hash = Array.from(new Uint8Array(
-      new TextEncoder().encode(content.slice(0, 50))
-    )).reduce((h, b) => (h * 31 + b) & 0xfffffff, 0);
+    // Muse exposes no message ids. Position plus a hash of the whole text is
+    // stable across re-captures and cannot merge two different messages that
+    // merely start alike (the server drops repeated ids).
+    let hash = 0;
+    for (const byte of new TextEncoder().encode(content)) hash = (hash * 31 + byte) >>> 0;
 
     messages.push({
-      provider_message_id: `muse-msg-${hash.toString(16)}`,
+      provider_message_id: `muse-${messages.length}-${hash.toString(16)}`,
       role,
       content,
       created_at: null,

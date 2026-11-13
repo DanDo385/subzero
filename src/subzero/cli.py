@@ -244,7 +244,13 @@ def pair_device(device_name: str, agents: bool) -> None:
     _asyncio.run(run())
 
     click.secho(f"\n  Pairing code: {click.style(code, bold=True, fg='green')}", fg="white")
-    click.secho("  Enter this code in the extension popup within 5 minutes.\n", fg="white")
+    click.secho(f"  Server:       {str(settings.base_url).rstrip('/')}", fg="white")
+    click.secho(f"  Database:     {settings.database_target()}", fg="white")
+    click.secho(
+        "  Enter the server address and this code in the extension popup within 5 minutes.\n"
+        "  The code only works on a server that uses the database above.\n",
+        fg="white",
+    )
 
 
 @main.command()

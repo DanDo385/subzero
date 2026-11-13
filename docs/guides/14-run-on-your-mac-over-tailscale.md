@@ -47,10 +47,19 @@ subzero is running on this Mac.
   Address:     https://your-mac.tail1234.ts.net  (reachable by only devices signed in to your tailnet)
   MCP URL:     https://your-mac.tail1234.ts.net/mcp
   Sign-in:     add https://your-mac.tail1234.ts.net/auth/callback to your Google or GitHub OAuth client
+  Browser:     pair the extension with a code from: SUBZERO_BASE_URL=https://your-mac.tail1234.ts.net op run --env-file=deploy/production.env.op -- .venv/bin/subzero pair-device
 ```
 
 `your-mac.tail1234.ts.net` will be your own Mac's name and tailnet. Settings come from
 `deploy/production.env.op` (through 1Password) if you have one, otherwise `.env.local`.
+
+**Which database it uses** is whatever `SUBZERO_DATABASE_URL` says in those settings. If they
+point at a cloud database (Supabase, for example), the Mac server reads and writes that one. To
+keep everything on the Mac instead, make a copy of the settings file (say
+`deploy/mac.env.op`) whose `SUBZERO_DATABASE_URL` names a Postgres on the Mac, set
+`SUBZERO_STORAGE_BACKEND=local`, and run the script with `SERVER_ENV_FILE=deploy/mac.env.op`
+in front (or put that line in `deploy/local.env`). Run `subzero migrate` against that database
+once first.
 
 ## 3. Allow sign-in at the new address
 
@@ -63,6 +72,8 @@ Open your Google (or GitHub) OAuth client from [guide 3](03-google-sign-in.md) a
   `claude mcp add --transport http subzero https://your-mac.tail1234.ts.net/mcp`
 - **Apps** (needs `--public`): add the **MCP URL** as a custom connector, exactly as in
   [guide 6](06-connect-your-ai-apps.md).
+- **Browser extension:** run the command on the **Browser** line, then enter the address and code
+  in the extension popup ([guide 13](13-browser-extension.md#step-2-pair-your-browser)).
 - **Obsidian helper on the same Mac:** it can keep its current address, or point at
   `http://127.0.0.1:8080` to skip the network entirely.
 

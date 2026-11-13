@@ -10,6 +10,7 @@ import json
 import os
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import (
@@ -305,6 +306,24 @@ class Settings(BaseSettings):
     def resource_url(self) -> str:
         """RFC 8707 canonical resource identifier for this MCP server."""
         return f"{str(self.base_url).rstrip('/')}{self.mcp_path}"
+
+    def database_target(self) -> str:
+        """Where the database is, without credentials: ``name on host``.
+
+        Shown wherever it matters which database a command writes to (pairing
+        codes, for one, only work on the server that shares that database).
+        """
+        raw = self.database_url.get_secret_value()
+        if not raw:
+            return "(no database configured)"
+        parsed = urlsplit(raw)
+        name = parsed.path.lstrip("/") or "(default database)"
+        host = parsed.hostname or parse_qs(parsed.query).get("host", [""])[0]
+        if not host or host.startswith("/"):
+            host = f"this computer ({host})" if host else "this computer"
+        elif parsed.port:
+            host = f"{host}:{parsed.port}"
+        return f"{name} on {host}"
 
     def validate_startup(self) -> list[str]:
         """Refuse to boot into an unsafe configuration.

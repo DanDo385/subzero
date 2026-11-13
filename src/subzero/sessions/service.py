@@ -157,7 +157,7 @@ class SessionService:
             "SELECT coalesce(max(sequence), -1) + 1 FROM messages WHERE conversation_id = $1",
             conversation_id,
         )
-        for offset, message in enumerate(messages):
+        for message in messages:
             content = (message.get("content") or "").strip()
             if not content:
                 continue
@@ -189,7 +189,9 @@ class SessionService:
                 content,
                 sha256_text(content),
                 provenance,
-                message.get("sequence", start + offset),
+                # Next free slot: messages already stored (skipped above) take
+                # none, so re-sent conversations append without gaps.
+                message.get("sequence", start + inserted),
                 message.get("created_at"),
                 message.get("metadata") or {},
             )

@@ -3,7 +3,7 @@
 // Tab 2: Session bridge — connect to a CLI session and exchange messages.
 
 import {
-  isPaired, fetchSession, sendSessionMessage, fetchWithServers,
+  isPaired, fetchSession, sendSessionMessage, authedFetch,
 } from '../lib/api.js';
 
 // ---- Tab switching ----
@@ -22,20 +22,13 @@ document.querySelectorAll('.tab').forEach((tab) => {
 
 async function initHandoff() {
   try {
-    const { serverUrl, deviceToken } = await chrome.storage.local.get([
-      'serverUrl', 'deviceToken',
-    ]);
-
-    if (!deviceToken) {
+    if (!(await isPaired())) {
       document.getElementById('handoff').textContent =
-        'Not authenticated. Open the extension popup first.';
+        'Not paired. Open the Subzero popup and pair this browser first.';
       return;
     }
 
-    const resp = await fetchWithServers(
-      '/api/v1/handoff',
-      { headers: { 'Authorization': `Bearer ${deviceToken}` } },
-    );
+    const resp = await authedFetch('/api/v1/handoff');
 
     if (!resp.ok) {
       document.getElementById('handoff').textContent =

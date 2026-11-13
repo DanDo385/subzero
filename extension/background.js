@@ -1,154 +1,105 @@
 // Subzero — service worker.
-// Handles capture queue processing, periodic sync alarms, and backfill coordination.
+// Owns the capture queue and its delivery, the periodic alarms, and routing
+// popup requests to provider tabs.
 
-import { enqueue, processOne, getStatus } from './lib/queue.js';
-import { sendToProviderTab } from './lib/tabs.js';
+import { enqueue, drain, retryFailed, getStatus } from './lib/queue.js';
+import { sendToProviderTab, PROVIDER_HOSTS } from './lib/tabs.js';
 
-// Alarm names.
 const PROCESS_ALARM = 'processQueue';
 const SYNC_ALARM = 'periodicSync';
 
-// --- Lifecycle ---
+function ensureAlarms() {
+  // Delivery retries (the queue applies its own per-item backoff).
+  chrome.alarms.create(PROCESS_ALARM, { periodInMinutes: 0.5 });
+  // Re-capture open provider tabs now and then.
+  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: 15 });
+}
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[subzero] Extension installed');
-
-  // Create alarm for queue processing (every 30s when items exist).
-  chrome.alarms.create(PROCESS_ALARM, { periodInMinutes: 0.5 });
-
-  // Create alarm for periodic sync (every 15 minutes).
-  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: 15 });
-
-  // Set default server URL.
-  chrome.storage.local.get('serverUrl', (result) => {
-    if (!result.serverUrl) {
-      chrome.storage.local.set({
-        serverUrl: 'https://mbp.tailfbd394.ts.net',
-        fallbackUrl: '',
-      });
-    }
-  });
+  console.log('[subzero] Extension installed or updated');
+  ensureAlarms();
+  // Settings from before 0.2 that no longer mean anything.
+  chrome.storage.local.remove(['fallbackUrl', 'lastSync']);
 });
 
-// --- Alarm handler ---
+chrome.runtime.onStartup.addListener(() => {
+  ensureAlarms();
+  drain();
+});
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === PROCESS_ALARM) {
-    const { isPaused } = await chrome.storage.local.get('isPaused');
-    if (isPaused) return;
-
-    // Process up to 5 items per alarm tick.
-    for (let i = 0; i < 5; i++) {
-      const processed = await processOne();
-      if (!processed) break;
-      // Small delay between items to avoid overwhelming the server.
-      await new Promise((r) => setTimeout(r, 1000));
-    }
+    await drain();
+    return;
   }
-
   if (alarm.name === SYNC_ALARM) {
     const { isPaused } = await chrome.storage.local.get('isPaused');
     if (isPaused) return;
-
-    // Trigger capture in all open provider tabs.
     const tabs = await chrome.tabs.query({});
-    const providerHosts = [
-      'claude.ai', 'chatgpt.com',
-      'gemini.google.com', 'grok.com', 'muse.ai',
-    ];
-
     for (const tab of tabs) {
       try {
-        const url = new URL(tab.url || '');
-        if (providerHosts.some((h) => url.hostname === h)) {
-          sendToProviderTab(tab.id, { action: 'capture' }).catch(() => {
-            // Tab may not have content script loaded — ignore.
-          });
-        }
-      } catch { /* skip malformed URLs */ }
+        if (!PROVIDER_HOSTS[new URL(tab.url || '').hostname]) continue;
+        // Tabs that cannot be reached (still loading, no access) are skipped.
+        sendToProviderTab(tab.id, { action: 'capture', automatic: true }).catch(() => {});
+      } catch { /* malformed URL */ }
     }
   }
 });
 
-// --- Message handler ---
-
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'capture') {
-    const payload = request.payload;
-    // Tag with timestamp.
-    payload._capturedAt = new Date().toISOString();
-    enqueue(payload).then(() => {
-      sendResponse({ ok: true });
-    }).catch((err) => {
-      console.error('[subzero] Enqueue failed:', err);
-      sendResponse({ ok: false, error: err.message });
-    });
-    return true; // async
-  }
-
-  if (request.action === 'captureError') {
-    console.error(`[subzero] Capture error on ${request.provider}:`, request.error);
-    sendResponse({ ok: true });
-    return false;
-  }
-
-  if (request.action === 'getStatus') {
-    getStatus().then(sendResponse);
-    return true;
-  }
-
-  if (request.action === 'setPaused') {
-    chrome.storage.local.set({ isPaused: request.paused });
-    sendResponse({ ok: true });
-    return false;
-  }
-
-  if (request.action === 'captureTab') {
-    sendToProviderTab(request.tabId, { action: 'capture' })
-      .then(sendResponse)
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
-
-  if (request.action === 'backfill') {
-    handleBackfill(request.provider, request.dryRun)
-      .then(sendResponse)
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
-});
-
-// --- Backfill ---
-
-async function handleBackfill(provider, dryRun = true) {
-  // Find a tab for this provider.
-  const providerHosts = {
-    claude: 'claude.ai',
-    chatgpt: 'chatgpt.com',
-    gemini: 'gemini.google.com',
-    grok: 'grok.com',
-    muse: 'muse.ai',
-  };
-
-  const host = providerHosts[provider];
-  if (!host) throw new Error(`Unknown provider: ${provider}`);
-
+/** Find (but never open) a tab for a provider. */
+async function findProviderTab(provider) {
   const tabs = await chrome.tabs.query({});
-  const tab = tabs.find((t) => {
-    try { return new URL(t.url || '').hostname === host; }
+  return tabs.find((t) => {
+    try { return PROVIDER_HOSTS[new URL(t.url || '').hostname] === provider; }
     catch { return false; }
   });
-
-  if (!tab) throw new Error(`No ${provider} tab open`);
-
-  // The content script owns extraction: it runs in the page's isolated world
-  // with provider modules loaded as classic scripts. Reconnect older tabs first.
-  const result = await sendToProviderTab(tab.id, {
-    action: 'backfill',
-    dryRun,
-  });
-
-  return result || { ok: false, error: 'No result from tab' };
 }
+
+async function handleBackfill(provider) {
+  if (!Object.values(PROVIDER_HOSTS).includes(provider)) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  const tab = await findProviderTab(provider);
+  if (!tab) throw new Error(`Open ${provider} in a tab and sign in first.`);
+  const result = await sendToProviderTab(tab.id, { action: 'backfill' });
+  return result || { ok: false, error: 'No answer from the tab. Refresh it and try again.' };
+}
+
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  const reply = (promise) => {
+    promise.then(sendResponse).catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true; // async response
+  };
+
+  switch (request.action) {
+    case 'capture': {
+      const payload = { ...request.payload, _capturedAt: new Date().toISOString() };
+      return reply(enqueue(payload).then((info) => {
+        drain(); // deliver now; do not make the tab wait for the server
+        return { ok: true, ...info };
+      }));
+    }
+    case 'captureTab':
+      return reply(sendToProviderTab(request.tabId, { action: 'capture' }));
+    case 'backfill':
+      return reply(handleBackfill(request.provider));
+    case 'getStatus':
+      return reply(getStatus());
+    case 'drain':
+      return reply(drain().then(() => getStatus()));
+    case 'retryFailed':
+      return reply(retryFailed().then((count) => {
+        drain();
+        return { ok: true, count };
+      }));
+    case 'setPaused':
+      return reply(chrome.storage.local.set({ isPaused: Boolean(request.paused) }).then(() => {
+        if (!request.paused) drain();
+        return { ok: true };
+      }));
+    default:
+      return false;
+  }
+});
 
 console.log('[subzero] Service worker ready');

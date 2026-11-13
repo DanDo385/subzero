@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 import pytest
@@ -141,8 +142,22 @@ async def test_ingest_idempotent(client, device_token, provider):
     assert data2["messages_skipped"] == len(payload["messages"])
 
 
+async def test_ingest_accepts_muse(client, device_token):
+    """The extension captures Muse; the server must know the provider."""
+    payload = _load_fixture("grok")
+    payload["provider"] = "muse"
+    payload["provider_conversation_id"] = "muse-conversation-1"
+    resp = await client.post(
+        "/api/v1/ingest/conversation",
+        json=payload,
+        headers={"Authorization": f"Bearer {device_token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["messages_inserted"] == len(payload["messages"])
+
+
 @pytest.mark.parametrize("provider", ["claude", "chatgpt"])
-async def test_ingest_append_messages(client, device_token, provider):
+async def test_ingest_append_messages(client, device_token, provider, services):
     """Sending a conversation with additional messages appends only the new ones."""
     payload = _load_fixture(provider)
     # First send with original messages.
@@ -174,6 +189,12 @@ async def test_ingest_append_messages(client, device_token, provider):
     assert data["status"] == "updated"
     assert data["messages_inserted"] == 1  # Only the new message.
     assert data["messages_skipped"] == len(payload["messages"]) - 1
+    # The appended message takes the next sequence slot: stored order has no gaps.
+    sequences = await services.db.fetch(
+        "SELECT sequence FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        UUID(data["conversation_id"]),
+    )
+    assert [row["sequence"] for row in sequences] == list(range(len(payload["messages"])))
 
 
 async def test_revoke_device(client, device_token, services):

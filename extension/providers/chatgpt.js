@@ -9,28 +9,44 @@ const CHATGPT_SESSION_API = 'https://chatgpt.com/api/auth/session';
 const CHATGPT_LIST_API = 'https://chatgpt.com/backend-api/conversations';
 const CHATGPT_CONVERSATION_API = (id) =>
   `https://chatgpt.com/backend-api/conversation/${id}`;
-const CHATGPT_BATCH_API = 'https://chatgpt.com/backend-api/conversations/batch';
 
 let cachedToken = null;
+
+/** Error with the HTTP status, so the importer can back off on 429. */
+function httpError(message, resp) {
+  const err = new Error(`${message}: ${resp.status}`);
+  err.status = resp.status;
+  const retryAfter = Number(resp.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterMs = retryAfter * 1000;
+  return err;
+}
 
 /**
  * Get the Bearer token from the session endpoint.
  */
-async function getToken() {
-  if (cachedToken) return cachedToken;
-
-  const resp = await fetch(CHATGPT_SESSION_API, {
-    credentials: 'include',
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Failed to get session: ${resp.status}`);
-  }
-
+async function getToken(refresh = false) {
+  if (cachedToken && !refresh) return cachedToken;
+  const resp = await fetch(CHATGPT_SESSION_API, { credentials: 'include' });
+  if (!resp.ok) throw httpError('Failed to get ChatGPT session', resp);
   const session = await resp.json();
-  cachedToken = session.accessToken;
-  if (!cachedToken) throw new Error('No access token in session');
+  cachedToken = session.accessToken || null;
+  if (!cachedToken) throw new Error('Not signed in to ChatGPT in this tab');
   return cachedToken;
+}
+
+/** GET a backend-api URL, refreshing the access token once if it expired. */
+async function apiGet(url, label) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getToken(attempt > 0);
+    const resp = await fetch(url, {
+      credentials: 'include',
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+    });
+    if (resp.status === 401 && attempt === 0) continue;
+    if (!resp.ok) throw httpError(label, resp);
+    return resp.json();
+  }
+  throw new Error(`${label}: unauthorized`);
 }
 
 /**
@@ -38,35 +54,39 @@ async function getToken() {
  * Returns [{ id, title, create_time, update_time }].
  */
 async function listConversations() {
-  const token = await getToken();
   const all = [];
-
-  let offset = 0;
+  const seen = new Set();
   const limit = 100;
-  while (true) {
-    const url = `${CHATGPT_LIST_API}?offset=${offset}&limit=${limit}&order=updated&hide_snorlax=false`;
-    const resp = await fetch(url, {
-      credentials: 'include',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!resp.ok) {
-      throw new Error(`Failed to list conversations at offset ${offset}: ${resp.status}`);
-    }
-
-    const data = await resp.json();
+  for (let offset = 0; ; ) {
+    const url = `${CHATGPT_LIST_API}?offset=${offset}&limit=${limit}&order=updated`;
+    const data = await apiGet(url, `Failed to list conversations at offset ${offset}`);
     const items = data.items || [];
-    all.push(...items);
-
-    // total is offset + items + 1, a "there's more" hint.
-    if (items.length < limit) break;
-    offset += limit;
+    for (const item of items) {
+      if (item?.id && !seen.has(item.id)) {
+        seen.add(item.id);
+        all.push(item);
+      }
+    }
+    offset += items.length;
+    if (items.length === 0) break;
+    if (Number.isFinite(data.total) ? offset >= data.total : items.length < limit) break;
   }
-
   return all;
+}
+
+/** Text of a message's content, whatever its content_type. */
+function messageText(content) {
+  if (Array.isArray(content.parts)) {
+    return content.parts
+      .map((p) => (typeof p === 'string' ? p : p?.text || ''))
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (typeof content.text === 'string') return content.text;
+  if (Array.isArray(content.thoughts)) {
+    return content.thoughts.map((t) => `[thinking] ${t.content || ''}`).join('\n\n');
+  }
+  return '';
 }
 
 /**
@@ -80,15 +100,15 @@ function walkActiveLineage(mapping, currentNodeId) {
   while (current && mapping[current]) {
     const node = mapping[current];
     const msg = node.message;
-    if (msg && msg.author && msg.content) {
+    const hidden = msg?.metadata?.is_visually_hidden_from_conversation
+      || msg?.content?.content_type === 'user_editable_context';
+    const content = msg?.content ? messageText(msg.content).trim() : '';
+    if (msg && msg.author && content && !hidden) {
       const role = msg.author.role;
-      const parts = (msg.content.parts || [])
-        .filter((p) => typeof p === 'string')
-        .join('\n');
       messages.unshift({
         provider_message_id: msg.id,
         role: role === 'tool' ? 'tool' : role,
-        content: parts,
+        content,
         created_at: msg.create_time ? new Date(msg.create_time * 1000).toISOString() : null,
         model: msg.metadata?.model_slug || null,
       });
@@ -103,20 +123,10 @@ function walkActiveLineage(mapping, currentNodeId) {
  * Fetch one full conversation.
  */
 async function fetchConversation(conversationId) {
-  const token = await getToken();
-  const resp = await fetch(CHATGPT_CONVERSATION_API(conversationId), {
-    credentials: 'include',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/json',
-    },
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch conversation ${conversationId}: ${resp.status}`);
-  }
-
-  const raw = await resp.json();
+  const raw = await apiGet(
+    CHATGPT_CONVERSATION_API(conversationId),
+    `Failed to fetch conversation ${conversationId}`,
+  );
   const messages = walkActiveLineage(raw.mapping || {}, raw.current_node);
 
   // Extract attachments from message metadata.
@@ -150,53 +160,6 @@ async function fetchConversation(conversationId) {
 }
 
 /**
- * Fetch multiple conversations via batch endpoint (max 10 at a time).
- */
-async function fetchConversationsBatch(ids) {
-  if (ids.length === 0) return [];
-  if (ids.length > 10) {
-    throw new Error('Batch limited to 10 conversations at a time');
-  }
-
-  const token = await getToken();
-  const resp = await fetch(CHATGPT_BATCH_API, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({ conversation_ids: ids }),
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Batch fetch failed: ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  const results = [];
-  for (const item of data.items || data || []) {
-    const messages = walkActiveLineage(item.mapping || {}, item.current_node);
-    results.push({
-      provider: 'chatgpt',
-      provider_conversation_id: item.conversation_id || item.id,
-      title: item.title || '',
-      model: item.default_model_slug || null,
-      created_at: item.create_time
-        ? new Date(item.create_time * 1000).toISOString()
-        : null,
-      updated_at: item.update_time
-        ? new Date(item.update_time * 1000).toISOString()
-        : null,
-      messages,
-      attachments: [],
-    });
-  }
-  return results;
-}
-
-/**
  * Extract the currently open conversation from the page context.
  */
 async function extractCurrentConversation() {
@@ -210,8 +173,7 @@ async function extractCurrentConversation() {
 // Registered for the content script: MV3 content scripts are classic scripts
 // and cannot import ES modules, so providers attach to a shared global.
 (globalThis.__subzeroProviders ||= {}).chatgpt = {
-  getToken, listConversations, fetchConversation,
-  fetchConversationsBatch, extractCurrentConversation,
+  getToken, listConversations, fetchConversation, extractCurrentConversation,
 };
 
 })();
