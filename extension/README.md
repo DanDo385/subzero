@@ -1,6 +1,6 @@
 # Subzero Browser Extension
 
-Captures AI chat sessions from Claude, ChatGPT, Gemini and Grok into your Subzero database.
+Captures AI chat sessions from Claude, ChatGPT, Gemini, Grok and Muse into your Subzero database.
 
 ## Supported Browsers
 
@@ -57,8 +57,20 @@ npm run backfill    # Dry-run backfill (add --run for real import)
 ## Permissions
 
 - `storage` — Queue persistence, settings, device token
+- `scripting` — Reconnect capture scripts in supported tabs opened before installation
 - `alarms` — Periodic queue processing and sync
 - `sidePanel` — Project handoff display
-- Host: `claude.ai`, `chatgpt.com`, `gemini.google.com`, `grok.com`
+- Host: `claude.ai`, `chatgpt.com`, `gemini.google.com`, `grok.com`, `muse.ai`
 
 No `clipboardRead`, no `downloads`. Conversations go to the server, not local files.
+
+## Capture and delivery troubleshooting
+
+After updating, reload the extension and refresh chat tabs. Import and Save Now attempt
+to reconnect missing capture scripts. Queued conversations are waiting in browser storage.
+Reopen the popup to see the last server-confirmed delivery and its destination address.
+Provider errors wrap in full, including ingest failures.
+
+Claude and ChatGPT support API history import. Gemini, Grok and Muse capture the open
+conversation only. Their selectors require testing against the current live sites.
+See [the browser guide](../docs/guides/13-browser-extension.md) for verification steps.

@@ -5,14 +5,24 @@
 const QUEUE_KEY = 'captureQueue';
 const DEAD_LETTER_KEY = 'deadLetterQueue';
 const MAX_RETRIES = 3;
-const BASE_DELAY_MS = 5000; // 5 seconds
+// Queue reads and writes share a lock, including overlapping alarm ticks.
+let pending = Promise.resolve();
+function serialize(operation) {
+  const result = pending.then(operation);
+  pending = result.catch(() => {});
+  return result;
+}
 
 import { ingestConversation } from './api.js';
 
 /**
  * Add a capture payload to the queue.
  */
-async function enqueue(payload) {
+function enqueue(payload) {
+  return serialize(() => enqueueUnlocked(payload));
+}
+
+async function enqueueUnlocked(payload) {
   const { [QUEUE_KEY]: queue } = await chrome.storage.local.get(QUEUE_KEY);
   const items = queue || [];
   items.push({
@@ -27,7 +37,11 @@ async function enqueue(payload) {
  * Process one item from the queue. Called by the service worker alarm.
  * Returns true if an item was processed, false if queue is empty.
  */
-async function processOne() {
+function processOne() {
+  return serialize(processOneUnlocked);
+}
+
+async function processOneUnlocked() {
   const { [QUEUE_KEY]: queue } = await chrome.storage.local.get(QUEUE_KEY);
   if (!queue || queue.length === 0) return false;
 
@@ -37,12 +51,25 @@ async function processOne() {
   try {
     const result = await ingestConversation(item);
     console.log('[subzero] Ingested:', result.status, result.messages_inserted, 'messages');
-    await chrome.storage.local.set({ [QUEUE_KEY]: items });
+    const { lastDelivery = {}, deliveryErrors = {} } = await chrome.storage.local.get([
+      'lastDelivery', 'deliveryErrors',
+    ]);
+    lastDelivery[item.provider] = {
+      at: new Date().toISOString(),
+      conversationId: result.conversation_id,
+      messagesInserted: result.messages_inserted,
+      serverUrl: result.serverUrl,
+    };
+    delete deliveryErrors[item.provider];
+    await chrome.storage.local.set({ [QUEUE_KEY]: items, lastDelivery, deliveryErrors });
     return true;
   } catch (err) {
     console.error('[subzero] Ingest failed:', err.message);
     item._retries = (item._retries || 0) + 1;
     item._lastError = err.message;
+    const { deliveryErrors = {} } = await chrome.storage.local.get('deliveryErrors');
+    deliveryErrors[item.provider] = err.message;
+    await chrome.storage.local.set({ deliveryErrors });
 
     if (item._retries >= MAX_RETRIES) {
       // Move to dead letter queue.
@@ -67,13 +94,15 @@ async function processOne() {
  */
 async function getStatus() {
   const { [QUEUE_KEY]: queue, [DEAD_LETTER_KEY]: dead,
-          lastSync, isPaused } = await chrome.storage.local.get([
-    QUEUE_KEY, DEAD_LETTER_KEY, 'lastSync', 'isPaused',
+          lastSync, lastDelivery, deliveryErrors, isPaused } = await chrome.storage.local.get([
+    QUEUE_KEY, DEAD_LETTER_KEY, 'lastSync', 'lastDelivery', 'deliveryErrors', 'isPaused',
   ]);
   return {
     queueLength: (queue || []).length,
     deadLength: (dead || []).length,
     lastSync: lastSync || {},
+    lastDelivery: lastDelivery || {},
+    deliveryErrors: deliveryErrors || {},
     isPaused: isPaused || false,
   };
 }

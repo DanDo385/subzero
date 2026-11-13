@@ -4,8 +4,8 @@ The extension is the piece that lives in your browser. It does three jobs:
 
 1. **Live capture** — while you chat in Claude, ChatGPT, Gemini, Grok or Muse, it saves the
    conversation into Subzero as you go, so nothing is lost when you close the tab.
-2. **Backfill** — it walks your existing conversation history in each app and imports the chats
-   you had before the extension was installed.
+2. **Backfill** — Claude and ChatGPT import history through their internal APIs. Gemini, Grok
+   and Muse capture the open conversation. Their page selectors need live verification as sites change.
 3. **Session bridge** — it shows a live coding session from your terminal (any CLI harness that
    checkpoints to Subzero) in a side panel, and lets you type replies back from the browser.
 
@@ -32,7 +32,8 @@ straight from that folder — there is nothing to build and nothing to install f
 button on it.
 
 > If you change the extension's files later (or pull an update), click the small **reload**
-> arrow on its card to pick the changes up.
+> arrow on its card to pick the changes up. Refresh open chat tabs afterward. Import and Save
+> Now also try reconnecting the capture script when a tab was open before installation.
 
 ## Step 2: Pair your browser
 
@@ -65,7 +66,8 @@ instead.
 Open any of the five apps and chat as usual. The extension notices when a reply finishes and
 queues the conversation by itself. You do not have to do anything per-message.
 
-The popup (click the toolbar icon) shows, for each provider, when it last synced. Two buttons
+The popup shows each provider's last confirmed server delivery, including the server address.
+Older capture timestamps do not count as confirmed delivery. Two buttons
 sit under the list:
 
 - **Save Now** — capture the conversation in the tab you are looking at, right now.
@@ -82,18 +84,21 @@ Backfill imports the conversations that happened *before* the extension was inst
    you are not signed in to.
 2. Click **Backfill All**, or press **Import** on a single provider's row to do just that one.
 3. Leave the tabs open while it works. Each row shows what it is doing: *Listing
-   conversations…*, then *Imported N conversations*.
+   conversations…*, then *Queued N conversations*.
 
-**Success looks like:** each provider row ends on a green *Imported N conversations*, and the
-same conversations appear in Subzero (your Obsidian notebook and search, once processed).
+**Success looks like:** reopen the popup after the queue processes, normally within a minute
+for one conversation. The provider row shows *Saved to server* and the intended server address.
+Check the conversation in Subzero search. A queued count only confirms browser storage.
+An ingest error appears on the provider row and remains visible in the service worker console.
 
 Notes:
 
 - Backfill is gentle on purpose: about one conversation every two seconds, so the apps do not
   rate-limit you. A large history can take a while; that is normal.
 - Claude and ChatGPT list every conversation through their own internal interface, so backfill
-  sees all of them. Gemini, Grok and Muse are read from what the page shows, so scroll their
-  sidebar to the bottom first if you want the oldest chats included.
+  can walk available history. Gemini, Grok and Muse capture only the currently open conversation.
+  Open each saved conversation and use Save Now. A missing conversation ID or unrecognized
+  page layout produces an error that needs provider-specific investigation.
 - Running a backfill twice is safe — already-saved messages are skipped.
 
 ## Step 5: The session bridge
@@ -126,6 +131,9 @@ the same text your coding sessions read when they start.
 | The popup only shows the pairing box | The browser is not paired yet, or its pairing was revoked. Run `subzero pair-device` again and re-enter the code. |
 | *Device token expired or revoked. Re-pair the browser.* | The server forgot this browser. Pair again. |
 | *No claude tab open* (or another provider) | Backfill needs a signed-in tab for that app. Click **Open All Tabs**, sign in, then retry. |
+| *Receiving end does not exist* or *Refresh the … tab and allow Subzero site access* | Reload the extension and refresh the provider tab. In extension Details, allow access to that provider site. The extension attempts script recovery on Import and Save Now. |
+| *No conversation ID found* | Open a saved conversation with its own URL and try again. If the error persists, the provider extractor needs an update. |
+| *No confirmed delivery yet* | Capture has not received a server acknowledgement. Check the queue count, the Pause setting, and any delivery error. |
 | A row stuck on *Importing…* | The tab went to sleep or was closed. Reopen the provider tab and press **Import** again; already-saved messages are skipped. |
 | *zsh: command not found: subzero* | You ran the pairing command outside the project. Use the `op run --env-file=…` form from Step 2, or install the command first. |
 | Pairing command fails with a database connection error | The database settings are not loaded. Use the `op run --env-file=deploy/admin.env.op -- …` form, which supplies them. |
