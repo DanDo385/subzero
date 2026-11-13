@@ -20,10 +20,10 @@ from pathlib import Path
 
 from subzero.errors import PathSecurityError
 from subzero.obsidian.paths import resolve_in_vault
-from subzero.obsidian.render import PC_ID_PREFIX
+from subzero.obsidian.render import SUBZERO_ID_PREFIX
 from subzero.util import sha256_bytes
 
-_ID_MARKER = re.compile(rf"<!--\s*{re.escape(PC_ID_PREFIX)}([0-9a-fA-F-]{{36}})\s*-->")
+_ID_MARKER = re.compile(rf"<!--\s*{re.escape(SUBZERO_ID_PREFIX)}([0-9a-fA-F-]{{36}})\s*-->")
 _CHECKBOX = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.*)$")
 _PC_ID_FRONTMATTER = re.compile(r"^pc_id:\s*([0-9a-fA-F-]{36})\s*$", re.M)
 

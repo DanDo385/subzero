@@ -7,7 +7,7 @@ there. So it is the redirect URI, never the display name, that decides:
 
 * whether the client may sign in at all (an allowlist of known apps' callback
   URLs plus loopback for local tools), and
-* which app the client is, for ``PC_CLIENT_SCOPE_POLICY`` keys such as
+* which app the client is, for ``SUBZERO_CLIENT_SCOPE_POLICY`` keys such as
   ``"grok"`` and for audit rows.
 """
 
@@ -43,7 +43,7 @@ LOOPBACK_REDIRECT_PATTERNS: tuple[str, ...] = ("http://localhost", "http://127.0
 
 def allowed_redirect_patterns(extra: Iterable[str] = ()) -> list[str]:
     """Every redirect pattern a client may use: the known apps, loopback, and
-    the operator's own additions from ``PC_ALLOWED_REDIRECT_URIS``."""
+    the operator's own additions from ``SUBZERO_ALLOWED_REDIRECT_URIS``."""
     patterns = [p for app in APP_REDIRECT_PATTERNS.values() for p in app]
     patterns.extend(LOOPBACK_REDIRECT_PATTERNS)
     patterns.extend(p.strip() for p in extra if p.strip())

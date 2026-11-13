@@ -18,6 +18,7 @@ from uuid import UUID
 
 import asyncpg
 
+from subzero import sigils
 from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
@@ -25,6 +26,7 @@ from subzero.classifier.service import ClassificationService
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
+from subzero.homes import home_metadata
 from subzero.lists.service import ListService
 from subzero.logging_setup import get_logger
 from subzero.memory.service import MemoryService
@@ -116,7 +118,7 @@ class SessionService:
                 model = coalesce(EXCLUDED.model, conversations.model),
                 project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
                 updated_at = now()
-            RETURNING id, (xmax = 0) AS created
+            RETURNING id, project_id, metadata, (xmax = 0) AS created
             """,
             provider,
             external_id,
@@ -129,6 +131,15 @@ class SessionService:
         )
         if row is None:  # pragma: no cover - the upsert always returns a row
             raise RuntimeError("conversation upsert returned no row")
+        if not (row["metadata"] or {}).get("home"):
+            slug = await executor.fetchval(
+                "SELECT slug FROM projects WHERE id = $1", row["project_id"]
+            )
+            await executor.execute(
+                "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
+                row["id"],
+                home_metadata(None, slug),
+            )
         return row["id"], bool(row["created"])
 
     async def add_messages(
@@ -146,7 +157,7 @@ class SessionService:
             "SELECT coalesce(max(sequence), -1) + 1 FROM messages WHERE conversation_id = $1",
             conversation_id,
         )
-        for offset, message in enumerate(messages):
+        for message in messages:
             content = (message.get("content") or "").strip()
             if not content:
                 continue
@@ -178,7 +189,9 @@ class SessionService:
                 content,
                 sha256_text(content),
                 provenance,
-                message.get("sequence", start + offset),
+                # Next free slot: messages already stored (skipped above) take
+                # none, so re-sent conversations append without gaps.
+                message.get("sequence", start + inserted),
                 message.get("created_at"),
                 message.get("metadata") or {},
             )
@@ -209,6 +222,9 @@ class SessionService:
         model: str | None = None,
         sensitivity: str = "normal",
         historical_import: bool = False,
+        home: str | None = None,
+        concepts: list[str] | None = None,
+        queue_for_vault: bool = True,
     ) -> CheckpointResult:
         decisions = decisions or []
         facts = facts or []
@@ -229,10 +245,26 @@ class SessionService:
             if n:
                 bucket[key] = bucket.get(key, 0) + n
 
+        # ---- 0. sigils the user typed beat any model judgement -----------
+        # %project only names a project (matched below, never created); a
+        # ^lesson or &setup home is used as is; #concepts and @people tag.
+        marks = sigils.parse_all(title, summary)
+        people: list[str] | None = list(marks.people) or None
+        if marks.any:
+            if marks.project and not project and not (home or "").startswith("projects/"):
+                project = marks.project
+            if not home and marks.home and not marks.home.startswith("projects/"):
+                home = marks.home
+            if concepts is None and marks.concepts:
+                concepts = list(marks.concepts)
+            notes_out.append("Sigils read: " + " ".join(marks.found))
+
         # ---- 1. classify first, so routing informs what we write ---------
         # A project the caller names outright decides where the session goes.
         # It is matched like a search filter (slug, name, alias, near
         # misspelling) and never creates a project.
+        if home and home.startswith("projects/") and not project:
+            project = home.removeprefix("projects/")
         explicit = await self._match_project(project) if project and project.strip() else None
         if project and project.strip() and explicit is None:
             notes_out.append(
@@ -315,6 +347,34 @@ class SessionService:
                     routed_project_id,
                 )
                 await self._projects.touch(routed_project_id, conn=conn)
+
+            saved = await conn.fetchrow(
+                "SELECT c.metadata, p.slug FROM conversations c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = $1 FOR UPDATE OF c",
+                conversation_id,
+            )
+            assert saved is not None
+            previous = saved["metadata"] or {}
+            # An explicit project can replace the initial unassigned home.
+            default_home = None if (explicit and not home) else previous.get("home")
+            metadata = home_metadata(
+                home or default_home,
+                saved["slug"],
+                concepts
+                if concepts is not None
+                else [
+                    t.removeprefix("concept/")
+                    for t in previous.get("tags", [])
+                    if t.startswith("concept/")
+                ],
+                people
+                if people is not None
+                else [t for t in previous.get("tags", []) if t.startswith("person/")],
+            )
+            await conn.execute(
+                "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
+                conversation_id,
+                metadata,
+            )
 
             # -- session summary (layer 2) --------------------------------
             summary_id = None
@@ -503,6 +563,12 @@ class SessionService:
                         await self._lists.update_item(item_id, status="dropped", conn=conn)
                         bump(updated, "list_items")
 
+            await conn.execute(
+                "UPDATE session_summaries SET metadata = metadata || $2::jsonb WHERE conversation_id = $1",
+                conversation_id,
+                metadata,
+            )
+
             # -- artifact associations ------------------------------------
             for artifact_ref in artifacts:
                 if artifact_ref.artifact_id is None:
@@ -537,6 +603,8 @@ class SessionService:
         review_items = 0
         if (
             summary_id
+            and queue_for_vault
+            and sensitivity == "normal"
             and routing.promote_to_vault is Verdict.YES
             and self._settings.obsidian_enabled
         ):
@@ -546,10 +614,14 @@ class SessionService:
                 title=title or "Session summary",
                 summary=summary or "",
                 destination=routing.destination or "inbox",
-                project_slug=routing.project_slug,
+                project_slug=saved["slug"],
                 provider=provider,
                 classification_event_id=event_id,
                 open_questions=open_questions,
+                home=metadata["home"],
+                concepts=[
+                    t.removeprefix("concept/") for t in metadata["tags"] if t.startswith("concept/")
+                ],
             )
 
         if routing.needs_review:
@@ -598,6 +670,7 @@ class SessionService:
                 "model": result.model,
                 "degraded": result.degraded,
                 **routing.as_json(),
+                **metadata,
             },
             queued_vault_jobs=queued,
             review_items=review_items,
@@ -732,6 +805,8 @@ class SessionService:
         provider: str,
         classification_event_id: UUID | None,
         open_questions: list[str],
+        home: str,
+        concepts: list[str],
     ) -> int:
         if destination == "archive_only":
             return 0
@@ -749,10 +824,10 @@ class SessionService:
             source_conversation_id=conversation_id,
             provenance="assistant_generated",
             append=True,
+            home=home,
+            concepts=concepts,
         )
-        vault_path = self._paths.note(
-            note_class=destination, title=title, project_slug=project_slug
-        )
+        vault_path = self._paths.home_note(home, title)
         note = await self._notes.get(str(note_id))
         await self._db.execute(
             "UPDATE notes SET vault_path = $2 WHERE id = $1 AND vault_path IS NULL",

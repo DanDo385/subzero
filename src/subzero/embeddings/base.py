@@ -3,7 +3,7 @@
 Core code never imports a vendor SDK. Two rules are enforced here rather than
 at the call sites, because a call site that forgets them leaks private text:
 
-* content classified at a sensitivity level in ``PC_NO_EXTERNAL_SENSITIVITY``
+* content classified at a sensitivity level in ``SUBZERO_NO_EXTERNAL_SENSITIVITY``
   is never sent to an external API;
 * text is truncated and optionally redacted before it leaves the process.
 """

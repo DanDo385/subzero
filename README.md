@@ -1,4 +1,4 @@
-# personal-context-mcp
+# subzero
 
 **One shared memory for ChatGPT, Claude, Gemini and Grok, and a tidy Obsidian notebook built from it.**
 
@@ -7,7 +7,7 @@ to Claude on Tuesday and to Gemini on Wednesday. Each app remembers a little, no
 what the others were told, and years of useful conversations sit in four separate apps you can't search
 together.
 
-personal-context-mcp fixes that. It's a small server **you** own, and all four apps connect to it:
+subzero fixes that. It's a small server **you** own, and all four apps connect to it:
 
 - **Tell one app, and all of them know.** Decisions, preferences, projects, to-do lists and files are
   saved in one place that every app reads from and writes to.
@@ -33,7 +33,7 @@ flowchart LR
         C[Gemini]
         D[Grok]
     end
-    Apps -->|"connect with a web address<br/>and sign in once"| S["Your personal-context server<br/>(free hosting, e.g. Vercel)"]
+    Apps -->|"connect with a web address<br/>and sign in once"| S["Your subzero server<br/>(free hosting, e.g. Vercel)"]
     S --> DB[("Your database<br/>(free Supabase account)")]
     S -.->|notes| W["A small helper on your computer"]
     W --> O[("Your Obsidian notebook")]
@@ -92,15 +92,17 @@ Follow the guides in order. Each one ends with a check that tells you it worked.
 | 10 | [Build your wiki: links and maps](docs/guides/10-build-your-wiki.md) | 10 min | Optional |
 | 11 | [Gemini without custom apps](docs/guides/11-gemini-without-custom-apps.md) | 15 min | Only if on Gemini Plus/free |
 | 12 | [Daily use: what to expect](docs/guides/12-daily-use.md) | 5 min | Read after connecting |
-| 13 | [The browser extension](docs/guides/13-browser-extension.md) | 10 min | Optional |
+| 13 | [The browser extension](docs/guides/13-browser-extension.md) | 10 min | Optional: save chats from any app, and backfill old ones |
+| 14 | [Run it on your Mac over Tailscale](docs/guides/14-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
+| 15 | [Agents, messages and the board](docs/guides/15-agents-messages-and-the-board.md) | 15 min | Optional: coding agents share one prompt, message each other; a live board |
 
 The quickest possible start, if you already have the tools:
 
 ```bash
-git clone https://github.com/DanDo385/personal-context-mcp.git
-cd personal-context-mcp
+git clone https://github.com/DanDo385/subzero.git
+cd subzero
 uv sync
-uv run personal-context-mcp init      # answers a few questions and writes your settings to .env.local
+uv run subzero init      # answers a few questions and writes your settings to .env.local
 ```
 
 **Where your settings go:** everything personal (addresses, keys, passwords) lives in one file,
@@ -114,7 +116,7 @@ know are explained in the [Glossary](docs/glossary.md).
 
 ## What the AI apps can do with it
 
-Once connected, each app gets tools like these (48 in total). It uses them on its own when your
+Once connected, each app gets tools like these. It uses them on its own when your
 request needs them, and you can also ask for them directly.
 
 | You say... | What happens |
@@ -124,10 +126,17 @@ request needs them, and you can also ask for them directly.
 | "Add oat milk to my shopping list." | Updates your real list, visible everywhere and in Obsidian. |
 | "Save this chart to my research project." | Stores the file itself, not just its name, in your storage. |
 | "Where did we leave the website redesign?" | Pulls the project's status, decisions and open tasks. |
+| "Search my memory for Neovim." | Searches with a short query chosen from the topic. |
+| "Save this." | Saves the session with one home and concept tags. |
+| "Email this to reader@example.com." | Shows a draft, then sends only after you confirm. Optional AgentMail setup required for real mail. |
+| "Send this to my vault." | Queues a note, summary or two-way list and reports whether the worker has written it. |
 | *(at the end of a useful chat)* | The app saves what was decided, in one step, without duplicates. |
 
 The same abilities are packaged as [skills](skills/) for apps that support them, and a
 [short custom instruction](instructions/shared.md) teaches every app when to use them.
+The named actions are `search`, `save`, `email` and `vault`, also available as MCP prompts
+for clients that show slash commands. See [daily use](docs/guides/12-daily-use.md) for
+email setup, draft confirmation and vault folder mapping.
 
 ---
 

@@ -56,7 +56,7 @@ def test_online_answers_pass_production_validation(tmp_path: Path) -> None:
     # The worker and the server agree on the shared key.
     text = env.read_text()
     key = answers.generated["worker_api_key"]
-    assert f"PC_WORKER_API_KEY={key}" in text and f"OBSIDIAN_SYNC_API_KEY={key}" in text
+    assert f"SUBZERO_WORKER_API_KEY={key}" in text and f"OBSIDIAN_SYNC_API_KEY={key}" in text
 
 
 def test_every_run_generates_fresh_secrets() -> None:
@@ -85,18 +85,18 @@ def test_init_writes_a_private_file_and_refuses_to_overwrite(tmp_path: Path) -> 
 def test_env_local_overrides_env(tmp_path: Path, monkeypatch) -> None:
     """Settings load .env, then .env.local on top; a real environment variable beats both."""
     monkeypatch.chdir(tmp_path)
-    for name in ("PC_BASE_URL", "PC_LOG_LEVEL", "PC_DATABASE_URL"):
+    for name in ("SUBZERO_BASE_URL", "SUBZERO_LOG_LEVEL", "SUBZERO_DATABASE_URL"):
         monkeypatch.delenv(name, raising=False)
     (tmp_path / ".env").write_text(
-        "PC_DATABASE_URL=postgres://from-env\nPC_BASE_URL=http://from-env\nPC_LOG_LEVEL=DEBUG\n"
+        "SUBZERO_DATABASE_URL=postgres://from-env\nPC_BASE_URL=http://from-env\nPC_LOG_LEVEL=DEBUG\n"
     )
-    (tmp_path / ".env.local").write_text("PC_BASE_URL=https://from-env-local\n")
+    (tmp_path / ".env.local").write_text("SUBZERO_BASE_URL=https://from-env-local\n")
 
     settings = Settings()
     assert str(settings.base_url).rstrip("/") == "https://from-env-local"
     assert settings.log_level == "DEBUG"  # only in .env, still read
 
-    monkeypatch.setenv("PC_BASE_URL", "https://from-process")
+    monkeypatch.setenv("SUBZERO_BASE_URL", "https://from-process")
     assert str(Settings().base_url).rstrip("/") == "https://from-process"
 
 

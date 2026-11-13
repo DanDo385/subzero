@@ -15,9 +15,9 @@ there's no telemetry.
 
 ## Who can connect
 
-Only the Google account(s) listed in `PC_ALLOWED_SUBJECTS`. The check happens on every request: a
+Only the Google account(s) listed in `SUBZERO_ALLOWED_SUBJECTS`. The check happens on every request: a
 valid Google sign-in from any other account is refused. Each AI app is also given only the
-permissions you allow it (`PC_CLIENT_SCOPE_POLICY`; for example, you can make one app read-only).
+permissions you allow it (`SUBZERO_CLIENT_SCOPE_POLICY`; for example, you can make one app read-only).
 Someone who merely finds your server's address learns nothing: every unauthenticated request gets the
 same refusal.
 
@@ -25,9 +25,9 @@ same refusal.
 
 | Service | Only if | What it receives | What it never receives |
 | --- | --- | --- | --- |
-| **TypeSafe (Jev)** | you set `PC_TYPESAFE_API_KEY` | a short excerpt of a conversation or note, with emails, keys, tokens and long numbers removed | anything at a level in `PC_NO_EXTERNAL_SENSITIVITY` |
-| **Anthropic (Claude)** | you set `PC_ANTHROPIC_API_KEY` **and** run `extract` | full transcripts of the conversations flagged as worth reading, with the same removals | the same; plus nothing runs until you ask |
-| **OpenAI / Gemini embeddings** | you set `PC_EMBEDDING_PROVIDER` (off by default) | text to index for meaning-based search | the same |
+| **TypeSafe (Jev)** | you set `SUBZERO_TYPESAFE_API_KEY` | a short excerpt of a conversation or note, with emails, keys, tokens and long numbers removed | anything at a level in `SUBZERO_NO_EXTERNAL_SENSITIVITY` |
+| **Anthropic (Claude)** | you set `SUBZERO_ANTHROPIC_API_KEY` **and** run `extract` | full transcripts of the conversations flagged as worth reading, with the same removals | the same; plus nothing runs until you ask |
+| **OpenAI / Gemini embeddings** | you set `SUBZERO_EMBEDDING_PROVIDER` (off by default) | text to index for meaning-based search | the same |
 
 ### The privacy screen
 
@@ -45,9 +45,9 @@ you can read.
 ### Three privacy settings
 
 ```
-PC_NO_EXTERNAL_SENSITIVITY=highly_sensitive            # default
-PC_NO_EXTERNAL_SENSITIVITY=private,highly_sensitive    # also keep health/legal/money local
-PC_IMPORT_DEFAULT_SENSITIVITY=highly_sensitive         # keep your entire imported history local
+SUBZERO_NO_EXTERNAL_SENSITIVITY=highly_sensitive            # default
+SUBZERO_NO_EXTERNAL_SENSITIVITY=private,highly_sensitive    # also keep health/legal/money local
+SUBZERO_IMPORT_DEFAULT_SENSITIVITY=highly_sensitive         # keep your entire imported history local
 ```
 
 ## Costs

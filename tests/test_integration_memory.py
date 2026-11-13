@@ -1,6 +1,6 @@
 """Integration: memory, dedup, projects, lists, retrieval, checkpoints.
 
-Requires PC_TEST_DATABASE_URL pointing at a throwaway Postgres with pgvector.
+Requires SUBZERO_TEST_DATABASE_URL pointing at a throwaway Postgres with pgvector.
 """
 
 from __future__ import annotations

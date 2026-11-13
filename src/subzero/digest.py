@@ -1,4 +1,4 @@
-"""A readable digest of Personal Context, for assistants that cannot connect.
+"""A readable digest of Subzero, for assistants that cannot connect.
 
 Some assistants (Gemini on plans without custom apps, for example) cannot
 reach the MCP server. The digest gives them the same context as a document:
@@ -6,7 +6,7 @@ who the person is and how they like to work, active projects, recent
 decisions, open tasks, recent sessions and open questions.
 
 It is built only from stored rows, never by a model, and it leaves out
-anything at a sensitivity level listed in PC_NO_EXTERNAL_SENSITIVITY,
+anything at a sensitivity level listed in SUBZERO_NO_EXTERNAL_SENSITIVITY,
 because the document is meant to be handed to a third-party service.
 """
 
@@ -21,7 +21,7 @@ from subzero.db.pool import Database
 from subzero.util import truncate_for_budget
 
 PREAMBLE = """\
-This document is {owner}'s Personal Context: their shared memory across ChatGPT,
+This document is {owner}'s Subzero: their shared memory across ChatGPT,
 Claude, Gemini and Grok, regenerated automatically on {date}. Treat it as
 background knowledge about them. Prefer it over guesses, prefer what they say in
 the current conversation over it, and do not quote it back unless asked.

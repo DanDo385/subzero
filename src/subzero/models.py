@@ -22,7 +22,7 @@ Provenance = Literal[
     "system",
 ]
 Sensitivity = Literal["normal", "private", "highly_sensitive"]
-ProviderId = Literal["chatgpt", "claude", "gemini", "grok", "system"]
+ProviderId = Literal["chatgpt", "claude", "gemini", "grok", "muse", "codex", "system"]
 StorageStatus = Literal["captured", "referenced", "pending_import", "failed"]
 
 MemoryKind = Literal["fact", "preference", "relationship", "decision", "knowledge"]
@@ -256,6 +256,8 @@ class NoteRecord(Base):
     version: int
     updated_at: datetime
     content: str | None = None
+    home: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class ArtifactFileRecord(Base):

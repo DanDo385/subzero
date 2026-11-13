@@ -7,9 +7,9 @@ government identifiers, payment card numbers, or talks in plain terms about
 health, legal or personal-finance matters.
 
 A conversation screened ``highly_sensitive`` is classified by the local rules
-only (see ``PC_NO_EXTERNAL_SENSITIVITY``), is never sent for deep extraction,
+only (see ``SUBZERO_NO_EXTERNAL_SENSITIVITY``), is never sent for deep extraction,
 and never auto-promotes to the vault. ``private`` still reaches Jev, redacted,
-unless ``PC_NO_EXTERNAL_SENSITIVITY`` also lists ``private``.
+unless ``SUBZERO_NO_EXTERNAL_SENSITIVITY`` also lists ``private``.
 
 The patterns live here, in one file, so they can be reviewed the way
 ``classifier/questions.py`` is.

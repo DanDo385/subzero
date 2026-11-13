@@ -13,7 +13,7 @@ Show: App name "Subzero" filled in, User support email field, Audience "External
 ### `google-oauth-redirect-uri.png`
 The "Create client" page with the Authorised redirect URIs section visible.
 Show: Application type "Web application", one redirect URI like
-`https://personal-context-mcp.vercel.app/auth/callback` filled in, and the Client ID/Secret box
+`https://subzero.vercel.app/auth/callback` filled in, and the Client ID/Secret box
 that appears after clicking Create.
 
 ### `supabase-connect.png`
@@ -26,7 +26,7 @@ Show: Project URL field, and the `service_role` key field (partially blurred for
 
 ### `vercel-domains.png`
 The Vercel project page, Domains tab.
-Show: the `personal-context-mcp.vercel.app` address under "Production", and the Domains section.
+Show: the `subzero.vercel.app` address under "Production", and the Domains section.
 
 ## Usage in guides
 

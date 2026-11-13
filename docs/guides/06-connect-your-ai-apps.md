@@ -4,7 +4,7 @@ Each app is connected **once, on a computer, in its website**. After that the co
 the app's phone version. Every app follows the same three steps:
 
 1. **Add a connector** with your server's address followed by `/mcp`, for example
-   `https://personal-context-mcp.vercel.app/mcp`.
+   `https://subzero.vercel.app/mcp`.
 2. **Sign in with Google** in the window that opens, choosing the account whose email you gave the
    setup wizard.
 3. **Paste the custom instruction** so the app knows when to use its new memory.
@@ -14,7 +14,7 @@ the app's phone version. Every app follows the same three steps:
 Before adding it to any app, let your computer connect to the server the same way the apps do:
 
 ```bash
-uv run personal-context-mcp probe https://<your-address>/mcp
+uv run subzero probe https://<your-address>/mcp
 ```
 
 ✅ It prints what the server answered at each step and ends with `All 7 checks passed.` That means
@@ -26,36 +26,42 @@ which step broke; fix that before connecting any app.
 Copy the text below and paste it into each app's custom instruction field:
 
 ```
-You have access to Subzero, my canonical cross-provider memory shared
-across ChatGPT, Claude, Gemini and Grok.
+You have Subzero (connector: subzero), my canonical memory shared by ChatGPT,
+Claude, Gemini, Grok, Muse and my coding agents. Ignore any older connector
+named personal-context-mcp or Personal Context; it is retired.
+
+Sigils say where things belong; read them and use them when saving:
+%area/project, ^lesson/topic, &tool, #concept, @person, >agent (claude, codex,
+grok, gemini, pi, me, crew).
 
 When my request depends on past work (a project, earlier decisions, my lists,
-"remember", "last time", a continuing task), call context_bootstrap once with a
-short query of key terms you choose (names, projects, topics) and the project
-if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Subzero rather than assuming this app's
-native memory is complete. Do not retrieve for standalone questions.
+"remember", a continuing task or lesson), call context_bootstrap once with a
+few key terms or sigils, never my whole message. Skip it for standalone
+questions.
 
-When durable state is established, checkpoint it: decisions, project state,
-confirmed facts, tasks, list changes, unresolved questions and important
-artifact relationships, naming the project when there is one. Do not save
-conversational noise or duplicates.
+When durable state is established, checkpoint it once (decisions, facts,
+tasks, list changes, open questions), with sigils or the project. No noise or
+duplicates. Use my real lists through the list tools.
 
-Use my real lists through the list tools rather than writing out a list from
-memory.
+Never say a file is archived unless its bytes or full text were stored.
 
-When meaningful files or generated artifacts should be retained, capture them
-through Subzero. Never tell me an artifact is archived unless its
-bytes or complete text were actually stored.
+For work on my machines ("/dispatch", "get the crew to"), call dispatch with my
+words and sigils and say it is queued, not started. Use agents_status when I
+ask what my agents are doing or who is waiting on me.
 
-Treat Subzero as canonical shared state; this app's native memory is
-supplemental. Preserve provenance and distinguish my direct statements from
-model-generated analysis and external research.
+Subzero is canonical; this app's memory is supplemental. Keep my statements
+distinct from model analysis and outside research.
 ```
 
 This is the same text as [instructions/shared.md](../../instructions/shared.md). It's deliberately
 short: the app reads it with every message. The detailed procedures live in Skills, tool descriptions
 and MCP prompts, which are loaded only when needed.
+
+## Moving from personal-context-mcp
+
+If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it
+and add a new one named **subzero** with the same server address. Then paste the instruction above
+over the old one. Old saved memories stay: they live in your database, not in the connector.
 
 ## App by app
 
@@ -65,12 +71,13 @@ and MCP prompts, which are loaded only when needed.
 | **ChatGPT** | chatgpt.com → **Settings → Security and login → Developer mode** on, then **Settings → Plugins → +** | **Settings → Personalization → Custom instructions** | a plan with developer mode (Plus, Pro, Business, ...) | [instructions/chatgpt.md](../../instructions/chatgpt.md) |
 | **Gemini** | gemini.google.com **on a computer** → **Settings & help → Connected Apps → Custom apps for Spark → Add a custom app** | **Settings & help → Saved info** | **Google AI Pro or Ultra** (not Plus), a *personal* Google account, Keep Activity on | [instructions/gemini.md](../../instructions/gemini.md) |
 | **Grok** | **grok.com/connectors** (not your accounts.x.ai page) → **New Connector → Custom** | **Settings → Customize** | a paid Grok plan | [instructions/grok.md](../../instructions/grok.md) |
+| **Muse** | **Settings → Connectors → Add custom connector**, or ask Muse in a chat to add one with your server address | its own settings, or the start of a chat | US or Canada; connects from Meta's cloud, so the server must be public | none yet |
 
 The menus in these apps move around every few months. If a menu name doesn't match, look for
 "Connectors", "Apps" or "Integrations" in the settings, and check the full guide for the latest notes.
 
 > **Same account everywhere.** Step 2's sign-in works with any Google account, but only the email(s)
-> in `PC_ALLOWED_SUBJECTS` get in, and Gemini additionally refuses custom apps for work/school
+> in `SUBZERO_ALLOWED_SUBJECTS` get in, and Gemini additionally refuses custom apps for work/school
 > (Workspace) accounts. Use one **personal** Google account for all four apps, and make sure it's
 > the one you gave the setup wizard.
 
@@ -107,7 +114,7 @@ In each app, start a new chat and try:
 The app should say it saved something, and some apps ask you to approve the first save. Then, in a
 **different** app:
 
-> What's my test phrase? Check my personal context.
+> What's my test phrase? Check subzero.
 
 ✅ It answers "purple giraffe" and says where it found it. That's the whole point working: one app
 learned it, another one knew it.
@@ -119,23 +126,31 @@ learned it, another one knew it.
 - **Files you attach** in the apps are *seen* by the AI, but most apps don't hand the actual file to
   connectors. The app records that the file existed; import your chat export later
   ([guide 9](09-import-your-history.md)) to fill in the real file. Files the AI *creates*, like charts,
-  code or documents, can be saved directly: just ask it to "save this to personal context".
+  code or documents, can be saved directly: just ask it to "save this to subzero".
 - **Skills (Claude, and ChatGPT where available)** are optional add-ons with more detailed
   instructions. Upload each folder under [skills/](../../skills/) in the app's skills settings. The
   apps work without them.
+
+For the four named actions, upload the `search`, `save`, `email` and `vault` skill
+folders. The same names appear in the server's MCP prompt list; clients that show
+prompts as slash commands can invoke `/search`, `/save`, `/email` and `/vault`.
+You can always use the ordinary phrases in [daily use](12-daily-use.md).
+Real email needs the optional AgentMail setup in that guide and the `email:send`
+client scope. Enabling other saving tools does not grant that scope automatically,
+unless your policy already grants `*` (all scopes).
 
 ## Common problems
 
 | You see | Fix |
 | --- | --- |
 | The sign-in window says `redirect_uri_mismatch` | Your Google client's redirect URI doesn't match your address + `/auth/callback` ([guide 3](03-google-sign-in.md)). |
-| Sign-in works, then *access denied* / *not allowed* | You chose a Google account that isn't in `PC_ALLOWED_SUBJECTS`. |
+| Sign-in works, then *access denied* / *not allowed* | You chose a Google account that isn't in `SUBZERO_ALLOWED_SUBJECTS`. |
 | ChatGPT has no *Apps & Connectors*, only *Plugins* | That's the newer layout. Turn on **Settings → Security and login → Developer mode**, then add the server under **Settings → Plugins → +**. |
 | The connector was added but no tools appear | Run the check in [Check the server first](#check-the-server-first-1-minute). If it passes, remove the connector and add it again, or reload the page. ChatGPT especially sometimes needs this. |
-| One app is missing some tools the others have (for example Gemini has no `note_write` or `review_list`) | `PC_CLIENT_SCOPE_POLICY` gives that app fewer permissions. An app that matches no entry gets read-only tools. Use `{"*":["*"]}` to give every app everything, push the settings, redeploy, then remove and re-add the connector. |
+| One app is missing some tools the others have (for example Gemini has no `note_write` or `review_list`) | `SUBZERO_CLIENT_SCOPE_POLICY` gives that app fewer permissions. An app that matches no entry gets read-only tools. Use `{"*":["*"]}` to give every app everything, push the settings, redeploy, then remove and re-add the connector. |
 | Grok won't accept the address | Grok needs a paid plan; also make sure the address ends in `/mcp`. |
 | Gemini has no *Custom apps for Spark* section | Custom apps need **Google AI Pro or Ultra**; Plus and free don't include them. Use [guide 11](11-gemini-without-custom-apps.md) instead. Also a personal (not work or school) Google account, Keep Activity on, a US English account, and a computer browser. |
-| The app never uses it on its own | Check the custom instruction is saved, or just ask explicitly: "check my personal context". |
+| The app never uses it on its own | Check the custom instruction is saved, or just ask explicitly: "check subzero". |
 
 **Next:** [7. Keep your secrets in 1Password](07-keep-secrets-in-1password.md) (optional), or
 [8. Set up your Obsidian notebook](08-obsidian.md).

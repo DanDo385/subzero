@@ -19,7 +19,8 @@ from typing import Any
 
 import click
 
-from subzero.config import Settings, get_settings
+from subzero.cli_agents import register as register_agent_commands
+from subzero.config import Settings, get_settings, legacy_env_names
 from subzero.db.migrate import apply_migrations, migration_status
 from subzero.db.pool import Database, set_database
 from subzero.digest import build_digest
@@ -55,7 +56,7 @@ async def _with_services(settings: Settings):
 
 def _configure_cli_logging(settings: Settings) -> None:
     """One-off commands print their own readable output, so their log lines
-    are limited to warnings unless PC_LOG_LEVEL was set explicitly. The
+    are limited to warnings unless SUBZERO_LOG_LEVEL was set explicitly. The
     server (``serve``) keeps its configured level."""
     explicit = "log_level" in settings.model_fields_set
     configure_logging(settings.log_level if explicit else "WARNING")
@@ -205,7 +206,13 @@ def migrate(status: bool) -> None:
 
 @main.command(name="pair-device")
 @click.option("--device-name", default="", help="Label for the browser being paired.")
-def pair_device(device_name: str) -> None:
+@click.option(
+    "--agents",
+    is_flag=True,
+    help="For a machine running coding agents (`subzero connect`): may also register "
+    "sessions, send messages, dispatch jobs and read context. Browsers do not need it.",
+)
+def pair_device(device_name: str, agents: bool) -> None:
     """Generate a one-time pairing code for a browser extension.
 
     Run this, then enter the code in the extension popup within 5 minutes.
@@ -222,11 +229,12 @@ def pair_device(device_name: str) -> None:
         try:
             await db.execute(
                 """
-                INSERT INTO pairing_codes (code, device_name)
-                VALUES ($1, $2)
+                INSERT INTO pairing_codes (code, device_name, scopes)
+                VALUES ($1, $2, $3)
                 """,
                 code,
                 device_name or None,
+                ["ingest", "agents"] if agents else ["ingest"],
             )
         finally:
             await db.close()
@@ -236,7 +244,13 @@ def pair_device(device_name: str) -> None:
     _asyncio.run(run())
 
     click.secho(f"\n  Pairing code: {click.style(code, bold=True, fg='green')}", fg="white")
-    click.secho("  Enter this code in the extension popup within 5 minutes.\n", fg="white")
+    click.secho(f"  Server:       {str(settings.base_url).rstrip('/')}", fg="white")
+    click.secho(f"  Database:     {settings.database_target()}", fg="white")
+    click.secho(
+        "  Enter the server address and this code in the extension popup within 5 minutes.\n"
+        "  The code only works on a server that uses the database above.\n",
+        fg="white",
+    )
 
 
 @main.command()
@@ -248,6 +262,13 @@ def check() -> None:
     problems = settings.validate_startup()
     for problem in problems:
         click.secho(f"  config: {problem}", fg="red")
+    if legacy := legacy_env_names():
+        click.secho(
+            f"  config: {len(legacy)} setting{'s' if len(legacy) != 1 else ''} still use the old PC_ prefix "
+            f"({', '.join(legacy[:3])}{', ...' if len(legacy) > 3 else ''}). They still work; "
+            "rename them to SUBZERO_ when convenient.",
+            fg="yellow",
+        )
 
     async def run() -> int:
         failures = len(problems)
@@ -329,10 +350,10 @@ def check() -> None:
 @click.argument("url")
 @click.option(
     "--token",
-    envvar="PC_PROBE_TOKEN",
+    envvar="SUBZERO_PROBE_TOKEN",
     default=None,
     help="Bearer token for the full handshake. Without one, only the sign-in "
-    "discovery is checked. Also read from PC_PROBE_TOKEN.",
+    "discovery is checked. Also read from SUBZERO_PROBE_TOKEN.",
 )
 @click.option(
     "--protocol-version",
@@ -343,7 +364,7 @@ def check() -> None:
 @click.option(
     "--no-oauth",
     is_flag=True,
-    help="The server uses PC_AUTH_MODE=static or jwt: skip the sign-in discovery checks.",
+    help="The server uses SUBZERO_AUTH_MODE=static or jwt: skip the sign-in discovery checks.",
 )
 def probe(url: str, token: str | None, protocol_version: str, no_oauth: bool) -> None:
     """Connect to a running server the way an AI app does, and report problems.
@@ -375,7 +396,10 @@ def probe(url: str, token: str | None, protocol_version: str, no_oauth: bool) ->
 )
 @click.option("--no-store-archive", is_flag=True, help="Do not copy the export to cold storage.")
 @click.option(
-    "--concurrency", type=int, default=None, help="Conversations at once (PC_IMPORT_CONCURRENCY)."
+    "--concurrency",
+    type=int,
+    default=None,
+    help="Conversations at once (SUBZERO_IMPORT_CONCURRENCY).",
 )
 def import_export(
     provider: str,
@@ -538,7 +562,7 @@ def propose_session_projects_cmd(out_path: Path, limit: int | None) -> None:
     help="Also redo conversations already classified under the current question set.",
 )
 @click.option("--no-cache", is_flag=True, help="Ask Jev again even for identical input.")
-@click.option("--concurrency", type=int, default=None, help="Default: PC_IMPORT_CONCURRENCY.")
+@click.option("--concurrency", type=int, default=None, help="Default: SUBZERO_IMPORT_CONCURRENCY.")
 @click.option("--dry-run", is_flag=True, help="Only count what would be reclassified.")
 def reclassify_conversations_cmd(
     limit: int,
@@ -593,7 +617,9 @@ def reclassify_conversations_cmd(
     help="With --legacy-triage: pass-1 importance (0-1) below which a conversation is skipped.",
 )
 @click.option("--redo", is_flag=True, help="Also redo conversations already extracted.")
-@click.option("--concurrency", type=int, default=None, help="Default: PC_EXTRACTION_CONCURRENCY.")
+@click.option(
+    "--concurrency", type=int, default=None, help="Default: SUBZERO_EXTRACTION_CONCURRENCY."
+)
 @click.option("--dry-run", is_flag=True, help="Show what would run and its estimated cost.")
 def extract(
     limit: int,
@@ -609,7 +635,7 @@ def extract(
     through session_checkpoint), plus the Obsidian note itself in the folder
     Jev chose, its project, tags, and any unfinished actions on the shared
     "From past chats" list. Conversations whose sensitivity is in
-    PC_NO_EXTERNAL_SENSITIVITY are never sent. Start with --dry-run.
+    SUBZERO_NO_EXTERNAL_SENSITIVITY are never sent. Start with --dry-run.
     """
     settings = get_settings()
     _configure_cli_logging(settings)
@@ -632,7 +658,7 @@ def extract(
                 return
             if settings.extraction_provider != "anthropic":
                 raise click.ClickException(
-                    "Set PC_EXTRACTION_PROVIDER=anthropic and PC_ANTHROPIC_API_KEY to run."
+                    "Set SUBZERO_EXTRACTION_PROVIDER=anthropic and SUBZERO_ANTHROPIC_API_KEY to run."
                 )
             extractor = DeepExtractor(services)
             try:
@@ -769,7 +795,7 @@ def wiki_doctor() -> None:
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path), default=None)
 @click.option("--days", type=int, default=None, help="Recent sessions window (default 14).")
 def digest(output: Path | None, days: int | None) -> None:
-    """Write a readable digest of Personal Context (for assistants that can't connect)."""
+    """Write a readable digest of Subzero (for assistants that can't connect)."""
     settings = get_settings()
     _configure_cli_logging(settings)
 
@@ -793,7 +819,7 @@ def digest(output: Path | None, days: int | None) -> None:
 
 @main.group(name="gemini-sync")
 def gemini_sync_group() -> None:
-    """Keep a Google Doc of your Personal Context up to date for a Gemini Gem."""
+    """Keep a Google Doc of your Subzero up to date for a Gemini Gem."""
 
 
 @gemini_sync_group.command(name="authorize")
@@ -843,8 +869,8 @@ def gemini_sync_authorize(op_item: str | None, op_vault: str, env_file: Path) ->
         )
         return
     lines = env_file.read_text().splitlines() if env_file.exists() else []
-    lines = [line for line in lines if not line.startswith("PC_GOOGLE_DRIVE_REFRESH_TOKEN=")]
-    lines.append(f"PC_GOOGLE_DRIVE_REFRESH_TOKEN={token}")
+    lines = [line for line in lines if not line.startswith("SUBZERO_GOOGLE_DRIVE_REFRESH_TOKEN=")]
+    lines.append(f"SUBZERO_GOOGLE_DRIVE_REFRESH_TOKEN={token}")
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     env_file.chmod(0o600)
     click.secho(f"Saved to {env_file}.", fg="green")
@@ -959,6 +985,9 @@ def review(limit: int) -> None:
             set_services(None)
 
     asyncio.run(run())
+
+
+register_agent_commands(main)
 
 
 if __name__ == "__main__":  # pragma: no cover

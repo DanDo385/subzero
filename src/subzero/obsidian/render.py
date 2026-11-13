@@ -11,11 +11,11 @@ import json
 import re
 from typing import Any
 
-PC_ID_PREFIX = "pc:id="
+SUBZERO_ID_PREFIX = "pc:id="
 
 
 def item_marker(item_id: Any) -> str:
-    return f"<!-- {PC_ID_PREFIX}{item_id} -->"
+    return f"<!-- {SUBZERO_ID_PREFIX}{item_id} -->"
 
 
 def _frontmatter(fields: dict[str, Any]) -> str:
@@ -46,7 +46,12 @@ def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
             "list_type": list_row.get("list_type"),
             "project": list_row.get("project_slug"),
             "updated": list_row.get("updated_at"),
-            "tags": ["subzero/list", "type/list"],
+            "home": (list_row.get("metadata") or {}).get("home"),
+            "tags": [
+                "subzero/list",
+                "type/list",
+                *(list_row.get("metadata") or {}).get("tags", []),
+            ],
         }
     )
     body = [front, "", f"# {list_row['name']}", ""]
@@ -75,7 +80,7 @@ def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
     body += render_group("Done", done_items, checked=True)
     body += [
         "",
-        "<!-- Managed by Personal Context. Tick a box here and the change flows",
+        "<!-- Managed by Subzero. Tick a box here and the change flows",
         "     back to the canonical list; do not edit the pc:id comments. -->",
         "",
     ]
@@ -125,6 +130,7 @@ def render_note(
             "pc_id": note["id"],
             "title": note["title"],
             "note_class": note.get("note_class"),
+            "home": meta.get("home"),
             "project": note.get("project_slug"),
             "source_provider": note.get("source_provider"),
             "source_conversation": note.get("source_conversation_id"),

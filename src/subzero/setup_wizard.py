@@ -30,7 +30,7 @@ class Answers:
     supabase_service_key: str = ""
     typesafe_api_key: str = ""
     anthropic_api_key: str = ""
-    vault_path: str = "~/Obsidian/Personal Context"
+    vault_path: str = "~/Obsidian/Subzero"
     #: Filled in by build_env; returned so the wizard can show the local token.
     generated: dict[str, str] = field(default_factory=dict)
 
@@ -55,66 +55,66 @@ def build_env(answers: Answers) -> str:
         "# Every setting is explained in .env.example. This file is never committed.",
         "",
         "# ---- Where it runs",
-        f"PC_ENVIRONMENT={'prod' if online else 'dev'}",
-        f"PC_BASE_URL={answers.base_url}",
+        f"SUBZERO_ENVIRONMENT={'prod' if online else 'dev'}",
+        f"SUBZERO_BASE_URL={answers.base_url}",
     ]
     if online:
-        lines.append(f"PC_ALLOWED_HOSTS={_host(answers.base_url)}")
+        lines.append(f"SUBZERO_ALLOWED_HOSTS={_host(answers.base_url)}")
 
     lines += [
         "",
         "# ---- Who may use it (the email you sign in to your AI apps with)",
-        f"PC_ALLOWED_SUBJECTS={','.join(answers.emails)}",
+        f"SUBZERO_ALLOWED_SUBJECTS={','.join(answers.emails)}",
         "",
         "# ---- How apps sign in",
-        f"PC_AUTH_MODE={answers.auth}",
+        f"SUBZERO_AUTH_MODE={answers.auth}",
     ]
     if answers.auth == "static":
         token = _token()
         answers.generated["static_token"] = token
-        lines.append(f'PC_STATIC_TOKENS={{"{token}":"{answers.emails[0]}"}}')
+        lines.append(f'SUBZERO_STATIC_TOKENS={{"{token}":"{answers.emails[0]}"}}')
     else:
         lines += [
-            f"PC_OAUTH_CLIENT_ID={answers.oauth_client_id}",
-            f"PC_OAUTH_CLIENT_SECRET={answers.oauth_client_secret}",
+            f"SUBZERO_OAUTH_CLIENT_ID={answers.oauth_client_id}",
+            f"SUBZERO_OAUTH_CLIENT_SECRET={answers.oauth_client_secret}",
         ]
     lines += [
-        f"PC_OAUTH_SIGNING_KEY={signing_key}",
-        'PC_CLIENT_SCOPE_POLICY={"*":["*"]}',
+        f"SUBZERO_OAUTH_SIGNING_KEY={signing_key}",
+        'SUBZERO_CLIENT_SCOPE_POLICY={"*":["*"]}',
         "",
         "# ---- The database",
-        f"PC_DATABASE_URL={answers.database_url}",
+        f"SUBZERO_DATABASE_URL={answers.database_url}",
     ]
     if online:
-        lines += ["PC_DB_POOL_MIN_SIZE=0", "PC_DB_POOL_MAX_SIZE=3"]
+        lines += ["SUBZERO_DB_POOL_MIN_SIZE=0", "SUBZERO_DB_POOL_MAX_SIZE=3"]
 
     lines += ["", "# ---- Where files are kept"]
     if answers.supabase_url:
         lines += [
-            "PC_STORAGE_BACKEND=supabase",
-            f"PC_SUPABASE_URL={answers.supabase_url}",
-            f"PC_SUPABASE_SERVICE_KEY={answers.supabase_service_key}",
+            "SUBZERO_STORAGE_BACKEND=supabase",
+            f"SUBZERO_SUPABASE_URL={answers.supabase_url}",
+            f"SUBZERO_SUPABASE_SERVICE_KEY={answers.supabase_service_key}",
         ]
     else:
-        lines += ["PC_STORAGE_BACKEND=local", "PC_LOCAL_STORAGE_ROOT=.data/storage"]
+        lines += ["SUBZERO_STORAGE_BACKEND=local", "SUBZERO_LOCAL_STORAGE_ROOT=.data/storage"]
 
     lines += ["", "# ---- Sorting your history (optional)"]
     if answers.typesafe_api_key:
-        lines += ["PC_CLASSIFIER=jev", f"PC_TYPESAFE_API_KEY={answers.typesafe_api_key}"]
+        lines += ["SUBZERO_CLASSIFIER=jev", f"SUBZERO_TYPESAFE_API_KEY={answers.typesafe_api_key}"]
     else:
-        lines.append("PC_CLASSIFIER=rules")
+        lines.append("SUBZERO_CLASSIFIER=rules")
     if answers.anthropic_api_key:
         lines += [
-            "PC_EXTRACTION_PROVIDER=anthropic",
-            f"PC_ANTHROPIC_API_KEY={answers.anthropic_api_key}",
+            "SUBZERO_EXTRACTION_PROVIDER=anthropic",
+            f"SUBZERO_ANTHROPIC_API_KEY={answers.anthropic_api_key}",
         ]
     else:
-        lines.append("PC_EXTRACTION_PROVIDER=none")
+        lines.append("SUBZERO_EXTRACTION_PROVIDER=none")
 
     lines += [
         "",
         "# ---- Obsidian (the worker on your computer uses these two)",
-        f"PC_WORKER_API_KEY={worker_key}",
+        f"SUBZERO_WORKER_API_KEY={worker_key}",
         f"OBSIDIAN_SYNC_API_URL={answers.base_url}",
         f"OBSIDIAN_SYNC_API_KEY={worker_key}",
         f"OBSIDIAN_SYNC_VAULT_PATH={answers.vault_path}",

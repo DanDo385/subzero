@@ -2,7 +2,7 @@
 
 Matching works on a handful of project rows, so it runs in Python: exact
 slug, name or alias first; then a repository or worktree path; then the name
-written loosely ("personal context mcp"); then a close misspelling; then a
+written loosely ("sub zero", "subzero mcp"); then a close misspelling; then a
 shared distinctive word. A tie is never broken silently: the top two are
 returned as candidates instead.
 """

@@ -52,11 +52,11 @@ Open `.env.local` and decide (both lines can be left out, which uses the default
 # Every imported chat starts at least this private. The screen can only raise it.
 #   normal           - default
 #   highly_sensitive - keep your ENTIRE history on your computer (sorting uses built-in rules only)
-PC_IMPORT_DEFAULT_SENSITIVITY=normal
+SUBZERO_IMPORT_DEFAULT_SENSITIVITY=normal
 
 # Which levels may never be sent to outside services (TypeSafe, Anthropic, embeddings).
 # Add "private" to also keep health, legal and money conversations local.
-PC_NO_EXTERNAL_SENSITIVITY=highly_sensitive
+SUBZERO_NO_EXTERNAL_SENSITIVITY=highly_sensitive
 ```
 
 ## Step 3: A small trial
@@ -64,7 +64,7 @@ PC_NO_EXTERNAL_SENSITIVITY=highly_sensitive
 Import 50 conversations first, to see what happens:
 
 ```bash
-uv run personal-context-mcp import chatgpt exports/chatgpt-export.zip --limit 50
+uv run subzero import chatgpt exports/chatgpt-export.zip --limit 50
 ```
 
 (Use `claude`, `gemini` or `grok` for the others, or `auto` to let it detect which app the file came
@@ -74,7 +74,7 @@ from.)
 sensitive, how many files were saved or only named, and how many items need your review. Then:
 
 ```bash
-uv run personal-context-mcp review
+uv run subzero review
 ```
 
 lists anything the sorting pass wasn't sure about ("which project does this belong to?").
@@ -82,10 +82,10 @@ lists anything the sorting pass wasn't sure about ("which project does this belo
 ## Step 4: Import everything
 
 ```bash
-uv run personal-context-mcp import chatgpt exports/chatgpt-export.zip
-uv run personal-context-mcp import claude  exports/claude-export.zip
-uv run personal-context-mcp import gemini  exports/takeout.zip
-uv run personal-context-mcp import grok    exports/grok-export.zip
+uv run subzero import chatgpt exports/chatgpt-export.zip
+uv run subzero import claude  exports/claude-export.zip
+uv run subzero import gemini  exports/takeout.zip
+uv run subzero import grok    exports/grok-export.zip
 ```
 
 A few thousand conversations take a few minutes to an hour, depending mostly on the sorting pass.
@@ -101,17 +101,17 @@ summary and pulls out decisions, facts, open questions and topics.
 It costs money, so **always look at the estimate first**:
 
 ```bash
-uv run personal-context-mcp extract --dry-run --limit 500
+uv run subzero extract --dry-run --limit 500
 ```
 
 ✅ It shows how many conversations qualify, the estimated tokens, an estimated cost in US dollars, and
 the titles of the first twenty. When you're happy:
 
 ```bash
-uv run personal-context-mcp extract --limit 50        # start small, then raise the limit
+uv run subzero extract --limit 50        # start small, then raise the limit
 ```
 
-To reduce cost, set `PC_EXTRACTION_MODEL=claude-sonnet-5` in `.env.local` (cheaper, still good), or raise
+To reduce cost, set `SUBZERO_EXTRACTION_MODEL=claude-sonnet-5` in `.env.local` (cheaper, still good), or raise
 `--min-importance` (default 0.5) to only read the most important conversations.
 
 Old to-dos found in old chats are kept as context ("Unfinished at the time: ...") rather than added to
@@ -123,8 +123,8 @@ If you create projects after importing (so old chats can be matched to them), or
 improves the sorting questions:
 
 ```bash
-uv run personal-context-mcp reclassify-conversations --dry-run
-uv run personal-context-mcp reclassify-conversations
+uv run subzero reclassify-conversations --dry-run
+uv run subzero reclassify-conversations
 ```
 
 This works from what's already in your database. You don't need the export files again, and anything
@@ -136,7 +136,7 @@ the close reading wrote is kept.
 | --- | --- |
 | `Could not identify which provider produced this archive` | Name the app explicitly: `import chatgpt file.zip`. For Gemini, check you chose JSON (step 1). |
 | `This exact archive has already been imported` | Nothing to do; it's safe. |
-| `extract` says *Set PC_EXTRACTION_PROVIDER=anthropic* | Add `PC_EXTRACTION_PROVIDER=anthropic` and your `PC_ANTHROPIC_API_KEY` to `.env.local`. |
-| Lots of *classifier_degraded* in the report | TypeSafe was unreachable; the built-in rules were used instead and those conversations are queued. Run `uv run personal-context-mcp reclassify` later. |
+| `extract` says *Set SUBZERO_EXTRACTION_PROVIDER=anthropic* | Add `SUBZERO_EXTRACTION_PROVIDER=anthropic` and your `SUBZERO_ANTHROPIC_API_KEY` to `.env.local`. |
+| Lots of *classifier_degraded* in the report | TypeSafe was unreachable; the built-in rules were used instead and those conversations are queued. Run `uv run subzero reclassify` later. |
 
 **Next:** [10. Build your wiki](10-build-your-wiki.md)

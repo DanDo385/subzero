@@ -6,13 +6,13 @@ needs; FastMCP turns an unmet requirement into a spec-correct
 
 HOW SCOPES ARE GRANTED
 ----------------------
-Two paths, chosen by ``PC_AUTH_MODE``:
+Two paths, chosen by ``SUBZERO_AUTH_MODE``:
 
 * ``jwt`` - an external identity provider mints these scopes into the access
   token's ``scope`` claim. The token is authoritative.
 * ``google`` / ``github`` - the upstream provider cannot mint scopes it has
   never heard of, so the token proves *identity only*. Capability scopes are
-  then granted server-side from ``PC_CLIENT_SCOPE_POLICY``, keyed on the
+  then granted server-side from ``SUBZERO_CLIENT_SCOPE_POLICY``, keyed on the
   registered OAuth client's id or on the app its redirect URIs belong to. This is a real, enforced boundary - it is just
   administered by the operator rather than requested by the client.
 
@@ -36,6 +36,9 @@ NOTES_WRITE = "notes:write"
 ARTIFACTS_READ = "artifacts:read"
 ARTIFACTS_WRITE = "artifacts:write"
 REVIEW = "review:write"
+EMAIL_SEND = "email:send"
+AGENTS_READ = "agents:read"
+AGENTS_WRITE = "agents:write"
 
 ALL_SCOPES: tuple[str, ...] = (
     CONTEXT_READ,
@@ -52,6 +55,9 @@ ALL_SCOPES: tuple[str, ...] = (
     ARTIFACTS_READ,
     ARTIFACTS_WRITE,
     REVIEW,
+    EMAIL_SEND,
+    AGENTS_READ,
+    AGENTS_WRITE,
 )
 
 READ_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s.endswith(":read"))
@@ -120,7 +126,7 @@ def provider_from_client(client_name: str | None, client_id: str | None = None) 
     trail that invents an attribution is worse than one that admits ignorance.
     """
     haystack = " ".join(filter(None, (client_name, client_id))).lower()
-    for provider in ("chatgpt", "claude", "gemini", "grok"):
+    for provider in ("chatgpt", "claude", "gemini", "grok", "codex"):
         if provider in haystack:
             return provider
     if "openai" in haystack:

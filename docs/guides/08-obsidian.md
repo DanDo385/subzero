@@ -1,7 +1,7 @@
 # 8. Set up your Obsidian notebook
 
 [Obsidian](https://obsidian.md) is a free notes app that works on plain files in a folder (a
-*vault*). personal-context-mcp fills a vault with clean, linked notes: research, project pages, your
+*vault*). subzero fills a vault with clean, linked notes: research, project pages, your
 lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
@@ -65,7 +65,7 @@ deploy/install-worker.sh
 
 ✅ It prints `Installed ...` and where its log is. From now on it starts when you log in and restarts
 if it ever stops. To stop it for good:
-`launchctl bootout gui/$(id -u)/com.personal-context-mcp.obsidian-sync`.
+`launchctl bootout gui/$(id -u)/com.subzero.obsidian-sync`.
 
 **Linux (systemd):**
 
@@ -82,6 +82,33 @@ systemctl --user enable --now obsidian-sync.timer
 
 The timer runs the helper every 5 minutes. To stop: `systemctl --user disable --now obsidian-sync.timer`.
 Logs: `journalctl --user -u obsidian-sync -f`.
+
+## Send a note or list from any chat
+
+Say "send this to my vault". The app calls `note_write` and tells you whether
+the note is **queued** or **already written**. Queued means this helper still
+needs to pick it up. Saving to shared memory with "save this" alone can leave
+the vault untouched.
+
+Each new note has one home. Existing numbered folders stay in use:
+
+| Logical home | Default vault folder |
+| --- | --- |
+| `projects/{project}` | `20-Projects/{project}/` |
+| `lesson/{category}` | `30-Research/Lessons/{category}/` |
+| `setup/{tool}` | `60-Resources/Setup/{tool}/` |
+| `other` | `00-Inbox/` |
+
+Concepts are tags such as `concept/lsp`; they do not create extra copies.
+Custom root settings replace the numbered root names in this mapping.
+Existing files are not moved by this update. If a file already has a different
+tracked path, the server refuses a second copy and asks you to relocate it first.
+
+For a list, the app finds your existing list and asks `note_write` for its vault
+view. It appears under `Lists/` inside its home. Tick an item in Obsidian while
+the helper is running: the same item is completed in the database on the next
+poll. Keep the hidden `pc:id` comments intact so items stay linked. Ordinary
+Markdown checkboxes in a prose note do not have this two-way behavior.
 
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user
 session manager. Use `systemctl` with `sudo` instead: copy the files to `/etc/systemd/system/` and
@@ -130,7 +157,7 @@ Ticking a checkbox in a list note (`- [x]`) marks that item done everywhere.
 | You see | Fix |
 | --- | --- |
 | `Vault directory does not exist` | Create the folder (step 1), or fix `OBSIDIAN_SYNC_VAULT_PATH`. |
-| `worker rejected: check OBSIDIAN_SYNC_API_KEY matches` | The helper's key differs from the server's `PC_WORKER_API_KEY`. They must be identical; after changing the server's, run `deploy/vercel-env.sh .env.local` and `vercel deploy --prod`. |
-| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/personal-context-mcp/obsidian-sync.err.log`. |
+| `worker rejected: check OBSIDIAN_SYNC_API_KEY matches` | The helper's key differs from the server's `SUBZERO_WORKER_API_KEY`. They must be identical; after changing the server's, run `deploy/vercel-env.sh .env.local` and `vercel deploy --prod`. |
+| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/subzero/obsidian-sync.err.log`. |
 
 **Next:** [9. Import your old chats](09-import-your-history.md)

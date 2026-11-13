@@ -4,7 +4,7 @@ One line per event, machine-parsable, with a request id that follows a call
 from the HTTP edge through the tool, the database and the classifier.
 
 Never logged: OAuth tokens, API keys, raw file bytes, and (unless
-PC_LOG_LEVEL=DEBUG in a non-prod environment) message or memory content.
+SUBZERO_LOG_LEVEL=DEBUG in a non-prod environment) message or memory content.
 """
 
 from __future__ import annotations

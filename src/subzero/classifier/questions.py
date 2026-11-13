@@ -26,7 +26,7 @@ from typing import Any
 
 from typesafe_sdk import Choice, Noul, Score
 
-QUESTIONS_VERSION = "2026-09-24.1"
+QUESTIONS_VERSION = "2026-11-09.1"
 
 #: Offered whenever a Choice ranges over projects, so "none of these" is
 #: always reachable.
@@ -62,7 +62,7 @@ LONG_TERM_VALUE_LEVELS: list[str] = [
 ]
 
 #: Where a piece of knowledge belongs in the vault. Keys map to the roots in
-#: PC_OBSIDIAN_VAULT_ROOTS; Python resolves the key to a real path, never Jev.
+#: SUBZERO_OBSIDIAN_VAULT_ROOTS; Python resolves the key to a real path, never Jev.
 DESTINATION_CRITERIA: dict[str, str] = {
     "project": "Work on a specific, named, ongoing project: its state, plan, "
     "decisions, or outputs.",
@@ -110,7 +110,7 @@ def checkpoint_questions(project_candidates: dict[str, str]) -> dict[str, Any]:
     """Questions asked once per substantive checkpoint or imported session.
 
     ``project_candidates`` maps project slug -> one-line description, already
-    narrowed by retrieval (see PC_JEV_MAX_PROJECT_CANDIDATES). Passing an
+    narrowed by retrieval (see SUBZERO_JEV_MAX_PROJECT_CANDIDATES). Passing an
     unbounded universe of projects makes the Choice worse, not better.
     """
     questions: dict[str, Any] = {
@@ -307,6 +307,45 @@ def list_candidate_questions(list_candidates: dict[str, str]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Dispatch: which agent takes a job
+# --------------------------------------------------------------------------
+
+#: Who a dispatched job can go to. Keys are the names a ``>`` sigil uses, so
+#: ``>grok`` and Jev's answer mean the same thing. "crew" is the no-match
+#: option: any free coding agent.
+DISPATCH_TARGETS: dict[str, str] = {
+    "claude": "Changes across several files of an existing codebase, careful refactors, "
+    "debugging, or writing documentation that must match the code.",
+    "codex": "A well-specified coding task with tests or a clear check to make pass.",
+    "grok": "Anything that needs what is being said on X right now: posts, people, "
+    "reactions to a release.",
+    "gemini": "Reading something long, such as a long PDF, a video or a large document, "
+    "and summarising it.",
+    "pi": "A small, quick edit or shell task on one machine.",
+    "me": "Something only the person can do: decide, pay, sign in, or type code they "
+    "are learning to write.",
+    "crew": "Any available coding agent; nothing here favours one in particular.",
+}
+
+#: Below this Jev confidence a job goes to "crew" instead of a named agent.
+DISPATCH_ROUTE_AUTO = 0.60
+
+
+def dispatch_questions(target_candidates: dict[str, str]) -> dict[str, Any]:
+    """Which agent should do a job the person dispatched without naming one?"""
+    return {
+        "target": Choice(
+            instructions=(
+                "A person dispatched this task to their agents without saying which "
+                "one should do it. Which agent is the best fit? Choose 'crew' when "
+                "none is clearly better than the others."
+            ),
+            criteria=target_candidates,
+        ),
+    }
+
+
+# --------------------------------------------------------------------------
 # Wiki graph: links between notes and Map-of-Content membership
 # --------------------------------------------------------------------------
 
@@ -406,7 +445,7 @@ def _unassigned_text(noun: str) -> str:
 # is overridable from configuration.
 
 #: Reversible, low-cost actions: associating a memory with a project, filing
-#: an artifact under a prefix, tagging. Default PC_AUTO_ROUTE_CONFIDENCE.
+#: an artifact under a prefix, tagging. Default SUBZERO_AUTO_ROUTE_CONFIDENCE.
 ACTION_REVERSIBLE = "reversible"
 
 #: Actions that write to the human's vault or change project state. These are
@@ -416,7 +455,7 @@ ACTION_VISIBLE = "visible"
 #: Actions that supersede or retract existing content.
 ACTION_SUPERSEDING = "superseding"
 
-#: Multipliers applied to PC_AUTO_ROUTE_CONFIDENCE per action class.
+#: Multipliers applied to SUBZERO_AUTO_ROUTE_CONFIDENCE per action class.
 ACTION_CONFIDENCE_MULTIPLIER: dict[str, float] = {
     ACTION_REVERSIBLE: 1.00,
     ACTION_VISIBLE: 1.06,

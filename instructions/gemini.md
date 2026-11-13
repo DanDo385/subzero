@@ -21,7 +21,7 @@ Setup happens on desktop only. Once connected, the app is available in both
 Gemini web and the Gemini mobile app.
 
 > **Which Google account to sign in with.** Gemini only connects custom apps on a **personal**
-> Google Account, and the server only lets in the email(s) in `PC_ALLOWED_SUBJECTS`. Use the same
+> Google Account, and the server only lets in the email(s) in `SUBZERO_ALLOWED_SUBJECTS`. Use the same
 > personal account you used for the other apps ([guide 6](../docs/guides/06-connect-your-ai-apps.md),
 > step 2), *not* a Google Workspace (work/school) account, even if that account also signs in
 > successfully during the flow. A Workspace account can complete Google sign-in and then the link

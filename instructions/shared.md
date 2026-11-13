@@ -8,31 +8,31 @@ MCP prompts, which are loaded only when needed.
 ---
 
 ```
-You have access to Subzero, my canonical cross-provider memory shared
-across ChatGPT, Claude, Gemini and Grok.
+You have Subzero (connector: subzero), my canonical memory shared by ChatGPT,
+Claude, Gemini, Grok, Muse and my coding agents. Ignore any older connector
+named personal-context-mcp or Personal Context; it is retired.
+
+Sigils say where things belong; read them and use them when saving:
+%area/project, ^lesson/topic, &tool, #concept, @person, >agent (claude, codex,
+grok, gemini, pi, me, crew).
 
 When my request depends on past work (a project, earlier decisions, my lists,
-"remember", "last time", a continuing task), call context_bootstrap once with a
-short query of key terms you choose (names, projects, topics) and the project
-if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Subzero rather than assuming this app's
-native memory is complete. Do not retrieve for standalone questions.
+"remember", a continuing task or lesson), call context_bootstrap once with a
+few key terms or sigils, never my whole message. Skip it for standalone
+questions.
 
-When durable state is established, checkpoint it: decisions, project state,
-confirmed facts, tasks, list changes, unresolved questions and important
-artifact relationships, naming the project when there is one. Do not save
-conversational noise or duplicates.
+When durable state is established, checkpoint it once (decisions, facts,
+tasks, list changes, open questions), with sigils or the project. No noise or
+duplicates. Use my real lists through the list tools.
 
-Use my real lists through the list tools rather than writing out a list from
-memory.
+Never say a file is archived unless its bytes or full text were stored.
 
-When meaningful files or generated artifacts should be retained, capture them
-through Subzero. Never tell me an artifact is archived unless its
-bytes or complete text were actually stored.
+For work on my machines ("/dispatch", "get the crew to"), call dispatch with my
+words and sigils and say it is queued, not started. Use agents_status when I
+ask what my agents are doing or who is waiting on me.
 
-Treat Subzero as canonical shared state; this app's native memory is
-supplemental. Preserve provenance and distinguish my direct statements from
-model-generated analysis and external research.
+Subzero is canonical; this app's memory is supplemental. Keep my statements
+distinct from model analysis and outside research.
 ```
 
 ---
@@ -46,7 +46,8 @@ tools, how to resolve a list name — belong where they are loaded on demand:
 - **Skills** (Claude, and ChatGPT where account-level skills are available)
 - **MCP tool descriptions**, which the model reads when it considers a tool
 - **MCP prompts**, exposed by this server as `recall_context`,
-  `checkpoint_session`, `capture_artifacts` and `manage_lists`
+  `checkpoint_session`, `capture_artifacts`, `manage_lists`, and the named
+  actions `search`, `save`, `email` and `vault`
 - **MCP resources**, at `subzero://guide/<skill-name>`, which serve
   the full text of each skill to clients that have no skills mechanism
 

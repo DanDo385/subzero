@@ -13,6 +13,15 @@ const CLAUDE_CONVERSATION_API = (orgId, convId) =>
 
 let cachedOrgId = null;
 
+/** Error with the HTTP status, so the importer can back off on 429. */
+function httpError(message, resp) {
+  const err = new Error(`${message}: ${resp.status}`);
+  err.status = resp.status;
+  const retryAfter = Number(resp.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterMs = retryAfter * 1000;
+  return err;
+}
+
 /**
  * Detect the chat-capable organization ID.
  */
@@ -25,7 +34,12 @@ async function getOrgId() {
   });
 
   if (!resp.ok) {
-    throw new Error(`Failed to fetch organizations: ${resp.status}`);
+    throw httpError(
+      resp.status === 401 || resp.status === 403
+        ? 'Not signed in to Claude in this tab. Sign in and try again'
+        : 'Failed to fetch organizations',
+      resp,
+    );
   }
 
   const orgs = await resp.json();
@@ -38,23 +52,31 @@ async function getOrgId() {
 }
 
 /**
- * List all conversations (for backfill).
+ * List all conversations (for backfill), oldest pages included.
+ * Pages with limit/offset; stops when a page adds nothing new, so it also
+ * works if the API ignores paging and returns everything at once.
  * Returns [{ uuid, name, model, created_at, updated_at, is_temporary }].
  */
 async function listConversations() {
   const orgId = await getOrgId();
-  const resp = await fetch(CLAUDE_CONVERSATIONS_API(orgId), {
-    credentials: 'include',
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Failed to list conversations: ${resp.status}`);
+  const limit = 100;
+  const seen = new Map();
+  for (let offset = 0; ; offset += limit) {
+    const url = `${CLAUDE_CONVERSATIONS_API(orgId)}?limit=${limit}&offset=${offset}`;
+    const resp = await fetch(url, {
+      credentials: 'include',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!resp.ok) throw httpError('Failed to list conversations', resp);
+    const page = await resp.json();
+    const before = seen.size;
+    for (const conv of Array.isArray(page) ? page : page.data || []) {
+      if (conv?.uuid && !seen.has(conv.uuid)) seen.set(conv.uuid, conv);
+    }
+    if (seen.size === before || seen.size - before < limit) break;
   }
-
-  const convs = await resp.json();
-  // Filter out temporary chats.
-  return convs.filter((c) => !c.is_temporary);
+  // Temporary (incognito) chats are not kept.
+  return [...seen.values()].filter((c) => !c.is_temporary);
 }
 
 /**
@@ -69,7 +91,7 @@ async function fetchConversation(conversationId) {
   });
 
   if (!resp.ok) {
-    throw new Error(`Failed to fetch conversation ${conversationId}: ${resp.status}`);
+    throw httpError(`Failed to fetch conversation ${conversationId}`, resp);
   }
 
   const raw = await resp.json();
@@ -88,7 +110,7 @@ async function fetchConversation(conversationId) {
     current = msgMap[current].parent_message_uuid;
   }
 
-  // Convert to normalized format.
+  // Convert to normalized format, dropping messages with no text.
   const messages = activeMessages.map((msg) => {
     const role = msg.sender === 'human' ? 'user' : 'assistant';
     // Extract text from content blocks.
@@ -98,7 +120,8 @@ async function fetchConversation(conversationId) {
     const thinkingBlocks = (msg.content || [])
       .filter((b) => b.type === 'thinking' && b.thinking)
       .map((b) => `[thinking] ${b.thinking}`);
-    const content = [...textBlocks, ...thinkingBlocks].join('\n\n');
+    // Older conversations carry plain `text` instead of content blocks.
+    const content = [...thinkingBlocks, ...textBlocks].join('\n\n') || msg.text || '';
 
     return {
       provider_message_id: msg.uuid,
@@ -107,7 +130,7 @@ async function fetchConversation(conversationId) {
       created_at: msg.created_at,
       model: role === 'assistant' ? raw.model : null,
     };
-  });
+  }).filter((m) => m.content.trim());
 
   // Extract attachment references.
   const attachments = [];

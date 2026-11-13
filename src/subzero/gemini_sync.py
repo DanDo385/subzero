@@ -1,4 +1,4 @@
-"""Push the Personal Context digest into one Google Doc for Gemini.
+"""Push the Subzero digest into one Google Doc for Gemini.
 
 Gemini plans without custom apps cannot reach the MCP server. A Gemini Gem
 can, however, use a Google Doc as knowledge. This module keeps one Doc up to
@@ -57,7 +57,7 @@ def authorize(settings: Settings, *, open_browser: bool = True, timeout: float =
         or not settings.google_drive_client_secret.get_secret_value()
     ):
         raise DriveSyncError(
-            "Set PC_GOOGLE_DRIVE_CLIENT_ID and PC_GOOGLE_DRIVE_CLIENT_SECRET first "
+            "Set SUBZERO_GOOGLE_DRIVE_CLIENT_ID and SUBZERO_GOOGLE_DRIVE_CLIENT_SECRET first "
             "(docs/guides/11-gemini-without-custom-apps.md)."
         )
     verifier = secrets.token_urlsafe(64)

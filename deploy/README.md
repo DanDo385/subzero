@@ -7,9 +7,11 @@ Helpers for putting the server online and keeping the Obsidian helper running. N
 | --- | --- |
 | `go-live.sh [FILE]` | One command from filled-in settings to a verified live server: preflight, migrate, check, push settings, deploy, then confirm `/healthz` says `ok` and an unauthenticated request gets 401. |
 | `vercel-env.sh [FILE]` | Copies settings into Vercel's Production environment, one value at a time over stdin, marking secrets *sensitive*. `FILE` is a plain `.env.local`-style file, or an `op://` reference file resolved with the 1Password CLI. Default: `deploy/production.env.op` if present, else `.env.production`. Skips `OBSIDIAN_SYNC_*`. |
-| `preflight.sh` | 1Password users: fails if any field of your deployment's item is empty or `REPLACE_ME`. Needs `PC_OP_ITEM` (and `PC_OP_VAULT`) in `deploy/local.env`; otherwise it's skipped. |
+| `preflight.sh` | 1Password users: fails if any field of your deployment's item is empty or `REPLACE_ME`. Needs `SUBZERO_OP_ITEM` (and `SUBZERO_OP_VAULT`) in `deploy/local.env`; otherwise it's skipped. |
 | `install-worker.sh` | macOS: installs the Obsidian helper as a LaunchAgent (starts at login, restarts on failure). Reads `deploy/worker.env.op` through `op run` if present, else `.env.local`. |
 | `obsidian-sync.plist` | The LaunchAgent template `install-worker.sh` fills in. |
+| `install-tailnet-server.sh [--public \| --remove]` | macOS: runs the server on this Mac as a LaunchAgent bound to 127.0.0.1 and publishes it at `https://<mac>.<tailnet>.ts.net` with Tailscale Serve (tailnet only) or Funnel (`--public`) ([guide 13](../docs/guides/14-run-on-your-mac-over-tailscale.md)). |
+| `subzero-server.plist` | The LaunchAgent template `install-tailnet-server.sh` fills in. |
 | `install-gemini-sync.sh`, `gemini-sync.plist` | macOS: pushes the Subzero digest to its Google Doc weekly for a Gemini Gem ([guide 11](../docs/guides/11-gemini-without-custom-apps.md)). |
 | `docker-entrypoint.sh` *(repo root)* | Container entrypoint: runs `subzero migrate` only when the command is `subzero serve`, then execs that command. Other commands are not migrated. |
 | `*.env.op.example` | Templates of `op://` reference files: `production` (what Vercel gets), `admin` (commands you run against production), `worker` (the Obsidian helper). Copy to the name without `.example`; the copies are Git-ignored. |
@@ -20,9 +22,9 @@ Helpers for putting the server online and keeping the Obsidian helper running. N
 Optional. Sourced by every script; holds names and references, never secrets.
 
 ```bash
-PC_OP_VAULT=Private                          # vault holding your deployment's item
-PC_OP_ITEM=abcdefghijklmnopqrstuvwxyz        # the item's id (op item get "<title>" --format json)
-PC_VERCEL_PROJECT=subzero       # Vercel project name
+SUBZERO_OP_VAULT=Private                          # vault holding your deployment's item
+SUBZERO_OP_ITEM=abcdefghijklmnopqrstuvwxyz        # the item's id (op item get "<title>" --format json)
+SUBZERO_VERCEL_PROJECT=subzero       # Vercel project name
 VERCEL_TOKEN_REF="op://Private/<vercel-token-item-id>/credential"   # optional; else `vercel login`
 WORKER_ENV_FILE=deploy/worker.env.op         # optional; else auto-detected
 WORKER_LABEL=com.subzero.obsidian-sync

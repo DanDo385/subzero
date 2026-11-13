@@ -6,8 +6,10 @@ from fastmcp import FastMCP
 
 from subzero.mcp import (
     prompts,
+    tools_agents,
     tools_artifacts,
     tools_context,
+    tools_email,
     tools_lists,
     tools_memory,
     tools_projects,
@@ -17,11 +19,13 @@ from subzero.mcp import (
 
 def register_all(mcp: FastMCP) -> None:
     tools_context.register(mcp)
+    tools_email.register(mcp)
     tools_memory.register(mcp)
     tools_projects.register(mcp)
     tools_lists.register(mcp)
     tools_artifacts.register(mcp)
     tools_review.register(mcp)
+    tools_agents.register(mcp)
     prompts.register(mcp)
 
 

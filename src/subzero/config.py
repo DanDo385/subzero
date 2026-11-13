@@ -7,11 +7,33 @@ inside the repository. See `.env.example` for the full annotated list.
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
+    NoDecode,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+#: Settings are read as SUBZERO_<NAME>. Before the rename they were PC_<NAME>;
+#: those are still honoured, below the new names, so an existing deployment,
+#: 1Password Environment or .env.local keeps working until it is updated.
+ENV_PREFIX = "SUBZERO_"
+LEGACY_ENV_PREFIX = "PC_"
+ENV_FILES = (".env", ".env.local")
+
+
+def legacy_env_names() -> list[str]:
+    """PC_ variables set in the process environment (for `subzero check`)."""
+    return sorted(name for name in os.environ if name.startswith(LEGACY_ENV_PREFIX))
+
 
 AuthMode = Literal["google", "github", "jwt", "static", "none"]
 StorageBackend = Literal["supabase", "local"]
@@ -25,11 +47,37 @@ EMBEDDING_DIM = 1536
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # .env.local is where your own settings go; it overrides .env.
-        env_file=(".env", ".env.local"),
+        env_file=ENV_FILES,
         env_file_encoding="utf-8",
         extra="ignore",
-        env_prefix="PC_",
+        env_prefix=ENV_PREFIX,
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Highest priority first: SUBZERO_ env, PC_ env, SUBZERO_ files, PC_ files.
+        legacy_env = EnvSettingsSource(settings_cls, env_prefix=LEGACY_ENV_PREFIX)
+        legacy_dotenv = DotEnvSettingsSource(
+            settings_cls,
+            env_file=ENV_FILES,
+            env_file_encoding="utf-8",
+            env_prefix=LEGACY_ENV_PREFIX,
+        )
+        return (
+            init_settings,
+            env_settings,
+            legacy_env,
+            dotenv_settings,
+            legacy_dotenv,
+            file_secret_settings,
+        )
 
     # ----------------------------------------------------------- deployment
     environment: Literal["dev", "staging", "prod"] = "dev"
@@ -183,10 +231,14 @@ class Settings(BaseSettings):
     google_drive_client_secret: SecretStr = SecretStr("")
     #: Written by `subzero gemini-sync authorize`.
     google_drive_refresh_token: SecretStr = SecretStr("")
-    gemini_digest_doc_name: str = "Personal Context (for Gemini)"
+    gemini_digest_doc_name: str = "Subzero (for Gemini)"
     #: Optional: the Doc to update. Otherwise remembered in .data/gemini-sync.json.
     gemini_digest_doc_id: str = ""
     gemini_digest_days: int = 14
+
+    # ------------------------------------------------------------- AgentMail
+    agentmail_api_key: SecretStr = SecretStr("")
+    agentmail_inbox_id: str = ""
 
     # -------------------------------------------------------------- obsidian
     obsidian_enabled: bool = True
@@ -255,6 +307,24 @@ class Settings(BaseSettings):
         """RFC 8707 canonical resource identifier for this MCP server."""
         return f"{str(self.base_url).rstrip('/')}{self.mcp_path}"
 
+    def database_target(self) -> str:
+        """Where the database is, without credentials: ``name on host``.
+
+        Shown wherever it matters which database a command writes to (pairing
+        codes, for one, only work on the server that shares that database).
+        """
+        raw = self.database_url.get_secret_value()
+        if not raw:
+            return "(no database configured)"
+        parsed = urlsplit(raw)
+        name = parsed.path.lstrip("/") or "(default database)"
+        host = parsed.hostname or parse_qs(parsed.query).get("host", [""])[0]
+        if not host or host.startswith("/"):
+            host = f"this computer ({host})" if host else "this computer"
+        elif parsed.port:
+            host = f"{host}:{parsed.port}"
+        return f"{name} on {host}"
+
     def validate_startup(self) -> list[str]:
         """Refuse to boot into an unsafe configuration.
 
@@ -265,54 +335,60 @@ class Settings(BaseSettings):
         problems: list[str] = []
 
         if not self.database_url.get_secret_value():
-            problems.append("PC_DATABASE_URL is required.")
+            problems.append("SUBZERO_DATABASE_URL is required.")
 
         if self.auth_mode == "none":
             if self.is_prod:
                 problems.append(
-                    "PC_AUTH_MODE=none exposes every tool unauthenticated and is "
-                    "refused when PC_ENVIRONMENT=prod."
+                    "SUBZERO_AUTH_MODE=none exposes every tool unauthenticated and is "
+                    "refused when SUBZERO_ENVIRONMENT=prod."
                 )
         elif self.auth_mode == "static":
             if self.is_prod:
-                problems.append("PC_AUTH_MODE=static is refused when PC_ENVIRONMENT=prod.")
+                problems.append(
+                    "SUBZERO_AUTH_MODE=static is refused when SUBZERO_ENVIRONMENT=prod."
+                )
             if not self.static_tokens:
-                problems.append("PC_AUTH_MODE=static requires PC_STATIC_TOKENS.")
+                problems.append("SUBZERO_AUTH_MODE=static requires SUBZERO_STATIC_TOKENS.")
         elif self.auth_mode in ("google", "github"):
             if not self.oauth_client_id or not self.oauth_client_secret.get_secret_value():
                 problems.append(
-                    f"PC_AUTH_MODE={self.auth_mode} requires PC_OAUTH_CLIENT_ID and "
-                    "PC_OAUTH_CLIENT_SECRET."
+                    f"SUBZERO_AUTH_MODE={self.auth_mode} requires SUBZERO_OAUTH_CLIENT_ID and "
+                    "SUBZERO_OAUTH_CLIENT_SECRET."
                 )
             if not self.allowed_subjects:
                 problems.append(
-                    "PC_ALLOWED_SUBJECTS must list the account(s) allowed to use this "
+                    "SUBZERO_ALLOWED_SUBJECTS must list the account(s) allowed to use this "
                     "server. Without it any account at the identity provider could "
                     "read your entire history."
                 )
         elif self.auth_mode == "jwt" and not self.jwt_jwks_uri:
-            problems.append("PC_AUTH_MODE=jwt requires PC_JWT_JWKS_URI.")
+            problems.append("SUBZERO_AUTH_MODE=jwt requires SUBZERO_JWT_JWKS_URI.")
 
         if self.is_prod and str(self.base_url).startswith("http://"):
-            problems.append("PC_BASE_URL must be https:// in production.")
+            problems.append("SUBZERO_BASE_URL must be https:// in production.")
 
         if self.storage_backend == "supabase" and not self.supabase_url:
-            problems.append("PC_STORAGE_BACKEND=supabase requires PC_SUPABASE_URL.")
+            problems.append("SUBZERO_STORAGE_BACKEND=supabase requires SUBZERO_SUPABASE_URL.")
 
         if self.classifier == "jev" and not self.typesafe_api_key.get_secret_value():
             problems.append(
-                "PC_CLASSIFIER=jev requires PC_TYPESAFE_API_KEY (or set "
-                "PC_CLASSIFIER=rules to run deterministic classification only)."
+                "SUBZERO_CLASSIFIER=jev requires SUBZERO_TYPESAFE_API_KEY (or set "
+                "SUBZERO_CLASSIFIER=rules to run deterministic classification only)."
             )
 
         if (
             self.extraction_provider == "anthropic"
             and not self.anthropic_api_key.get_secret_value()
         ):
-            problems.append("PC_EXTRACTION_PROVIDER=anthropic requires PC_ANTHROPIC_API_KEY.")
+            problems.append(
+                "SUBZERO_EXTRACTION_PROVIDER=anthropic requires SUBZERO_ANTHROPIC_API_KEY."
+            )
 
         if not 0.0 < self.review_confidence <= self.auto_route_confidence <= 1.0:
-            problems.append("Require 0 < PC_REVIEW_CONFIDENCE <= PC_AUTO_ROUTE_CONFIDENCE <= 1.")
+            problems.append(
+                "Require 0 < SUBZERO_REVIEW_CONFIDENCE <= SUBZERO_AUTO_ROUTE_CONFIDENCE <= 1."
+            )
 
         return problems
 

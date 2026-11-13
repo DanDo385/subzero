@@ -4,10 +4,10 @@ Jev decides; this module only applies the policy to its answers:
 
     score = max(promote_to_obsidian, deep_extraction) + recency bonus
 
-The bonus is PC_VAULT_RECENCY_BONUS for a conversation from today and halves
-every PC_VAULT_RECENCY_HALFLIFE_DAYS, so recent work reaches the vault more
+The bonus is SUBZERO_VAULT_RECENCY_BONUS for a conversation from today and halves
+every SUBZERO_VAULT_RECENCY_HALFLIFE_DAYS, so recent work reaches the vault more
 easily than old work. A conversation becomes a note when its score reaches
-PC_VAULT_MIN_SCORE. Jev also chose the folder (destination) and project.
+SUBZERO_VAULT_MIN_SCORE. Jev also chose the folder (destination) and project.
 Highly sensitive conversations never auto-promote.
 
 The threshold is deliberately generous: a vault with many well-linked notes

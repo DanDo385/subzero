@@ -25,7 +25,7 @@ Use the same Google Cloud project as your sign-in app ([guide 3](03-google-sign-
    see and change **the files it creates itself**, never anything else in your Drive, and Google
    doesn't require a review for it.
 3. **Create a second client, for your computer:** **Google Auth Platform → Clients → Create client**,
-   choose **Desktop app**, name it `personal-context-mcp gemini sync`, and click **Create**. Copy the
+   choose **Desktop app**, name it `subzero gemini sync`, and click **Create**. Copy the
    **Client ID** and **Client secret**.
 
 ## Step 2: Save the two values
@@ -33,18 +33,18 @@ Use the same Google Cloud project as your sign-in app ([guide 3](03-google-sign-
 **In `.env.local`** (the simple way):
 
 ```
-PC_GOOGLE_DRIVE_CLIENT_ID=<the client ID>
-PC_GOOGLE_DRIVE_CLIENT_SECRET=<the client secret>
+SUBZERO_GOOGLE_DRIVE_CLIENT_ID=<the client ID>
+SUBZERO_GOOGLE_DRIVE_CLIENT_SECRET=<the client secret>
 ```
 
 **Or in 1Password:** add a section **Google Drive** with fields `client_id` and `client_secret` to your
-deployment's item, and add the three `PC_GOOGLE_DRIVE_*` lines from
+deployment's item, and add the three `SUBZERO_GOOGLE_DRIVE_*` lines from
 [`deploy/admin.env.op.example`](../../deploy/admin.env.op.example) to your `deploy/admin.env.op`.
 
 ## Step 3: Sign in once
 
 ```bash
-uv run personal-context-mcp gemini-sync authorize
+uv run subzero gemini-sync authorize
 ```
 
 1Password users add `--op-item <item-id> --op-vault <vault>` and run it through
@@ -59,12 +59,12 @@ Google Drive files that you use with this app".
 ## Step 4: Create the Doc
 
 ```bash
-uv run personal-context-mcp gemini-sync push
+uv run subzero gemini-sync push
 ```
 
 ✅ It prints `Created Subzero (for Gemini): https://docs.google.com/document/d/...`. Open the
 link to see what Gemini will know. (`gemini-sync push --dry-run` builds the digest without uploading
-it, and `personal-context-mcp digest` prints it.)
+it, and `subzero digest` prints it.)
 
 Every later push replaces the text of **the same Doc**, so its link never changes.
 
@@ -97,13 +97,13 @@ deploy/install-gemini-sync.sh
 if it was asleep. To run it now: the `launchctl kickstart ...` line it printed. Change the day or
 hour with `GEMINI_SYNC_WEEKDAY` (0 = Sunday) and `GEMINI_SYNC_HOUR` before installing.
 
-Linux: run `uv run personal-context-mcp gemini-sync push` weekly from `cron` or a systemd timer.
+Linux: run `uv run subzero gemini-sync push` weekly from `cron` or a systemd timer.
 
 ## Common problems
 
 | You see | Fix |
 | --- | --- |
-| `Set PC_GOOGLE_DRIVE_CLIENT_ID and PC_GOOGLE_DRIVE_CLIENT_SECRET first` | Do step 2, and check you're in the project folder. |
+| `Set SUBZERO_GOOGLE_DRIVE_CLIENT_ID and SUBZERO_GOOGLE_DRIVE_CLIENT_SECRET first` | Do step 2, and check you're in the project folder. |
 | `Access blocked: ... disabled` or `API has not been used in project` | The Drive API isn't enabled (step 1.1). |
 | `Google refused the saved authorization` | The sign-in expired or was removed at myaccount.google.com. Run step 3 again. |
 | Gemini answers with old information | Check the Doc's text is current (open its link). If the Doc is current but the Gem isn't, remove it from the Gem's knowledge and add it again. |

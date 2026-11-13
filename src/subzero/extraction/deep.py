@@ -15,7 +15,7 @@ privacy policy and provenance.
 
 What this module deliberately does not do:
 
-* send anything whose sensitivity is listed in ``PC_NO_EXTERNAL_SENSITIVITY``;
+* send anything whose sensitivity is listed in ``SUBZERO_NO_EXTERNAL_SENSITIVITY``;
 * turn years-old action items into open tasks - most are long done, so they
   are kept as context ("Unfinished at the time: ...") instead;
 * overwrite anything the person wrote: the excerpt summary it replaces was
@@ -178,7 +178,7 @@ async def extraction_candidates(
     redo: bool = False,
 ) -> list[Candidate]:
     """Imported conversations whose latest pass-1 deep_extraction probability
-    is at least PC_EXTRACTION_MIN_PROBABILITY, most important first,
+    is at least SUBZERO_EXTRACTION_MIN_PROBABILITY, most important first,
     excluding anything the privacy policy keeps local."""
     rows = await services.db.fetch(
         """

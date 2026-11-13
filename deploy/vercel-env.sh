@@ -21,7 +21,9 @@ if [[ -z "$FILE" ]]; then
   if [[ -f deploy/production.env.op ]]; then FILE=deploy/production.env.op; else FILE=.env.local; fi
 fi
 [[ -f "$FILE" ]] || { echo "No settings file at $FILE. See docs/guides/05-put-it-online.md." >&2; exit 1; }
-PROJECT="${PC_VERCEL_PROJECT:-subzero}"
+# The Vercel project may still be named personal-context-mcp: set
+# SUBZERO_VERCEL_PROJECT=personal-context-mcp in deploy/local.env until you rename it.
+PROJECT="${SUBZERO_VERCEL_PROJECT:-${PC_VERCEL_PROJECT:-subzero}}"
 
 if [[ -z "${VERCEL_TOKEN:-}" && -n "${VERCEL_TOKEN_REF:-}" ]]; then
   VERCEL_TOKEN="$(op read "$VERCEL_TOKEN_REF")"

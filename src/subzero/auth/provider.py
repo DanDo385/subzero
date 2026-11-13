@@ -4,7 +4,7 @@ Two things happen on every authenticated request:
 
 1. **Identity.** The bearer token is verified by the configured upstream
    (Google, GitHub, an external JWKS, or a static dev token) and the resulting
-   subject is checked against ``PC_ALLOWED_SUBJECTS``. A valid token belonging
+   subject is checked against ``SUBZERO_ALLOWED_SUBJECTS``. A valid token belonging
    to somebody else is rejected exactly like a forged one.
 2. **Capability.** The token's ``scopes`` are replaced with the capability
    scopes this caller is entitled to, so FastMCP's per-tool ``require_scopes``
@@ -192,7 +192,7 @@ class PolicyJWTVerifier(_PolicyMixin, JWTVerifier):
 
 
 class PolicyStaticVerifier(_PolicyMixin, StaticTokenVerifier):
-    """Development and test only. Refused when PC_ENVIRONMENT=prod.
+    """Development and test only. Refused when SUBZERO_ENVIRONMENT=prod.
 
     The subject allowlist applies here exactly as it does in OAuth modes: a
     development shortcut for authentication is not a reason to skip checking
@@ -220,7 +220,7 @@ class PolicyStaticVerifier(_PolicyMixin, StaticTokenVerifier):
 def build_auth_provider(
     settings: Settings, *, client_storage: AsyncKeyValue | None = None
 ) -> AuthProvider | None:
-    """Construct the auth provider named by ``PC_AUTH_MODE``.
+    """Construct the auth provider named by ``SUBZERO_AUTH_MODE``.
 
     Returns ``None`` only for ``auth_mode="none"``, which startup validation
     refuses outside development.
