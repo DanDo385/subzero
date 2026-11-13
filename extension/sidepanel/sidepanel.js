@@ -3,7 +3,7 @@
 // Tab 2: Session bridge — connect to a CLI session and exchange messages.
 
 import {
-  isPaired, fetchSession, sendSessionMessage,
+  isPaired, fetchSession, sendSessionMessage, fetchWithServers,
 } from '../lib/api.js';
 
 // ---- Tab switching ----
@@ -32,9 +32,9 @@ async function initHandoff() {
       return;
     }
 
-    const resp = await fetch(
-      `${serverUrl || 'https://mbp.tailfbd394.ts.net'}/api/v1/handoff`,
-      { headers: { 'Authorization': `Bearer ${deviceToken}` } }
+    const resp = await fetchWithServers(
+      '/api/v1/handoff',
+      { headers: { 'Authorization': `Bearer ${deviceToken}` } },
     );
 
     if (!resp.ok) {

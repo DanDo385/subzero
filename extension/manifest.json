@@ -9,7 +9,10 @@
     "https://chatgpt.com/*",
     "https://gemini.google.com/*",
     "https://grok.com/*",
-    "https://muse.ai/*"
+    "https://muse.ai/*",
+    "http://localhost:8080/*",
+    "https://mbp.tailfbd394.ts.net/*",
+    "https://subzero-eta.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js",

@@ -41,6 +41,9 @@ approved. Pairing is a one-time, eight-character code.
 
 On the machine that runs Subzero, generate a code:
 
+The server must be running first — `subzero serve`, or the `op run … serve` form below. If
+nothing is listening, the popup reports *Failed to fetch* instead of a pairing error.
+
 ```bash
 subzero pair-device
 ```

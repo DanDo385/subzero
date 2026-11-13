@@ -1,9 +1,46 @@
 // Subzero — HTTPS ingest client.
 // Sends conversations to the server. Never auto-registers on 401;
 // the user must pair the browser with a code from the server CLI.
+//
+// Server resolution: the stored serverUrl wins, then the local dev server,
+// then the Tailscale and Vercel addresses. A network-level failure (refused,
+// DNS, TLS) falls through to the next candidate; HTTP errors do not.
 
-const DEFAULT_SERVER_URL = 'https://mbp.tailfbd394.ts.net';
-const FALLBACK_SERVER_URL = 'https://subzero-eta.vercel.app';
+const DEFAULT_SERVER_URL = 'http://localhost:8080';
+const FALLBACK_SERVER_URLS = [
+  'https://mbp.tailfbd394.ts.net',
+  'https://subzero-eta.vercel.app',
+];
+
+/**
+ * Ordered list of server bases to try, without duplicates.
+ */
+async function serverCandidates() {
+  const { serverUrl } = await chrome.storage.local.get('serverUrl');
+  const list = [];
+  if (serverUrl) list.push(serverUrl.replace(/\/+$/, ''));
+  for (const url of [DEFAULT_SERVER_URL, ...FALLBACK_SERVER_URLS]) {
+    if (!list.includes(url)) list.push(url);
+  }
+  return list;
+}
+
+/**
+ * Fetch a path, trying each candidate server until one answers.
+ * Only network-level failures fall through; HTTP statuses are returned as-is.
+ */
+async function fetchWithServers(path, init = {}) {
+  const candidates = await serverCandidates();
+  let lastErr = null;
+  for (const base of candidates) {
+    try {
+      return await fetch(`${base}${path}`, init);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('No Subzero server reachable');
+}
 
 /**
  * Get the configured server URL, with fallback.
@@ -34,9 +71,8 @@ async function isPaired() {
  * Returns the device token on success.
  */
 async function pairDevice(pairingCode) {
-  const serverUrl = await getServerUrl();
   const deviceName = `browser-${navigator.userAgent.slice(0, 60)}`;
-  const resp = await fetch(`${serverUrl}/api/v1/auth/pair-device`, {
+  const resp = await fetchWithServers('/api/v1/auth/pair-device', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -63,7 +99,6 @@ async function pairDevice(pairingCode) {
  * Throws on 401 (not paired) — never auto-registers.
  */
 async function ingestConversation(payload) {
-  const serverUrl = await getServerUrl();
   const token = await getDeviceToken();
 
   if (!token) {
@@ -71,7 +106,7 @@ async function ingestConversation(payload) {
   }
 
   const body = JSON.stringify(payload);
-  const resp = await fetch(`${serverUrl}/api/v1/ingest/conversation`, {
+  const resp = await fetchWithServers('/api/v1/ingest/conversation', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -99,16 +134,16 @@ async function ingestConversation(payload) {
  * Returns { session_id, provider, title, model, messages, ... }.
  */
 async function fetchSession(sessionId) {
-  const serverUrl = await getServerUrl();
   const token = await getDeviceToken();
 
   if (!token) {
     throw new Error('Browser not paired. Use "Pair this browser" in the popup.');
   }
 
-  const resp = await fetch(`${serverUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
-    headers: { 'Authorization': `Bearer ${token}` },
-  });
+  const resp = await fetchWithServers(
+    `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
+    { headers: { 'Authorization': `Bearer ${token}` } },
+  );
 
   if (resp.status === 401) {
     await chrome.storage.local.remove(['deviceToken', 'deviceId']);
@@ -128,21 +163,23 @@ async function fetchSession(sessionId) {
  * Returns { message_id, status, ... }.
  */
 async function sendSessionMessage(sessionId, text) {
-  const serverUrl = await getServerUrl();
   const token = await getDeviceToken();
 
   if (!token) {
     throw new Error('Browser not paired. Use "Pair this browser" in the popup.');
   }
 
-  const resp = await fetch(`${serverUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+  const resp = await fetchWithServers(
+    `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ text }),
     },
-    body: JSON.stringify({ text }),
-  });
+  );
 
   if (resp.status === 401) {
     await chrome.storage.local.remove(['deviceToken', 'deviceId']);
@@ -157,4 +194,7 @@ async function sendSessionMessage(sessionId, text) {
   return resp.json();
 }
 
-export { getServerUrl, getDeviceToken, isPaired, pairDevice, ingestConversation, fetchSession, sendSessionMessage };
+export {
+  getServerUrl, getDeviceToken, isPaired, pairDevice, ingestConversation,
+  fetchSession, sendSessionMessage, fetchWithServers,
+};
