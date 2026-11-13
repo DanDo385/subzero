@@ -7,31 +7,40 @@
 
   // Prevent double-injection.
   if (window.__subzeroLoaded) return;
-  window.__subzeroLoaded = true;
 
   /**
    * Detect which provider we're on.
    */
   function detectProvider() {
     const host = window.location.hostname;
-    if (host.includes('claude.ai')) return 'claude';
-    if (host.includes('chatgpt.com')) return 'chatgpt';
-    if (host.includes('gemini.google.com')) return 'gemini';
-    if (host.includes('grok.com')) return 'grok';
-    if (host.includes('muse.ai')) return 'muse';
+    if (host === 'claude.ai') return 'claude';
+    if (host === 'chatgpt.com') return 'chatgpt';
+    if (host === 'gemini.google.com') return 'gemini';
+    if (host === 'grok.com') return 'grok';
+    if (host === 'muse.ai') return 'muse';
     return null;
   }
 
   const provider = detectProvider();
   if (!provider) return;
+  window.__subzeroLoaded = true;
 
   console.log(`[PersonalContext] Detected provider: ${provider}`);
 
   // --- Message extraction (called on demand) ---
 
   /**
-   * Extract the current conversation and send to the service worker for queuing.
+   * Wait for the service worker to persist a valid provider capture.
    */
+  async function queueCapture(data) {
+    if (data.provider !== provider) throw new Error('Provider mismatch. Refresh this tab.');
+    if (!data.provider_conversation_id) {
+      throw new Error('No conversation ID found. Open a saved conversation and try again.');
+    }
+    const response = await chrome.runtime.sendMessage({ action: 'capture', payload: data });
+    if (!response?.ok) throw new Error(response?.error || 'Could not queue conversation');
+  }
+
   async function captureCurrent() {
     try {
       const mod = (globalThis.__subzeroProviders || {})[provider];
@@ -39,19 +48,14 @@
       const data = await mod.extractCurrentConversation();
 
       if (data && data.messages && data.messages.length > 0) {
-        chrome.runtime.sendMessage({
-          action: 'capture',
-          payload: data,
-        });
-        console.log(`[PersonalContext] Captured ${data.messages.length} messages from ${data.title || 'untitled'}`);
+        await queueCapture(data);
+        return { ok: true, captured: 1 };
+      } else {
+        return { ok: false, error: 'No messages found. Open a conversation and try again.' };
       }
     } catch (err) {
       console.error('[PersonalContext] Capture failed:', err);
-      chrome.runtime.sendMessage({
-        action: 'captureError',
-        error: err.message,
-        provider,
-      });
+      return { ok: false, error: err.message };
     }
   }
 
@@ -65,6 +69,11 @@
     const mod = (globalThis.__subzeroProviders || {})[provider];
     if (!mod) return { ok: false, error: `No provider module registered for ${provider}` };
 
+    if (!mod.fetchConversation && !dryRun) {
+      const result = await captureCurrent();
+      return { ...result, provider, scope: 'current', dryRun: false };
+    }
+
     const convs = await mod.listConversations();
     if (dryRun) {
       return { ok: true, dryRun: true, provider, conversations: convs.length, items: convs };
@@ -72,47 +81,41 @@
 
     let captured = 0;
     let skipped = 0;
+    let lastError = null;
 
     if (mod.fetchConversation) {
       for (const conv of convs) {
         try {
           const data = await mod.fetchConversation(conv.id || conv.uuid);
-          if (data) {
-            chrome.runtime.sendMessage({ action: 'capture', payload: data });
+          if (data?.messages?.length) {
+            await queueCapture(data);
             captured++;
+          } else {
+            skipped++;
           }
         } catch (err) {
+          lastError = err.message;
           console.error(`[PersonalContext] Backfill error for ${conv.id || conv.uuid}:`, err);
           skipped++;
         }
         // Be gentle: one request per 2 seconds.
         await new Promise((r) => setTimeout(r, 2000));
       }
-    } else {
-      // DOM-only provider: only the open conversation is reachable.
-      try {
-        const data = await mod.extractCurrentConversation();
-        if (data && data.messages && data.messages.length > 0) {
-          chrome.runtime.sendMessage({ action: 'capture', payload: data });
-          captured = 1;
-        }
-      } catch (err) {
-        skipped = 1;
-      }
     }
 
-    return { ok: true, dryRun: false, provider, captured, skipped, total: convs.length };
+    return { ok: !lastError, error: lastError, dryRun: false, provider, captured, skipped, total: convs.length };
   }
 
   // --- Message listener: respond to popup/service worker requests ---
 
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'capture') {
-      captureCurrent().then(() => sendResponse({ ok: true }));
+      captureCurrent().then(sendResponse);
       return true; // async response
     }
     if (request.action === 'backfill') {
-      runBackfill(request.dryRun !== false).then(sendResponse);
+      runBackfill(request.dryRun !== false).then(sendResponse)
+        .catch((err) => sendResponse({ ok: false, error: err.message }));
       return true; // async response
     }
     if (request.action === 'ping') {

@@ -1,3 +1,6 @@
+(function () {
+  'use strict';
+
 // Subzero — Muse (Meta) provider extractor.
 // DOM-based extraction from muse.ai chat interface.
 // Muse is a React-based SPA; selectors may need iteration after live testing.
@@ -208,3 +211,5 @@ async function listConversations() {
 (globalThis.__subzeroProviders ||= {}).muse = {
   extractCurrentConversation, listConversations, isConversationPage,
 };
+
+})();

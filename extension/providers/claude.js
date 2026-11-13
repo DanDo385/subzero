@@ -1,3 +1,6 @@
+(function () {
+  'use strict';
+
 // Subzero — Claude.ai provider extractor.
 // Uses Claude's internal JSON API (same endpoints the web app loads).
 // Auth: session cookies, auto-attached by the browser.
@@ -150,3 +153,5 @@ async function extractCurrentConversation() {
 (globalThis.__subzeroProviders ||= {}).claude = {
   getOrgId, listConversations, fetchConversation, extractCurrentConversation,
 };
+
+})();

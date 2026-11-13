@@ -1,3 +1,6 @@
+(function () {
+  'use strict';
+
 // Subzero — Grok provider extractor.
 // DOM-based extraction. Grok's REST API is poorly documented;
 // DOM extraction with multi-signal role detection is more reliable.
@@ -185,3 +188,5 @@ async function listConversations() {
 (globalThis.__subzeroProviders ||= {}).grok = {
   extractCurrentConversation, listConversations, isConversationPage,
 };
+
+})();

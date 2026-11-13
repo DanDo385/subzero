@@ -1,8 +1,8 @@
 // Subzero — service worker.
 // Handles capture queue processing, periodic sync alarms, and backfill coordination.
 
-import { enqueue, processOne, getStatus, QUEUE_KEY, DEAD_LETTER_KEY } from './lib/queue.js';
-import { getServerUrl } from './lib/api.js';
+import { enqueue, processOne, getStatus } from './lib/queue.js';
+import { sendToProviderTab } from './lib/tabs.js';
 
 // Alarm names.
 const PROCESS_ALARM = 'processQueue';
@@ -60,8 +60,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     for (const tab of tabs) {
       try {
         const url = new URL(tab.url || '');
-        if (providerHosts.some((h) => url.hostname.includes(h))) {
-          chrome.tabs.sendMessage(tab.id, { action: 'capture' }).catch(() => {
+        if (providerHosts.some((h) => url.hostname === h)) {
+          sendToProviderTab(tab.id, { action: 'capture' }).catch(() => {
             // Tab may not have content script loaded — ignore.
           });
         }
@@ -78,13 +78,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Tag with timestamp.
     payload._capturedAt = new Date().toISOString();
     enqueue(payload).then(() => {
-      // Update last sync time for this provider.
-      const provider = payload.provider;
-      chrome.storage.local.get('lastSync', (result) => {
-        const lastSync = result.lastSync || {};
-        lastSync[provider] = new Date().toISOString();
-        chrome.storage.local.set({ lastSync });
-      });
       sendResponse({ ok: true });
     }).catch((err) => {
       console.error('[PersonalContext] Enqueue failed:', err);
@@ -108,6 +101,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.storage.local.set({ isPaused: request.paused });
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (request.action === 'captureTab') {
+    sendToProviderTab(request.tabId, { action: 'capture' })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
   }
 
   if (request.action === 'backfill') {
@@ -135,16 +135,15 @@ async function handleBackfill(provider, dryRun = true) {
 
   const tabs = await chrome.tabs.query({});
   const tab = tabs.find((t) => {
-    try { return new URL(t.url || '').hostname.includes(host); }
+    try { return new URL(t.url || '').hostname === host; }
     catch { return false; }
   });
 
   if (!tab) throw new Error(`No ${provider} tab open`);
 
   // The content script owns extraction: it runs in the page's isolated world
-  // with the provider modules already loaded as classic scripts, which
-  // executeScript + dynamic import() could never do in MV3.
-  const result = await chrome.tabs.sendMessage(tab.id, {
+  // with provider modules loaded as classic scripts. Reconnect older tabs first.
+  const result = await sendToProviderTab(tab.id, {
     action: 'backfill',
     dryRun,
   });

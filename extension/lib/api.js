@@ -34,7 +34,7 @@ async function fetchWithServers(path, init = {}) {
   let lastErr = null;
   for (const base of candidates) {
     try {
-      return await fetch(`${base}${path}`, init);
+      return await fetch(`${base}${path}`, { ...init, signal: init.signal || AbortSignal.timeout(15000) });
     } catch (err) {
       lastErr = err;
     }
@@ -126,7 +126,9 @@ async function ingestConversation(payload) {
     throw new Error(`Ingest failed: ${resp.status} ${await resp.text()}`);
   }
 
-  return resp.json();
+  const result = await resp.json();
+  if (!result.conversation_id) throw new Error('Server returned no conversation confirmation');
+  return { ...result, serverUrl: new URL(resp.url).origin };
 }
 
 /**

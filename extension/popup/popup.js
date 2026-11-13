@@ -68,7 +68,7 @@ async function init() {
 
   // Get status from service worker.
   const status = await chrome.runtime.sendMessage({ action: 'getStatus' });
-  const { lastSync = {}, isPaused, deadLength, queueLength } = status;
+  const { lastDelivery = {}, deliveryErrors = {}, isPaused, deadLength, queueLength } = status;
 
   // Get active backfill status.
   const { backfillActive = {}, backfillProgress = {} } =
@@ -90,14 +90,19 @@ async function init() {
     name.textContent = providerNames[provider];
 
     const statusEl = document.createElement('div');
-    const last = lastSync[provider];
+    const last = lastDelivery[provider];
     if (last) {
-      const time = new Date(last).toLocaleTimeString();
-      statusEl.textContent = `Last sync: ${time}`;
+      const time = new Date(last.at).toLocaleTimeString();
+      statusEl.textContent = `Saved to server at ${time} (${last.serverUrl})`;
       statusEl.className = 'provider-status success';
     } else {
-      statusEl.textContent = 'No sync yet';
+      statusEl.textContent = 'No confirmed delivery yet';
       statusEl.className = 'provider-status';
+    }
+
+    if (deliveryErrors[provider]) {
+      statusEl.textContent = deliveryErrors[provider];
+      statusEl.className = 'provider-status error';
     }
 
     info.appendChild(name);
@@ -153,10 +158,9 @@ async function init() {
   document.getElementById('captureBtn').onclick = async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
-      chrome.tabs.sendMessage(tab.id, { action: 'capture' }).catch(() => {
-        alert('Could not capture. Make sure you are on a supported chat page.');
-      });
-      window.close();
+      const result = await chrome.runtime.sendMessage({ action: 'captureTab', tabId: tab.id });
+      if (!result?.ok) alert(result?.error || 'Capture failed');
+      else alert('Conversation queued. Reopen Subzero to check server delivery.');
     }
   };
 
@@ -199,21 +203,15 @@ async function init() {
     // Wait a moment for tabs to start loading.
     await new Promise((r) => setTimeout(r, 2000));
 
-    // Backfill each provider sequentially.
+    // Keep provider failures visible instead of discarding { ok: false } replies.
     for (const provider of providers) {
-      try {
-        await chrome.runtime.sendMessage({
-          action: 'backfill',
-          provider,
-          dryRun: false,
-        });
-      } catch (err) {
-        console.error(`[PersonalContext] Backfill ${provider} error:`, err);
-      }
+      const btn = container.querySelector(`[data-provider="${provider}"]`);
+      const statusEl = btn.parentElement.querySelector('.provider-status');
+      await startBackfill(provider, btn, statusEl, true);
     }
 
     isBackfilling = false;
-    init();
+    document.getElementById('backfillAllBtn').disabled = false;
   };
 
   // Dead letter queue.
@@ -227,8 +225,8 @@ async function init() {
 /**
  * Start a backfill for a single provider.
  */
-async function startBackfill(provider, btn, statusEl) {
-  if (isBackfilling) return;
+async function startBackfill(provider, btn, statusEl, batch = false) {
+  if (isBackfilling && !batch) return;
   isBackfilling = true;
 
   btn.disabled = true;
@@ -279,11 +277,11 @@ async function startBackfill(provider, btn, statusEl) {
 
     if (result && result.ok !== false) {
       const count = result.captured || result.result?.captured || 0;
-      const total = result.conversations || result.result?.conversations || 0;
-      statusEl.textContent = `Imported ${count} conversations`;
+      const scope = result.scope === 'current' ? ' (open conversation only)' : '';
+      statusEl.textContent = `Queued ${count} conversations${scope}. Reopen to check delivery.`;
       statusEl.className = 'provider-status success';
     } else {
-      statusEl.textContent = result?.error || 'Backfill failed';
+      statusEl.textContent = `${result?.error || 'Backfill failed'}${result?.captured ? ` (${result.captured} queued)` : ''}`;
       statusEl.className = 'provider-status error';
     }
   } catch (err) {
@@ -293,7 +291,7 @@ async function startBackfill(provider, btn, statusEl) {
     btn.disabled = false;
     btn.textContent = 'Import';
     btn.className = 'backfill-btn';
-    isBackfilling = false;
+    if (!batch) isBackfilling = false;
   }
 }
 

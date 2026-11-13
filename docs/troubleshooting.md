@@ -84,3 +84,24 @@ See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#c
 Open an issue using the **Setup help** template on GitHub. Include what you ran, what you expected and
 what you saw, plus the output of `check`. **Never include your `.env.local` or any secret**; `check` doesn't
 print any.
+
+
+
+## Browser capture cannot connect to a tab
+
+`Could not establish connection. Receiving end does not exist` means the tab has no active
+Subzero message listener. Reload the extension and refresh the chat tab after installation or
+updates. Allow the provider site in the extension's Site access settings. Import and Save Now
+try injecting the packaged capture scripts when the listener is missing. If recovery fails,
+the popup displays the site and the browser's error in full.
+
+`No conversation ID found` means the extractor cannot identify the saved chat. Open the
+conversation's own URL. Muse, Grok and Gemini capture the open conversation and may need
+selector updates when their sites change.
+
+`Queued N conversations` confirms persistence in browser storage. Reopen the popup after
+queue processing to check `Saved to server` and its server address. For an MBP installation,
+verify that the address belongs to that MBP. `No confirmed delivery yet` means no successful
+ingest response has been recorded. Delivery failures appear in the provider row. Items that
+exhaust retries remain in the failed-item queue. After fixing the server issue, capture the
+conversation again. Server ingestion deduplicates messages with stable provider IDs.
