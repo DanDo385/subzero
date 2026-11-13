@@ -209,4 +209,8 @@ async function listConversations() {
   return convs;
 }
 
-export { extractCurrentConversation, listConversations, isConversationPage };
+// Registered for the content script: MV3 content scripts are classic scripts
+// and cannot import ES modules, so providers attach to a shared global.
+(globalThis.__subzeroProviders ||= {}).gemini = {
+  extractCurrentConversation, listConversations, isConversationPage,
+};

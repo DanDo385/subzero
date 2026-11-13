@@ -113,7 +113,7 @@ print any.
 
 ## Agents, hooks and the board
 
-See [guide 14](guides/14-agents-messages-and-the-board.md#when-something-goes-wrong) for the full
+See [guide 15](guides/15-agents-messages-and-the-board.md#when-something-goes-wrong) for the full
 table. The common ones:
 
 | You see | What it means | Fix |

@@ -48,7 +48,7 @@ The read-only production ledger check confirms the SHA-256 for both `0009_email_
 
 ### Needs a running MBP server
 - Point extension at MBP over Tailscale for lower latency
-- The current default is Vercel (`https://personal-context-mcp-seven.vercel.app`)
+- The current default is Vercel (`https://subzero-seven.vercel.app`)
 
 ### Performance tests
 - `npm run perf` — Playwright with Chrome tracing, 200-message chats, 5ms INP budget

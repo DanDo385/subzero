@@ -1,4 +1,4 @@
-# 13. Run it on your Mac over Tailscale
+# 14. Run it on your Mac over Tailscale
 
 Instead of (or as well as) Vercel, your own Mac can run the server. Tailscale gives it a private
 https address that only your devices can reach, and the server answers only while the Mac is awake.

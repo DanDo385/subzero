@@ -145,6 +145,8 @@ async function extractCurrentConversation() {
   return fetchConversation(conversationId);
 }
 
-export {
+// Registered for the content script: MV3 content scripts are classic scripts
+// and cannot import ES modules, so providers attach to a shared global.
+(globalThis.__subzeroProviders ||= {}).claude = {
   getOrgId, listConversations, fetchConversation, extractCurrentConversation,
 };

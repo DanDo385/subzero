@@ -17,7 +17,7 @@
 #   .env.local                 plain settings written by `subzero init`
 # The address is set for you: SUBZERO_HOST=127.0.0.1 (nothing on your Wi-Fi can
 # reach the port directly) and SUBZERO_BASE_URL=https://<this-mac>.<tailnet>.ts.net.
-# Guide: docs/guides/13-run-on-your-mac-over-tailscale.md
+# Guide: docs/guides/14-run-on-your-mac-over-tailscale.md
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"

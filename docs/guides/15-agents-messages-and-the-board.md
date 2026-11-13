@@ -1,11 +1,11 @@
-# 14. Agents, messages and the board
+# 15. Agents, messages and the board
 
 Every coding session you run (Claude Code in a worktree, a firstmate crew member, Codex) can
 register with subzero, start with one shared master prompt, message the others, take jobs you
 dispatch from your phone, and show up as a little figure on a live board on your Mac.
 
 **Time:** about 15 minutes. **You need:** a running server ([guide 5](05-put-it-online.md) or
-[guide 13](13-run-on-your-mac-over-tailscale.md)) and a terminal on each machine whose agents
+[guide 14](14-run-on-your-mac-over-tailscale.md)) and a terminal on each machine whose agents
 should join.
 
 ## 1. Connect each machine (once)

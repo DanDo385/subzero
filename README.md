@@ -92,8 +92,9 @@ Follow the guides in order. Each one ends with a check that tells you it worked.
 | 10 | [Build your wiki: links and maps](docs/guides/10-build-your-wiki.md) | 10 min | Optional |
 | 11 | [Gemini without custom apps](docs/guides/11-gemini-without-custom-apps.md) | 15 min | Only if on Gemini Plus/free |
 | 12 | [Daily use: what to expect](docs/guides/12-daily-use.md) | 5 min | Read after connecting |
-| 13 | [Run it on your Mac over Tailscale](docs/guides/13-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
-| 14 | [Agents, messages and the board](docs/guides/14-agents-messages-and-the-board.md) | 15 min | Optional: coding agents share one prompt, message each other, take jobs; a live board |
+| 13 | [The browser extension](docs/guides/13-browser-extension.md) | 10 min | Optional: save chats from any app, and backfill old ones |
+| 14 | [Run it on your Mac over Tailscale](docs/guides/14-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
+| 15 | [Agents, messages and the board](docs/guides/15-agents-messages-and-the-board.md) | 15 min | Optional: coding agents share one prompt, message each other; a live board |
 
 The quickest possible start, if you already have the tools:
 
