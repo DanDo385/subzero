@@ -67,11 +67,28 @@ function enqueue(payload) {
       _nextAttemptAt: 0,
     };
     const index = items.findIndex((item) => item._key === entry._key);
-    if (index >= 0) items[index] = entry;
-    else items.push(entry);
+    if (index >= 0) {
+      entry.messages = mergeMessages(items[index].messages, entry.messages);
+      if (!String(entry.title || '').trim()) entry.title = items[index].title;
+      items[index] = entry;
+    } else {
+      items.push(entry);
+    }
     await chrome.storage.local.set({ [QUEUE_KEY]: items });
     return { queued: items.length };
   });
+}
+
+/**
+ * Messages of a newer capture, plus any the older unsent capture had that the
+ * newer one is missing (a page read before it finished scrolling, say). The
+ * newer capture is the usual superset and then comes back unchanged.
+ */
+function mergeMessages(older = [], newer = []) {
+  const id = (m) => m.provider_message_id;
+  const newerIds = new Set(newer.map(id).filter(Boolean));
+  const missing = older.filter((m) => id(m) && !newerIds.has(id(m)));
+  return missing.length ? [...missing, ...newer] : newer;
 }
 
 /** The first item due now, or null. */

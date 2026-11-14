@@ -308,6 +308,17 @@ test('a newer capture of the same conversation replaces the queued one', async (
   assert.equal(state.captureQueue[0].messages.length, 2);
 });
 
+test('a thinner re-capture never drops messages still waiting to be sent', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  const m = (n) => ({ provider_message_id: `m${n}`, content: `message ${n}` });
+  await queue.enqueue({ ...payload, provider_conversation_id: 'thin', messages: [m(1), m(2), m(3)] });
+  // Read again before the page finished loading: only the last turn, plus a new one, no title.
+  await queue.enqueue({ ...payload, provider_conversation_id: 'thin', title: '', messages: [m(3), m(4)] });
+  const item = state.captureQueue.find((i) => i.provider_conversation_id === 'thin');
+  assert.deepEqual(item.messages.map((x) => x.provider_message_id), ['m1', 'm2', 'm3', 'm4']);
+  assert.equal(item.title, 'Test');
+});
+
 test('delivery confirms only what the server stored, at the paired server only', async () => {
   const queue = await import(moduleUrl('lib/queue.js'));
   await queue.enqueue(payload);

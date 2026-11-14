@@ -52,6 +52,25 @@ async def _validate_device_token(db, token: str) -> dict[str, Any] | None:
     return dict(row)
 
 
+def _merge_attachments(known: list[Any], new: list[Any]) -> list[Any]:
+    """Union of attachment references, keeping the first seen of each.
+
+    Keyed by the provider's attachment id, else by file name and size.
+    """
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for item in [*known, *new]:
+        if not isinstance(item, dict):
+            continue
+        key = str(
+            item.get("provider_attachment_id") or f"{item.get('file_name')}:{item.get('file_size')}"
+        )
+        if key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
 def _make_token() -> str:
     """Generate a cryptographically random device token."""
     return f"pcd_{secrets.token_urlsafe(32)}"
@@ -234,11 +253,17 @@ def build_ingest_routes(settings: Settings) -> list:
                 conv_id, normalized, provider=provider, conn=conn
             )
             skipped = len(normalized) - inserted
+            # Attachment references accumulate: a later capture that shows
+            # fewer of them must not drop the ones already recorded.
+            known = await conn.fetchval(
+                "SELECT metadata->'_attachments' FROM conversations WHERE id = $1", conv_id
+            )
+            merged = _merge_attachments(known if isinstance(known, list) else [], attachments)
             await conn.execute(
                 "UPDATE conversations SET updated_at = coalesce($2::timestamptz, updated_at), metadata = metadata || $3::jsonb WHERE id = $1",
                 conv_id,
                 updated_at,
-                {"_attachments": attachments} if attachments else {},
+                {"_attachments": merged} if merged else {},
             )
 
         status = "created" if created else "updated"

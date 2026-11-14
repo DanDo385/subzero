@@ -114,8 +114,10 @@ class SessionService:
             ON CONFLICT (provider, provider_conversation_id)
                 WHERE provider_conversation_id IS NOT NULL
             DO UPDATE SET
-                title = coalesce(EXCLUDED.title, conversations.title),
-                model = coalesce(EXCLUDED.model, conversations.model),
+                -- A capture without a title or model (blank, as page-read
+                -- providers often send) never erases the stored one.
+                title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
+                model = coalesce(nullif(btrim(EXCLUDED.model), ''), conversations.model),
                 project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
                 updated_at = now()
             RETURNING id, project_id, metadata, (xmax = 0) AS created

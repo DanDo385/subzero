@@ -246,3 +246,54 @@ async def test_handoff_contains_a_saved_checkpoint(client, device_token, service
     )
     assert response.status_code == 200
     assert "configure the editor language server" in response.json()["handoff"]
+
+
+async def test_recapture_never_removes_history(client, device_token, services):
+    """A later, thinner capture (fewer messages, blank title, fewer attachments)
+    only ever adds: stored messages, title, model and attachments survive."""
+    headers = {"Authorization": f"Bearer {device_token}"}
+    full = _load_fixture("claude")
+    full["provider_conversation_id"] = "history-guard-1"
+    full["title"] = "The real title"
+    full["model"] = "claude-test-model"
+    full["attachments"] = [
+        {"provider_attachment_id": "att-1", "file_name": "a.pdf"},
+        {"provider_attachment_id": "att-2", "file_name": "b.png"},
+    ]
+    first = await client.post("/api/v1/ingest/conversation", json=full, headers=headers)
+    assert first.status_code == 200, first.text
+    conv_id = UUID(first.json()["conversation_id"])
+    stored = len(full["messages"])
+
+    thin = {
+        "provider": "claude",
+        "provider_conversation_id": "history-guard-1",
+        "title": "  ",
+        "model": "",
+        "messages": [
+            full["messages"][-1],
+            {"provider_message_id": "later-1", "role": "user", "content": "a new turn"},
+        ],
+        "attachments": [{"provider_attachment_id": "att-3", "file_name": "c.txt"}],
+    }
+    second = await client.post("/api/v1/ingest/conversation", json=thin, headers=headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["messages_inserted"] == 1
+
+    row = await services.db.fetchrow(
+        "SELECT title, model, metadata FROM conversations WHERE id = $1", conv_id
+    )
+    assert row["title"] == "The real title"
+    assert row["model"] == "claude-test-model"
+    ids = [a["provider_attachment_id"] for a in row["metadata"]["_attachments"]]
+    assert ids == ["att-1", "att-2", "att-3"]
+
+    messages = await services.db.fetch(
+        "SELECT provider_message_id FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        conv_id,
+    )
+    assert len(messages) == stored + 1
+    assert [m["provider_message_id"] for m in messages][:stored] == [
+        m["provider_message_id"] for m in full["messages"]
+    ]
+    assert messages[-1]["provider_message_id"] == "later-1"
