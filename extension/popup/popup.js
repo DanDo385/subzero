@@ -100,27 +100,27 @@ async function renderPairing() {
 
 // ---------------------------------------------------------------- status
 
+function isRunning(progress) {
+  return progress?.state === 'running' && Date.now() - (progress.heartbeatAt || 0) <= STALE_IMPORT_MS;
+}
+
 function importLine(progress) {
   if (!progress) return null;
-  const stale = progress.state === 'running' && Date.now() - (progress.heartbeatAt || 0) > STALE_IMPORT_MS;
-  const counts = `${progress.queued} sent to queue, ${progress.unchanged} unchanged`
+  const what = progress.mode === 'sync' ? 'Sync' : 'Import';
+  const counts = `${progress.checked || 0} checked, ${progress.queued || 0} saved, `
+    + `${progress.unchanged || 0} already up to date`
     + (progress.failed ? `, ${progress.failed} failed` : '');
-  if (stale) {
-    return {
-      text: `Import stopped at ${progress.done}/${progress.toFetch} (tab closed?). Import again to resume.`,
-      kind: 'error',
-    };
+  if (progress.state === 'running' && !isRunning(progress)) {
+    return { text: `${what} stopped (tab closed?): ${counts}. Import again to resume.`, kind: 'error' };
   }
-  if (progress.state === 'running') {
-    return { text: `Importing ${progress.done}/${progress.toFetch} of ${progress.total}: ${counts}`, kind: 'working' };
-  }
-  if (progress.state === 'error') {
-    return { text: `Import failed: ${progress.lastError}`, kind: 'error' };
-  }
+  if (progress.state === 'running') return { text: `${what} running: ${counts}`, kind: 'working' };
+  if (progress.state === 'error') return { text: `${what} failed: ${progress.lastError}`, kind: 'error' };
+  const when = progress.finishedAt ? ` at ${time(progress.finishedAt)}` : '';
+  const stopped = progress.state === 'stopped' ? ' (stopped)' : '';
   return {
-    text: `Imported ${progress.total} at ${time(progress.finishedAt)}: ${counts}`
+    text: `${what}${stopped}${when}: ${counts}`
       + (progress.failed && progress.lastError ? ` (${progress.lastError})` : ''),
-    kind: progress.failed ? 'error' : 'success',
+    kind: progress.failed ? 'error' : progress.queued ? 'success' : '',
   };
 }
 
@@ -176,10 +176,21 @@ async function renderMain() {
     btn.className = 'backfill-btn';
     btn.dataset.provider = provider;
     btn.textContent = 'Import';
+    const active = isRunning(progress[`backfill:${provider}`]);
     btn.title = provider === 'claude' || provider === 'chatgpt'
       ? 'Import your whole history from this site'
       : 'Save the conversation open in this site\'s tab (history import is not available)';
     btn.onclick = () => startImport(provider, btn);
+    if (active) {
+      btn.textContent = 'Stop';
+      btn.title = 'Stop the import or sync running in this site\'s tab';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const result = await chrome.runtime.sendMessage({ action: 'stopImport', provider });
+        showNotice(result?.ok ? `${providerNames[provider]}: stopping after the current conversation.`
+          : `${providerNames[provider]}: ${result?.error || 'could not stop'}`, result?.ok ? '' : 'error');
+      };
+    }
 
     row.appendChild(info);
     row.appendChild(btn);
@@ -294,8 +305,8 @@ async function startImport(provider, btn, { openTab = false } = {}) {
       showNotice(`${providerNames[provider]}: an import is already running.`);
     } else {
       showNotice(
-        `${providerNames[provider]}: ${result.total} conversations, ${result.toFetch} new or changed. `
-        + 'Keep the tab open until the import finishes.',
+        `${providerNames[provider]}: importing newest first, skipping what the database already has. `
+        + 'Keep the tab open; press Stop to end it.',
         'success',
       );
     }

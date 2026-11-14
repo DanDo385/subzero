@@ -222,6 +222,16 @@ class Settings(BaseSettings):
     no_external_sensitivity: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["highly_sensitive"]
     )
+    #: Background embedding of stored messages (server process only, and only
+    #: when an embedding provider is configured). Every this many seconds it
+    #: embeds up to batch_size * max_batches messages without a vector, newest
+    #: first. 0 turns the loop off (`subzero embed-backfill` still works).
+    embedding_refresh_seconds: int = Field(default=120, ge=0)
+    embedding_batch_size: int = Field(default=64, ge=1, le=256)
+    embedding_max_batches: int = Field(default=4, ge=1, le=100)
+    #: context_bootstrap adds a "semantic" layer (nearest past messages to the
+    #: query) when embeddings are on. One embedding call per bootstrap.
+    semantic_bootstrap: bool = True
 
     # ------------------------------------------------ gemini drive digest
     #: For assistants that cannot connect (Gemini without custom apps): a

@@ -87,32 +87,44 @@ a minute, up to an hour). The popup shows how many are waiting, and the error th
 Anything the server refuses outright, or that keeps failing, is kept under *could not be sent*
 with a **Retry** button: nothing is thrown away.
 
-## Step 4: Import your history
+## Step 4: Import your history, then stay in sync
 
-Import brings in the conversations from before the extension was installed.
+Import brings in the conversations from before the extension was installed. After that,
+the extension keeps your database current by itself.
 
 1. In the popup, click **Open All Tabs**. One background tab opens per provider. Sign in to any
    you are not signed in to.
 2. Click **Import All**, or **Import** on a single provider's row to do just that one.
-3. The row first lists your conversations, then counts up: *Importing 120/480 of 512: 118 sent
-   to queue, 32 unchanged*. **Keep that provider's tab open until it says *Imported*.**
+3. The row counts up while it works: *Import running: 120 checked, 95 saved, 25 already up to
+   date*. **Keep that provider's tab open until it says *Import at 14:05*.**
+4. To stop an import, press **Stop** on that row (the Import button turns into Stop while
+   one runs). It finishes the conversation it is on, then stops. Nothing saved is lost, and
+   pressing **Import** later carries on where the database left off.
 
-**Success looks like:** *Imported 512 at 14:05: 480 sent to queue, 32 unchanged*, and the
-queue line disappears once everything is delivered.
+How it decides what to fetch: before starting, the extension asks your server which
+conversations it already has and when each was last updated. It walks your history newest
+first and fetches only what is new or changed, so a second import is quick.
+
+**Staying in sync:** every two minutes, each open Claude or ChatGPT tab checks for
+conversations that changed since the server last saw them, newest first, and stops at the
+first one that is already up to date. When nothing changed, that is a single small request.
+The row then shows *Sync at 14:07: 3 checked, 1 saved, 2 already up to date*. Keep one
+Claude and one ChatGPT tab open (pinned tabs are handy) and new chats reach your database
+within a few minutes.
 
 Notes:
 
 - Import fetches about one conversation per second, and slows down by itself if the app asks
   it to (rate limiting). A history of a few thousand conversations takes an hour or more; that
   is normal. You can keep using the browser meanwhile.
-- Running Import again is cheap and safe: conversations the server already has, unchanged, are
-  skipped, and the server never stores a message twice. If an import stopped halfway (tab
-  closed, computer asleep), just press **Import** again.
-- **Claude and ChatGPT** import every conversation in your account.
+- **Claude and ChatGPT** import and sync every conversation in your account.
 - **Gemini, Grok and Muse** have no history import. **Import** (and **Save Now**) save only the
-  conversation open on screen; to save an older one, open it and press **Save Now**. These three
-  are read from the page itself, so a redesign of their site can break them until the extension
-  is updated.
+  conversation open on screen, and an open tab is re-saved every two minutes if it changed.
+  These three are read from the page itself, so a redesign of their site can break them until
+  the extension is updated.
+
+**If you'd rather stop everything at once:** press **Pause** in the popup (stops automatic
+saving and sending), or close or reload the provider tab (ends an import running in it).
 
 ## Step 5: The session bridge
 
@@ -149,7 +161,7 @@ the same text your coding sessions read when they start.
 | *Subzero cannot reach the … tab* | Refresh that tab. If it persists, open the extension's **Details** and check *Site access* allows that site. |
 | *No conversation ID found* | Open a saved conversation (one with its own address) and try again. |
 | *No messages found* on Gemini, Grok or Muse | The page layout changed and the extension no longer recognises it. Please open an issue. |
-| *Import stopped at …* | The provider tab was closed or slept. Reopen it and press **Import**; finished conversations are skipped. |
+| *Import stopped (tab closed?)* | The provider tab was closed or slept. Reopen it and press **Import**; what the database has is skipped. |
 | *N could not be sent (…)* | The server refused those conversations; the reason is in brackets. Fix it, then press **Retry**. |
 | *zsh: command not found: subzero* | Use the full command from Step 2, run inside the project folder. |
 

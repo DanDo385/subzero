@@ -39,6 +39,7 @@ function contentPage({ host = 'chatgpt.com', providers = {}, sendMessage = async
       storage: { local: fakeStorage(state) },
     },
     __subzeroProviders: providers,
+    __subzeroImportDelayMs: 0,
   });
   context.window.__subzeroInstance = undefined;
   // content.js reads window.__subzeroInstance; in a page, window === globalThis.
@@ -184,20 +185,47 @@ test('a re-injected content script takes over from the orphaned copy', async () 
   assert.equal(page.listeners[0]({ action: 'ping' }, {}, () => assert.fail('stale copy answered')), false);
 });
 
-test('history import reports listing failures to the popup', async () => {
+async function waitForState(state, provider, wanted) {
+  for (let i = 0; i < 200; i++) {
+    const s = state[`backfill:${provider}`]?.state;
+    if (wanted.includes(s)) return state[`backfill:${provider}`];
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`never reached ${wanted}`);
+}
+
+/** A provider with paged history, newest first, like Claude and ChatGPT. */
+function pagedProvider(convs, { pageSize = 2, fail = new Set(), fetched = [], gate = null } = {}) {
+  return {
+    listPage: async (cursor = { offset: 0 }) => {
+      const items = convs.slice(cursor.offset, cursor.offset + pageSize);
+      const offset = cursor.offset + items.length;
+      return { items, next: offset < convs.length ? { offset } : null };
+    },
+    fetchConversation: async (id) => {
+      fetched.push(id);
+      if (gate) await gate;
+      if (fail.has(id)) throw Object.assign(Error('Failed: 500'), { status: 500 });
+      return { ...payload, provider_conversation_id: id };
+    },
+  };
+}
+
+test('import failures while listing are reported', async () => {
   const page = contentPage({
-    providers: { chatgpt: { fetchConversation() {}, listConversations() { throw Error('Session expired'); } } },
+    providers: { chatgpt: { fetchConversation() {}, listPage() { throw Error('Session expired'); } } },
   });
-  const response = await page.send({ action: 'backfill' });
-  assert.equal(response.ok, false);
-  assert.equal(response.error, 'Session expired');
+  const started = await page.send({ action: 'backfill' });
+  assert.equal(started.ok, true);
+  const progress = await waitForState(page.state, 'chatgpt', ['error']);
+  assert.equal(progress.lastError, 'Session expired');
 });
 
 test('DOM-only providers import the open conversation and say so', async () => {
   let queued = 0;
   const page = contentPage({
     host: 'grok.com',
-    providers: { grok: { extractCurrentConversation: async () => ({ ...payload, provider: 'grok' }), listConversations: async () => [] } },
+    providers: { grok: { extractCurrentConversation: async () => ({ ...payload, provider: 'grok' }) } },
     sendMessage: async () => { queued++; return { ok: true }; },
   });
   const result = await page.send({ action: 'backfill' });
@@ -206,50 +234,62 @@ test('DOM-only providers import the open conversation and say so', async () => {
   assert.equal(queued, 1);
 });
 
-test('history import skips conversations the server already has and records progress', async () => {
-  const fetched = [];
-  const queuedIds = [];
-  const state = {
-    // conv-old was confirmed at its current version; conv-new was confirmed at an older one.
-    delivered: {
-      'chatgpt:conv-old': Date.parse('2026-11-01T00:00:00Z'),
-      'chatgpt:conv-new': Date.parse('2026-10-01T00:00:00Z'),
-    },
-  };
-  const convs = [
-    { id: 'conv-old', update_time: '2026-11-01T00:00:00.000000+00:00' },
-    { id: 'conv-new', update_time: '2026-11-12T00:00:00.000000+00:00' },
-    { id: 'conv-unseen', update_time: '2026-11-12T00:00:00Z' },
-    { id: 'conv-broken', update_time: '2026-11-12T00:00:00Z' },
-  ];
-  const page = contentPage({
-    state,
-    providers: { chatgpt: {
-      listConversations: async () => convs,
-      fetchConversation: async (id) => {
-        fetched.push(id);
-        if (id === 'conv-broken') throw Object.assign(Error('Failed: 500'), { status: 500 });
-        return { ...payload, provider_conversation_id: id };
-      },
-    } },
-    sendMessage: async (m) => { queuedIds.push(m.payload.provider_conversation_id); return { ok: true }; },
-  });
-  const started = await page.send({ action: 'backfill' });
-  assert.equal(started.ok, true);
-  assert.equal(started.total, 4);
-  assert.equal(started.toFetch, 3);
+const newestFirst = [
+  { id: 'c5', update_time: '2026-11-13T05:00:00Z' },
+  { id: 'c4', update_time: '2026-11-13T04:00:00Z' },
+  { id: 'c3', update_time: '2026-11-13T03:00:00Z' },
+  { id: 'c2', update_time: '2026-11-13T02:00:00Z' },
+  { id: 'c1', update_time: '2026-11-13T01:00:00Z' },
+];
 
-  for (let i = 0; i < 200 && state['backfill:chatgpt']?.state !== 'done'; i++) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  const progress = state['backfill:chatgpt'];
-  assert.equal(progress.state, 'done');
-  assert.deepEqual(fetched, ['conv-new', 'conv-unseen', 'conv-broken']);
-  assert.deepEqual(queuedIds, ['conv-new', 'conv-unseen']);
-  assert.equal(progress.queued, 2);
-  assert.equal(progress.failed, 1);
+test('a full import fetches everything the database lacks, newest first', async () => {
+  const fetched = [];
+  const queued = [];
+  const page = contentPage({
+    providers: { chatgpt: pagedProvider(newestFirst, { fetched, fail: new Set(['c2']) }) },
+    sendMessage: async (m) => { queued.push(m.payload.provider_conversation_id); return { ok: true }; },
+  });
+  // The server already has c4 at its current version and c3 at an older one.
+  const known = { c4: '2026-11-13T04:00:00+00:00', c3: '2026-11-13T00:00:00+00:00' };
+  await page.send({ action: 'backfill', known });
+  const progress = await waitForState(page.state, 'chatgpt', ['done']);
+  assert.deepEqual(fetched, ['c5', 'c3', 'c2', 'c1']);
+  assert.deepEqual(queued, ['c5', 'c3', 'c1']);
+  assert.equal(progress.checked, 5);
   assert.equal(progress.unchanged, 1);
-  assert.match(progress.lastError, /500/);
+  assert.equal(progress.failed, 1);
+});
+
+test('a sync stops at the first conversation the database already has', async () => {
+  const fetched = [];
+  const page = contentPage({ providers: { chatgpt: pagedProvider(newestFirst, { fetched }) } });
+  const known = { c3: '2026-11-13T03:00:00Z', c2: '2026-11-13T02:00:00Z', c1: '2026-11-13T01:00:00Z' };
+  await page.send({ action: 'sync', known });
+  const progress = await waitForState(page.state, 'chatgpt', ['done']);
+  assert.deepEqual(fetched, ['c5', 'c4']);
+  assert.equal(progress.mode, 'sync');
+  assert.equal(progress.checked, 3);
+
+  // Nothing changed: one listing, no fetches.
+  fetched.length = 0;
+  await page.send({ action: 'sync', known: { ...known, c5: newestFirst[0].update_time, c4: newestFirst[1].update_time } });
+  await waitForState(page.state, 'chatgpt', ['done']);
+  assert.deepEqual(fetched, []);
+});
+
+test('Stop ends a running import after the current conversation', async () => {
+  const fetched = [];
+  let open;
+  const gate = new Promise((r) => { open = r; });
+  const page = contentPage({ providers: { chatgpt: pagedProvider(newestFirst, { fetched, gate }) } });
+  await page.send({ action: 'backfill', known: {} });
+  while (!fetched.length) await new Promise((r) => setTimeout(r, 5)); // first fetch in flight
+  const stop = await page.send({ action: 'stopImport' });
+  assert.equal(stop.stopping, true);
+  open();
+  const progress = await waitForState(page.state, 'chatgpt', ['stopped']);
+  assert.equal(fetched.length, 1);
+  assert.equal(progress.state, 'stopped');
 });
 
 // ---------------------------------------------------------------- tab recovery

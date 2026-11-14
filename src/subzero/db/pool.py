@@ -56,6 +56,12 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
         )
 
 
+def vector_literal(value: Sequence[float] | None) -> str | None:
+    """pgvector text form. Send it as ``$n::text::vector`` to work whether or
+    not this connection has the vector codec registered."""
+    return _encode_vector(value)
+
+
 def _encode_vector(value: Sequence[float] | None) -> str | None:
     if value is None:
         return None

@@ -52,31 +52,42 @@ async function getOrgId() {
 }
 
 /**
- * List all conversations (for backfill), oldest pages included.
- * Pages with limit/offset; stops when a page adds nothing new, so it also
- * works if the API ignores paging and returns everything at once.
- * Returns [{ uuid, name, model, created_at, updated_at, is_temporary }].
+ * One page of conversations, most recently updated first.
+ * cursor: { offset, seen } from the previous page, or undefined to start.
+ * Returns { items, next } where next is null after the last page. Stops when a
+ * page adds nothing new, so it also ends if the API ignores paging.
  */
-async function listConversations() {
+async function listPage(cursor = { offset: 0, seen: [] }, limit = 100) {
   const orgId = await getOrgId();
-  const limit = 100;
-  const seen = new Map();
-  for (let offset = 0; ; offset += limit) {
-    const url = `${CLAUDE_CONVERSATIONS_API(orgId)}?limit=${limit}&offset=${offset}`;
-    const resp = await fetch(url, {
-      credentials: 'include',
-      headers: { 'Accept': 'application/json' },
-    });
-    if (!resp.ok) throw httpError('Failed to list conversations', resp);
-    const page = await resp.json();
-    const before = seen.size;
-    for (const conv of Array.isArray(page) ? page : page.data || []) {
-      if (conv?.uuid && !seen.has(conv.uuid)) seen.set(conv.uuid, conv);
-    }
-    if (seen.size === before || seen.size - before < limit) break;
+  const url = `${CLAUDE_CONVERSATIONS_API(orgId)}?limit=${limit}&offset=${cursor.offset}`;
+  const resp = await fetch(url, {
+    credentials: 'include',
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!resp.ok) throw httpError('Failed to list conversations', resp);
+  const page = await resp.json();
+  const seen = new Set(cursor.seen);
+  const items = [];
+  for (const conv of Array.isArray(page) ? page : page.data || []) {
+    if (!conv?.uuid || seen.has(conv.uuid)) continue;
+    seen.add(conv.uuid);
+    // Temporary (incognito) chats are not kept.
+    if (!conv.is_temporary) items.push({ ...conv, id: conv.uuid });
   }
-  // Temporary (incognito) chats are not kept.
-  return [...seen.values()].filter((c) => !c.is_temporary);
+  const added = seen.size - cursor.seen.length;
+  const next = added < limit ? null : { offset: cursor.offset + limit, seen: [...seen] };
+  return { items, next };
+}
+
+/** Every conversation (all pages). */
+async function listConversations() {
+  const all = [];
+  for (let cursor; ;) {
+    const { items, next } = await listPage(cursor);
+    all.push(...items);
+    if (!next) return all;
+    cursor = next;
+  }
 }
 
 /**
@@ -174,7 +185,7 @@ async function extractCurrentConversation() {
 // Registered for the content script: MV3 content scripts are classic scripts
 // and cannot import ES modules, so providers attach to a shared global.
 (globalThis.__subzeroProviders ||= {}).claude = {
-  getOrgId, listConversations, fetchConversation, extractCurrentConversation,
+  getOrgId, listPage, listConversations, fetchConversation, extractCurrentConversation,
 };
 
 })();

@@ -23,7 +23,8 @@
   window.__subzeroInstance = instance;
   const isCurrent = () => window.__subzeroInstance === instance;
 
-  const IMPORT_DELAY_MS = 1000;
+  // Pause between conversation fetches (tests set the override to 0).
+  const IMPORT_DELAY_MS = globalThis.__subzeroImportDelayMs ?? 1000;
   const RATE_LIMIT_WAIT_MS = 30000;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -82,10 +83,18 @@
     }
   }
 
-  // --- History import ---
+  // --- History import and incremental sync ---
+  //
+  // Both walk the provider's conversation list newest first, one page at a
+  // time, and fetch only conversations that changed since the server (or this
+  // browser) last confirmed them. A full import walks every page; a sync stops
+  // at the first conversation that is already up to date, so when nothing
+  // changed it costs one small list request.
 
   const progressKey = `backfill:${provider}`;
-  let importRunning = false;
+  let running = null; // { mode, stop }
+  const SYNC_PAGE = 20;
+  const IMPORT_PAGE = 100;
 
   async function saveProgress(progress) {
     await chrome.storage.local.set({ [progressKey]: { ...progress, heartbeatAt: Date.now() } });
@@ -97,15 +106,21 @@
     return Date.parse(value);
   }
 
-  /** Conversations the server already confirmed at this version are skipped. */
-  async function changedSinceDelivery(convs) {
+  /** Latest confirmed update time per conversation: the server's, or this browser's. */
+  async function confirmedTimes(serverKnown) {
     const { delivered = {} } = await chrome.storage.local.get('delivered');
-    return convs.filter((conv) => {
-      const confirmed = delivered[`${provider}:${conv.id || conv.uuid}`];
-      const updated = toEpoch(conv.updated_at ?? conv.update_time);
-      return !(Number.isFinite(confirmed) && Number.isFinite(updated)
-        && Math.abs(updated - confirmed) < 1000);
-    });
+    return (id) => {
+      const fromServer = toEpoch(serverKnown?.[id]);
+      const fromHere = delivered[`${provider}:${id}`];
+      const times = [fromServer, fromHere].filter(Number.isFinite);
+      return times.length ? Math.max(...times) : NaN;
+    };
+  }
+
+  function upToDate(conv, confirmed) {
+    const seen = confirmed(conv.id || conv.uuid);
+    const updated = toEpoch(conv.updated_at ?? conv.update_time);
+    return Number.isFinite(seen) && Number.isFinite(updated) && updated <= seen + 1000;
   }
 
   async function fetchWithRateLimit(mod, id) {
@@ -121,64 +136,72 @@
     }
   }
 
-  async function importAll(mod, convs, progress) {
-    for (const conv of convs) {
-      if (!isCurrent()) return;
-      const id = conv.id || conv.uuid;
-      try {
-        const data = await fetchWithRateLimit(mod, id);
-        if (data?.messages?.length) {
-          await queueCapture(data);
-          progress.queued++;
-        } else {
-          progress.empty++;
+  async function walk(mod, mode, serverKnown, job) {
+    const full = mode === 'import';
+    const confirmed = await confirmedTimes(serverKnown);
+    const progress = {
+      mode, state: 'running', startedAt: Date.now(), checked: 0, unchanged: 0,
+      queued: 0, empty: 0, failed: 0, lastError: null,
+    };
+    await saveProgress(progress);
+    let cursor;
+    outer: for (;;) {
+      const { items, next } = await mod.listPage(cursor, full ? IMPORT_PAGE : SYNC_PAGE);
+      for (const conv of items) {
+        if (job.stop || !isCurrent()) break outer;
+        progress.checked++;
+        if (upToDate(conv, confirmed)) {
+          progress.unchanged++;
+          if (!full) break outer; // everything older is up to date too
+          continue;
         }
-      } catch (err) {
-        console.error(`[subzero] Import failed for ${id}:`, err);
-        progress.failed++;
-        progress.lastError = err.message;
+        const id = conv.id || conv.uuid;
+        try {
+          const data = await fetchWithRateLimit(mod, id);
+          if (data?.messages?.length) {
+            await queueCapture(data);
+            progress.queued++;
+          } else {
+            progress.empty++;
+          }
+        } catch (err) {
+          console.error(`[subzero] ${mode} failed for ${id}:`, err);
+          progress.failed++;
+          progress.lastError = err.message;
+        }
+        await saveProgress(progress);
+        await sleep(IMPORT_DELAY_MS);
       }
-      progress.done++;
-      await saveProgress(progress);
-      await sleep(IMPORT_DELAY_MS);
+      if (!next) break;
+      cursor = next;
     }
-    progress.state = 'done';
+    progress.state = job.stop ? 'stopped' : 'done';
     progress.finishedAt = Date.now();
     await saveProgress(progress);
+    return progress;
   }
 
   /**
-   * Start a history import. Replies once the conversation list is known (or
-   * listing failed); fetching runs on in this tab and writes progress to
-   * storage for the popup. Providers without an API (DOM-only) can reach only
-   * the open conversation, and say so.
+   * Start an import ('import': every conversation) or a sync ('sync': only
+   * what changed). Replies at once; the work continues in this tab and writes
+   * progress to storage. Providers without an API save the open conversation.
    */
-  async function startImport() {
+  async function start(mode, serverKnown) {
     const mod = providerModule();
-    if (importRunning) return { ok: true, provider, running: true };
-
-    if (!mod.fetchConversation) {
+    if (!mod.listPage || !mod.fetchConversation) {
+      if (mode === 'sync') return { ok: true, provider, scope: 'current', skipped: true };
       const result = await captureCurrent();
       return { ...result, provider, scope: 'current' };
     }
-
-    const all = await mod.listConversations();
-    const todo = await changedSinceDelivery(all);
-    const progress = {
-      state: 'running', scope: 'history', startedAt: Date.now(),
-      total: all.length, unchanged: all.length - todo.length, toFetch: todo.length,
-      done: 0, queued: 0, empty: 0, failed: 0, lastError: null,
-    };
-    await saveProgress(progress);
-    importRunning = true;
-    importAll(mod, todo, progress)
+    if (running) return { ok: true, provider, running: true, mode: running.mode };
+    const job = { mode, stop: false };
+    running = job;
+    walk(mod, mode, serverKnown, job)
       .catch(async (err) => {
-        progress.state = 'error';
-        progress.lastError = err.message;
-        await saveProgress(progress);
+        await saveProgress({ mode, state: 'error', lastError: err.message, finishedAt: Date.now() });
       })
-      .finally(() => { importRunning = false; });
-    return { ok: true, provider, scope: 'history', started: true, ...progress };
+      .finally(() => { if (running === job) running = null; });
+    return { ok: true, provider, scope: 'history', started: true, mode };
   }
 
   // --- Messages from the popup and service worker ---
@@ -193,9 +216,16 @@
       captureCurrent({ automatic: Boolean(request.automatic) }).then(sendResponse);
       return true;
     }
-    if (request.action === 'backfill') {
-      startImport().then(sendResponse).catch((err) => sendResponse({ ok: false, error: err.message }));
+    if (request.action === 'backfill' || request.action === 'sync') {
+      const mode = request.action === 'sync' ? 'sync' : 'import';
+      start(mode, request.known).then(sendResponse)
+        .catch((err) => sendResponse({ ok: false, error: err.message }));
       return true;
+    }
+    if (request.action === 'stopImport') {
+      if (running) running.stop = true;
+      sendResponse({ ok: true, provider, stopping: Boolean(running) });
+      return false;
     }
     return false;
   });

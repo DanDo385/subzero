@@ -50,28 +50,29 @@ async function apiGet(url, label) {
 }
 
 /**
- * List all conversations with pagination.
- * Returns [{ id, title, create_time, update_time }].
+ * One page of conversations, most recently updated first.
+ * cursor: { offset } or undefined to start. Returns { items, next }.
  */
+async function listPage(cursor = { offset: 0 }, limit = 100) {
+  const url = `${CHATGPT_LIST_API}?offset=${cursor.offset}&limit=${limit}&order=updated`;
+  const data = await apiGet(url, `Failed to list conversations at offset ${cursor.offset}`);
+  const items = (data.items || []).filter((item) => item?.id);
+  const offset = cursor.offset + (data.items || []).length;
+  const done = items.length === 0
+    || (Number.isFinite(data.total) ? offset >= data.total : items.length < limit);
+  return { items, next: done ? null : { offset } };
+}
+
+/** Every conversation (all pages). */
 async function listConversations() {
   const all = [];
   const seen = new Set();
-  const limit = 100;
-  for (let offset = 0; ; ) {
-    const url = `${CHATGPT_LIST_API}?offset=${offset}&limit=${limit}&order=updated`;
-    const data = await apiGet(url, `Failed to list conversations at offset ${offset}`);
-    const items = data.items || [];
-    for (const item of items) {
-      if (item?.id && !seen.has(item.id)) {
-        seen.add(item.id);
-        all.push(item);
-      }
-    }
-    offset += items.length;
-    if (items.length === 0) break;
-    if (Number.isFinite(data.total) ? offset >= data.total : items.length < limit) break;
+  for (let cursor; ;) {
+    const { items, next } = await listPage(cursor);
+    for (const item of items) if (!seen.has(item.id)) { seen.add(item.id); all.push(item); }
+    if (!next) return all;
+    cursor = next;
   }
-  return all;
 }
 
 /** Text of a message's content, whatever its content_type. */
@@ -173,7 +174,7 @@ async function extractCurrentConversation() {
 // Registered for the content script: MV3 content scripts are classic scripts
 // and cannot import ES modules, so providers attach to a shared global.
 (globalThis.__subzeroProviders ||= {}).chatgpt = {
-  getToken, listConversations, fetchConversation, extractCurrentConversation,
+  getToken, listPage, listConversations, fetchConversation, extractCurrentConversation,
 };
 
 })();

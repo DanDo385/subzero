@@ -297,3 +297,31 @@ async def test_recapture_never_removes_history(client, device_token, services):
         m["provider_message_id"] for m in full["messages"]
     ]
     assert messages[-1]["provider_message_id"] == "later-1"
+
+
+async def test_sync_state_reports_what_the_server_has(client, device_token):
+    """The extension asks which conversations exist and how fresh they are,
+    then fetches only newer ones. Provider update times only move forward."""
+    headers = {"Authorization": f"Bearer {device_token}"}
+    unauthorized = await client.get("/api/v1/ingest/sync-state?provider=claude")
+    assert unauthorized.status_code == 401
+
+    payload = _load_fixture("claude")
+    payload["provider_conversation_id"] = "sync-1"
+    payload["updated_at"] = "2026-11-13T10:00:00Z"
+    assert (
+        await client.post("/api/v1/ingest/conversation", json=payload, headers=headers)
+    ).status_code == 200
+    # A stale capture (older update time) must not move the watermark back.
+    payload["updated_at"] = "2026-11-01T00:00:00Z"
+    assert (
+        await client.post("/api/v1/ingest/conversation", json=payload, headers=headers)
+    ).status_code == 200
+
+    state = (await client.get("/api/v1/ingest/sync-state?provider=claude", headers=headers)).json()
+    assert state["count"] == 1
+    assert state["conversations"]["sync-1"].startswith("2026-11-13T10:00:00")
+    assert state["latest"] == state["conversations"]["sync-1"]
+
+    empty = (await client.get("/api/v1/ingest/sync-state?provider=grok", headers=headers)).json()
+    assert empty == {"provider": "grok", "count": 0, "latest": None, "conversations": {}}

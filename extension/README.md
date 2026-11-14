@@ -46,15 +46,19 @@ injected copy takes over from an orphaned one.
 | Grok     | page DOM | open conversation only | selectors can break when the site changes |
 | Muse     | page DOM | open conversation only | selectors not yet verified against the live site |
 
-Imports run inside the provider tab (about one conversation per second, backing off on 429),
-skip conversations whose update time matches what the server already confirmed, and write
-progress to `backfill:<provider>` in storage for the popup.
+Imports and syncs run inside the provider tab. The service worker first asks the server
+(`GET /api/v1/ingest/sync-state?provider=`) which conversations it has and their provider
+update times, and passes that to the tab. The tab lists conversations newest first, one page at a
+time, and fetches only new or changed ones (about one per second, backing off on 429). An import
+walks every page; the 2-minute sync stops at the first conversation already up to date. Progress
+goes to `backfill:<provider>` in storage; **Stop** in the popup ends a run after the current
+conversation.
 
 ## Permissions
 
 - `storage`, `unlimitedStorage`: queue, settings, device token (large imports exceed 10 MB)
 - `scripting`: reconnect capture scripts in tabs opened before installation
-- `alarms`: delivery retries and periodic capture
+- `alarms`: delivery retries and the 2-minute sync
 - `sidePanel`: handoff and session bridge
 - Hosts: the five provider sites. The server's address is an optional permission requested
   when you pair, so no server address is built into the extension.

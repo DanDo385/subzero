@@ -48,7 +48,7 @@ from subzero.models import (
     Provenance_,
 )
 from subzero.projects.service import ProjectService
-from subzero.retrieval import inference
+from subzero.retrieval import inference, semantic
 from subzero.retrieval.query import ParsedQuery, parse
 from subzero.sessions.service import question_key
 from subzero.util import estimate_tokens, truncate_for_budget
@@ -495,8 +495,9 @@ class RetrievalService:
         settings: Settings,
     ) -> None:
         self._db = db
-        # Kept for the constructor contract. Search and bootstrap deliberately
-        # make no embedding call: no model on the read path.
+        # Search makes no embedding call: no model on the read path. The one
+        # exception is bootstrap's optional semantic layer (one call, short
+        # timeout, skipped when embeddings are off): see _semantic_layer.
         self._embeddings = embeddings
         self._projects = projects
         self._settings = settings
@@ -835,9 +836,18 @@ class RetrievalService:
             )
             raw = [i for i in found if i.type == "message"]
 
+        # -- 4. semantic candidates: past messages nearest in meaning --------
+        semantic, semantic_reason = await self._semantic_layer(
+            query,
+            enabled=include_handoff and not searched.is_empty,
+            exclude=handoff_ids | {i.id for i in relevant + raw},
+            item_cap=item_cap,
+        )
+
         for layer, group in (
             ("handoff", [i for h in handoffs for i in h]),
             ("relevant", relevant),
+            ("semantic", semantic),
             ("raw", raw),
         ):
             for item in group:
@@ -848,7 +858,9 @@ class RetrievalService:
                     item.provenance.conversation_id = None
                 item.estimated_tokens = _cost(item)
 
-        everything = {i.id: i for h in handoffs for i in h} | {i.id: i for i in relevant + raw}
+        everything = {i.id: i for h in handoffs for i in h} | {
+            i.id: i for i in relevant + semantic + raw
+        }
         # Each checked decision costs a lookup, so check the ones that matter:
         # those matching the query first, then the handoff's newest.
         likely = [i for i in relevant if i.type == "decision"][:5]
@@ -869,7 +881,7 @@ class RetrievalService:
             order += h[1:5]  # two open tasks, two decisions
         for h in handoffs:
             order += h[5:]
-        order += relevant[2:] + raw
+        order += relevant[2:] + semantic + raw
 
         budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD)
         chosen: dict[UUID, ContextItem] = {}
@@ -943,9 +955,10 @@ class RetrievalService:
         )
 
         # -- reading order and layer report ----------------------------------
-        rank = {"handoff": 0, "relevant": 1, "raw": 2}
+        rank = {"handoff": 0, "relevant": 1, "semantic": 2, "raw": 3}
         position = {
-            i.id: n for n, i in enumerate([*(i for h in handoffs for i in h), *relevant, *raw])
+            i.id: n
+            for n, i in enumerate([*(i for h in handoffs for i in h), *relevant, *semantic, *raw])
         }
         items = sorted(shown, key=lambda i: (rank[i.layer or "relevant"], position[i.id]))
         counts = {name: sum(1 for i in items if i.layer == name) for name in rank}
@@ -975,6 +988,14 @@ class RetrievalService:
             layers.append(
                 LayerReport(name="relevant", status="ran", items=counts["relevant"] or None)
             )
+        # Reported only when it ran or failed: a routine skip (embeddings not
+        # configured, no query) would spend small budgets on noise.
+        if semantic_reason is None:
+            layers.append(
+                LayerReport(name="semantic", status="ran", items=counts["semantic"] or None)
+            )
+        elif semantic_reason.startswith("query could not"):
+            layers.append(LayerReport(name="semantic", status="skipped", reason=semantic_reason))
         if raw or (not handoff_ids and not relevant and not searched.is_empty):
             layers.append(
                 LayerReport(name="raw_messages", status="ran", items=counts["raw"] or None)
@@ -1032,6 +1053,49 @@ class RetrievalService:
             size = _wire_tokens(package)
         package.estimated_tokens = size
         return package
+
+    async def _semantic_layer(
+        self, query: str, *, enabled: bool, exclude: set[UUID], item_cap: int
+    ) -> tuple[list[ContextItem], str | None]:
+        """Up to three past messages nearest the query in meaning.
+
+        Returns (items, None) when the layer ran, or ([], reason) when skipped.
+        """
+        if not enabled:
+            return [], "no query terms"
+        if not self._settings.semantic_bootstrap:
+            return [], "turned off (SUBZERO_SEMANTIC_BOOTSTRAP)"
+        if not self._embeddings.enabled:
+            return [], "embeddings not configured"
+        vector = await semantic.embed_query(self._embeddings, query)
+        if vector is None:
+            return [], "query could not be embedded in time"
+        hits = await semantic.semantic_messages(self._db, vector, limit=8)
+        items = []
+        for hit in hits:
+            if hit.id in exclude:
+                continue
+            row = {
+                "id": hit.id,
+                "project_slug": hit.project,
+                "provenance": hit.provenance,
+                "provider": hit.provider,
+                "conversation_id": hit.conversation_id,
+                "created_at": hit.created_at,
+            }
+            items.append(
+                _item(
+                    kind="message",
+                    row=row,
+                    content=hit.content,
+                    title=hit.title,
+                    score=hit.similarity,
+                    max_tokens=item_cap,
+                )
+            )
+            if len(items) == 3:
+                break
+        return items, None
 
     def _choose_project(
         self, project: str | None, text: str, rows: list[inference.ProjectRow]

@@ -159,6 +159,18 @@ async function ingestConversation(payload) {
   return { ...result, serverUrl: new URL(resp.url).origin };
 }
 
+/**
+ * What the server already has for a provider:
+ * { count, latest, conversations: { providerConversationId: providerUpdatedAt|null } }.
+ */
+async function getSyncState(provider) {
+  const resp = await authedFetch(`/api/v1/ingest/sync-state?provider=${encodeURIComponent(provider)}`);
+  if (!resp.ok) {
+    throw new ServerError(`Could not read sync state: ${resp.status} ${await errorText(resp)}`, resp.status);
+  }
+  return resp.json();
+}
+
 async function fetchSession(sessionId) {
   const resp = await authedFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}`);
   if (!resp.ok) {
@@ -181,5 +193,6 @@ async function sendSessionMessage(sessionId, text) {
 
 export {
   ServerError, normalizeServerUrl, originPattern, getServerUrl, getDeviceToken, isPaired,
-  forgetPairing, pairDevice, ingestConversation, fetchSession, sendSessionMessage, authedFetch,
+  forgetPairing, pairDevice, ingestConversation, getSyncState, fetchSession, sendSessionMessage,
+  authedFetch,
 };

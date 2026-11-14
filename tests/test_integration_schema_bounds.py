@@ -25,6 +25,7 @@ REQUIRED: dict[str, dict[str, Any]] = {
     "context_search": {"query": "anything"},
     "context_recent": {},
     "context_for_topic": {"topic": "anything"},
+    "memory_deep_search": {"query": "anything"},
     "memory_save": {"content": "Bounds are honest."},
     "memory_search": {"query": "anything"},
     "session_recent": {},
