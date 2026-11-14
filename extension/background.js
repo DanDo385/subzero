@@ -33,13 +33,13 @@ chrome.runtime.onStartup.addListener(() => {
   drain();
 });
 
-/** Every open tab per provider (first one wins). */
+/** Every open tab, grouped by provider (in tab order). */
 async function providerTabs() {
   const found = new Map();
   for (const tab of await chrome.tabs.query({})) {
     try {
       const provider = PROVIDER_HOSTS[new URL(tab.url || '').hostname];
-      if (provider && !found.has(provider)) found.set(provider, tab);
+      if (provider) found.set(provider, [...(found.get(provider) || []), tab]);
     } catch { /* malformed URL */ }
   }
   return found;
@@ -64,12 +64,16 @@ async function startInTab(provider, tab, action) {
 async function periodicSync() {
   const { isPaused } = await chrome.storage.local.get('isPaused');
   if (isPaused || !(await isPaired())) return;
-  for (const [provider, tab] of await providerTabs()) {
+  for (const [provider, tabs] of await providerTabs()) {
+    // One tab can list a whole history; the other providers save what each
+    // open tab shows (Muse's main chat and side chats, several Grok chats).
     const work = HISTORY_PROVIDERS.has(provider)
-      ? startInTab(provider, tab, 'sync')
-      : sendToProviderTab(tab.id, { action: 'capture', automatic: true });
+      ? [startInTab(provider, tabs[0], 'sync')]
+      : tabs.map((tab) => sendToProviderTab(tab.id, { action: 'capture', automatic: true }));
     // A tab still loading, signed out or without access is simply skipped.
-    work.catch((err) => console.debug(`[subzero] sync skipped for ${provider}:`, err.message));
+    for (const w of work) {
+      w.catch((err) => console.debug(`[subzero] sync skipped for ${provider}:`, err.message));
+    }
   }
 }
 
@@ -82,7 +86,7 @@ async function tabFor(provider) {
   if (!Object.values(PROVIDER_HOSTS).includes(provider)) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  const tab = (await providerTabs()).get(provider);
+  const tab = (await providerTabs()).get(provider)?.[0];
   if (!tab) throw new Error(`Open ${provider} in a tab and sign in first.`);
   return tab;
 }
