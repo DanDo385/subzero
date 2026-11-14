@@ -14,6 +14,7 @@ from subzero.agents.service import AgentService
 from subzero.artifacts.service import ArtifactService
 from subzero.audit.service import AuditService
 from subzero.auth.kv import PostgresKeyValue
+from subzero.bridge.service import BridgeService
 from subzero.classifier.base import Classifier
 from subzero.classifier.jev import build_classifier
 from subzero.classifier.service import ClassificationService
@@ -58,6 +59,7 @@ class Services:
     email: EmailService
     note_writer: NoteWriter
     agents: AgentService
+    bridge: BridgeService
 
     async def aclose(self) -> None:
         await self.embeddings.aclose()
@@ -100,6 +102,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
         vault_paths=vault_paths,
         audit=audit,
     )
+    bridge = BridgeService(db)
 
     return Services(
         settings=settings,
@@ -133,6 +136,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
             audit=audit,
         ),
         agents=AgentService(db, classifier),
+        bridge=bridge,
     )
 
 

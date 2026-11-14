@@ -63,3 +63,15 @@ def test_database_target_names_the_database_without_credentials(url: str, expect
     target = Settings(database_url=SecretStr(url)).database_target()
     assert target == expected
     assert "secret" not in target
+
+
+def test_approved_bridge_key_still_reads_pc_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SUBZERO_HARNESS_API_KEY", raising=False)
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "bridge-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "bridge-test-key"
+
+
+def test_bridge_key_obeys_new_prefix_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "legacy-test-key")
+    monkeypatch.setenv("SUBZERO_HARNESS_API_KEY", "new-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "new-test-key"

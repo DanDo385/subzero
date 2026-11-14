@@ -66,6 +66,57 @@ class Base(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+BridgeRole = Literal["user", "assistant", "system", "tool"]
+
+
+class BridgeSessionCreate(Base):
+    provider: str = "firstmate"
+    title: str | None = None
+    model: str | None = None
+
+
+class BridgeMessageCreate(Base):
+    text: str
+    role: BridgeRole = "assistant"
+    model: str | None = None
+
+
+class BridgeMessage(Base):
+    """One message shown by the browser session bridge."""
+
+    id: UUID
+    role: BridgeRole
+    content: str
+    model: str | None = None
+    sequence: int
+    created_at: datetime
+
+
+class BridgeSession(Base):
+    """The browser-visible metadata and ordered messages for a bridge."""
+
+    session_id: UUID
+    provider: str
+    title: str | None = None
+    model: str | None = None
+    messages: list[BridgeMessage] = Field(default_factory=list)
+
+
+class BridgeSessionCreated(Base):
+    session_id: UUID
+    provider: str
+    title: str | None = None
+    model: str | None = None
+    link: str
+
+
+class BridgeMessageCreated(Base):
+    message_id: UUID
+    session_id: UUID
+    status: Literal["created", "duplicate"]
+    sequence: int
+
+
 # ------------------------------------------------------------------ results
 
 
