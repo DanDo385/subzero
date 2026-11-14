@@ -214,7 +214,9 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------ embeddings
     embedding_provider: EmbeddingProvider = "none"
-    embedding_model: str = "text-embedding-3-small"
+    #: Empty means the provider's own default (text-embedding-3-small for
+    #: openai, gemini-embedding-001 for gemini).
+    embedding_model: str = ""
     openai_api_key: SecretStr = SecretStr("")
     gemini_api_key: SecretStr = SecretStr("")
     #: Sensitivity levels that must never be sent to an external embedding or

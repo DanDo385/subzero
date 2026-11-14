@@ -162,6 +162,18 @@ SUBZERO_EMBEDDING_PROVIDER=openai
 SUBZERO_OPENAI_API_KEY=...
 ```
 
+or, with a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey):
+
+```text
+SUBZERO_EMBEDDING_PROVIDER=gemini
+SUBZERO_GEMINI_API_KEY=...
+```
+
+Leave `SUBZERO_EMBEDDING_MODEL` empty: each provider uses its own model. A key
+from a chat subscription (ChatGPT Plus, Claude Pro, Cursor) does not work here;
+it has to be an API key. Gemini's free tier is slow for a large backlog and lets
+Google use what it receives to improve its products; a paid key does not.
+
 Restart the server. From then on it quietly turns new messages into "meaning
 vectors" in the background, a small batch every two minutes, so a conversation
 the browser extension saves becomes searchable by meaning within a few minutes.

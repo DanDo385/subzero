@@ -234,6 +234,61 @@ test('DOM-only providers import the open conversation and say so', async () => {
   assert.equal(queued, 1);
 });
 
+/** A Muse chat log: rendered messages and virtualised ones (sr-only surrogate text). */
+function museLog(items) {
+  const el = (attrs, { text = '', children = {} } = {}) => ({
+    getAttribute: (name) => attrs[name] ?? null,
+    querySelector: (sel) => Object.entries(children).find(([key]) => sel.includes(key))?.[1] ?? null,
+    innerText: text,
+    textContent: text,
+  });
+  const nodes = items.map(({ id, role, text, surrogate }) => el(
+    { 'data-message-id': id, 'data-message-role': role },
+    surrogate
+      ? { children: { 'data-message-search-surrogate': el({}, { text: surrogate }) } }
+      : { text },
+  ));
+  return { querySelector: () => nodes[0] ?? null, querySelectorAll: () => nodes };
+}
+
+test('muse captures the main chat and side chats with their own message ids', async () => {
+  const log = museLog([
+    { id: 'u1', role: 'user', surrogate: 'User message: Plan the week' },
+    { id: 'a1', role: 'assistant', surrogate: 'Assistant message: Here is the plan' },
+    { id: 'u2', role: 'user', text: 'You:\n\nShorter please' },
+    { id: 'a2', role: 'assistant', text: 'Done.' },
+    { id: 'a2', role: 'assistant', text: 'Done.' },
+    { id: 'x', role: 'system', text: 'ignored' },
+  ]);
+  const location = { pathname: '/' };
+  const context = vm.createContext({
+    window: { location },
+    document: {
+      querySelector: (sel) => (sel.includes('role="log"') ? log
+        : sel.includes('switcher') ? { textContent: ' Career plan ' } : null),
+    },
+  });
+  vm.runInContext(read('providers/muse.js'), context);
+  const muse = context.__subzeroProviders.muse;
+
+  const main = plain(await muse.extractCurrentConversation());
+  assert.equal(main.provider_conversation_id, 'main');
+  assert.deepEqual(main.messages.map((m) => [m.provider_message_id, m.role, m.content]), [
+    ['u1', 'user', 'Plan the week'],
+    ['a1', 'assistant', 'Here is the plan'],
+    ['u2', 'user', 'Shorter please'],
+    ['a2', 'assistant', 'Done.'],
+  ]);
+
+  location.pathname = '/thread/91d1dca1-89bd-4355-8fbd-d74011f5a319';
+  const side = plain(await muse.extractCurrentConversation());
+  assert.equal(side.provider_conversation_id, '91d1dca1-89bd-4355-8fbd-d74011f5a319');
+  assert.equal(side.title, 'Career plan');
+
+  location.pathname = '/settings';
+  assert.equal(await muse.extractCurrentConversation(), null);
+});
+
 const newestFirst = [
   { id: 'c5', update_time: '2026-11-13T05:00:00Z' },
   { id: 'c4', update_time: '2026-11-13T04:00:00Z' },
