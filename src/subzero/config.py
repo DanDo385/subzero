@@ -10,6 +10,7 @@ import json
 import os
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import (
@@ -221,6 +222,16 @@ class Settings(BaseSettings):
     no_external_sensitivity: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["highly_sensitive"]
     )
+    #: Background embedding of stored messages (server process only, and only
+    #: when an embedding provider is configured). Every this many seconds it
+    #: embeds up to batch_size * max_batches messages without a vector, newest
+    #: first. 0 turns the loop off (`subzero embed-backfill` still works).
+    embedding_refresh_seconds: int = Field(default=120, ge=0)
+    embedding_batch_size: int = Field(default=64, ge=1, le=256)
+    embedding_max_batches: int = Field(default=4, ge=1, le=100)
+    #: context_bootstrap adds a "semantic" layer (nearest past messages to the
+    #: query) when embeddings are on. One embedding call per bootstrap.
+    semantic_bootstrap: bool = True
 
     # ------------------------------------------------ gemini drive digest
     #: For assistants that cannot connect (Gemini without custom apps): a
@@ -305,6 +316,24 @@ class Settings(BaseSettings):
     def resource_url(self) -> str:
         """RFC 8707 canonical resource identifier for this MCP server."""
         return f"{str(self.base_url).rstrip('/')}{self.mcp_path}"
+
+    def database_target(self) -> str:
+        """Where the database is, without credentials: ``name on host``.
+
+        Shown wherever it matters which database a command writes to (pairing
+        codes, for one, only work on the server that shares that database).
+        """
+        raw = self.database_url.get_secret_value()
+        if not raw:
+            return "(no database configured)"
+        parsed = urlsplit(raw)
+        name = parsed.path.lstrip("/") or "(default database)"
+        host = parsed.hostname or parse_qs(parsed.query).get("host", [""])[0]
+        if not host or host.startswith("/"):
+            host = f"this computer ({host})" if host else "this computer"
+        elif parsed.port:
+            host = f"{host}:{parsed.port}"
+        return f"{name} on {host}"
 
     def validate_startup(self) -> list[str]:
         """Refuse to boot into an unsafe configuration.

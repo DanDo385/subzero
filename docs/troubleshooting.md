@@ -125,3 +125,14 @@ table. The common ones:
 | `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
 | `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |
 
+## Browser extension
+
+The full table is in [guide 13](guides/13-browser-extension.md#when-it-goes-wrong). The common ones:
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Could not establish connection. Receiving end does not exist` (older versions) | The chat tab had no Subzero script, usually because it was open before the extension was installed or reloaded. | Update the extension (0.2 reconnects tabs by itself), or refresh the tab. |
+| `Could not reach https://… Is the server running?` | Nothing answers at the paired address. The extension never falls back to another server. | Open the address plus `/healthz`; start the server. Waiting conversations are sent when it is back. |
+| `… does not know that code` | The pairing code was made against a different database than the server uses. | Run `pair-device` with the server's settings (guide 14's installer prints the command) and check its `Database:` line. |
+| `… did not accept this browser's token. Pair it again.` | The server does not know this browser. | Pair again; queued conversations are kept. |
+| `No messages found` on Gemini, Grok or Muse | Their page layout changed. | Open an issue; Claude and ChatGPT are unaffected. |

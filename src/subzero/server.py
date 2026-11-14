@@ -43,6 +43,7 @@ from subzero.auth.provider import build_auth_provider
 from subzero.auth.ratelimit import RateLimitMiddleware
 from subzero.config import Settings, get_settings
 from subzero.db.pool import Database, set_database
+from subzero.embeddings.refresh import background_refresh
 from subzero.ingest import build_ingest_routes
 from subzero.logging_setup import (
     configure_logging,
@@ -554,7 +555,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 "embeddings": settings.embedding_provider,
             },
         )
-        async with mcp_app.router.lifespan_context(app):
+        async with (
+            mcp_app.router.lifespan_context(app),
+            background_refresh(db, services.embeddings, settings),
+        ):
             try:
                 yield
             finally:

@@ -46,6 +46,11 @@ You can also just talk normally. The apps figure out when to use their tools fro
 
 - **search**: "search my memory for Neovim" uses `context_search`. The app chooses
   a few search terms instead of sending your whole prompt.
+- **deep search**: "find that old chat where I worked out API pricing" uses
+  `memory_deep_search`. It searches every saved conversation by meaning, so it
+  finds a chat even when you don't remember its words, and returns the best few
+  conversations with short excerpts. It needs embeddings turned on (see below);
+  without them it matches exact words only and says so.
 - **save**: "save this" uses `session_checkpoint`, choosing one home and concept
   tags. It sets `queue_for_vault=false` to save shared memory only.
 - **email**: "email this to reader@example.com" prepares exactly the requested
@@ -146,3 +151,24 @@ nothing. Then turn the memory switches off (see the table in [guide 6](06-connec
 - **[Guide 13](13-browser-extension.md):** capture chats live in the browser, backfill old ones, and bridge coding sessions.
 - **[Troubleshooting](../troubleshooting.md):** when anything goes wrong.
 - **[FAQ](../faq.md):** common questions, short answers.
+
+## Search by meaning (optional)
+
+Out of the box, search matches words. To also search by meaning, give the server an
+embedding key (OpenAI or Gemini) in its settings:
+
+```text
+SUBZERO_EMBEDDING_PROVIDER=openai
+SUBZERO_OPENAI_API_KEY=...
+```
+
+Restart the server. From then on it quietly turns new messages into "meaning
+vectors" in the background, a small batch every two minutes, so a conversation
+the browser extension saves becomes searchable by meaning within a few minutes.
+To catch up everything already stored at once, run `subzero embed-backfill`.
+
+What leaves your computer: message text, with emails, keys and card numbers
+blanked out first. Conversations marked `highly_sensitive` are never sent. With
+OpenAI's small model, embedding a few thousand conversations costs well under a
+dollar.
+

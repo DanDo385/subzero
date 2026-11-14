@@ -4,38 +4,43 @@
   <meta charset="utf-8">
   <title>Subzero</title>
   <style>
-    body { width: 320px; font-family: system-ui, sans-serif; font-size: 13px; margin: 0; padding: 12px; }
-    h2 { margin: 0 0 8px; font-size: 14px; }
-    .provider { margin: 8px 0; padding: 8px; border-radius: 6px; background: #f5f5f5; display: flex; align-items: center; gap: 8px; }
+    body { width: 340px; font-family: system-ui, sans-serif; font-size: 13px; margin: 0; padding: 12px; color: #222; }
+    h2 { margin: 0 0 2px; font-size: 14px; }
+    .server { font-size: 11px; color: #666; overflow-wrap: anywhere; }
+    .server a { color: #1976d2; cursor: pointer; margin-left: 6px; }
+    .provider { margin: 6px 0; padding: 8px; border-radius: 6px; background: #f5f5f5; display: flex; align-items: center; gap: 8px; }
     .provider-info { flex: 1; min-width: 0; }
     .provider-name { font-weight: 600; font-size: 12px; }
-    .provider-status { font-size: 11px; color: #666; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .provider-status { font-size: 11px; color: #666; margin-top: 2px; white-space: normal; overflow-wrap: anywhere; }
     .provider-status.error { color: #d32f2f; }
     .provider-status.success { color: #2e7d32; }
     .provider-status.working { color: #1976d2; }
     .backfill-btn { padding: 4px 8px; border: 1px solid #5b3f87; border-radius: 3px; cursor: pointer; font-size: 10px; background: transparent; color: #5b3f87; white-space: nowrap; }
     .backfill-btn:hover { background: #5b3f87; color: white; }
     .backfill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .backfill-btn.working { background: #5b3f87; color: white; animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
     .controls { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
     .pause-btn { background: #ff9800; color: white; }
     .pause-btn.paused { background: #4caf50; }
     .capture-btn { background: #5b3f87; color: white; }
     .backfill-all-btn { background: #1976d2; color: white; font-size: 11px; }
     .open-all-btn { background: transparent; border: 1px solid #ccc; color: #333; font-size: 11px; }
-    .pair-btn { background: #1976d2; color: white; width: 100%; margin-top: 4px; }
-    .dead-letter { margin-top: 8px; font-size: 11px; color: #d32f2f; }
+    .link-btn { background: transparent; color: #1976d2; padding: 0 0 0 6px; font-size: 11px; text-decoration: underline; }
+    .pair-btn { background: #1976d2; color: white; width: 100%; margin-top: 8px; }
+    .notice { margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
+    .notice.error { color: #d32f2f; }
+    .notice.success { color: #2e7d32; }
+    .queue { margin-top: 6px; font-size: 11px; color: #666; }
+    .queue.error { color: #d32f2f; }
     .hidden { display: none; }
-    .pair-section { margin: 12px 0; padding: 10px; background: #e3f2fd; border-radius: 6px; }
+    .pair-section { margin: 10px 0; padding: 10px; background: #e3f2fd; border-radius: 6px; }
     .pair-section p { margin: 0 0 6px; font-size: 12px; }
-    .pair-input { width: 100%; padding: 6px; border: 1px solid #90caf9; border-radius: 4px; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-family: monospace; box-sizing: border-box; }
-    .pair-error { color: #d32f2f; font-size: 11px; margin-top: 4px; }
-    .pair-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 4px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .progress-bar { margin: 6px 0; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; }
-    .progress-bar-fill { height: 100%; background: #5b3f87; width: 0%; transition: width 0.3s; }
+    .pair-section label { display: block; font-size: 11px; font-weight: 600; margin: 8px 0 3px; }
+    .pair-section code { font-size: 11px; background: #fff; padding: 1px 4px; }
+    .text-input { width: 100%; padding: 6px; border: 1px solid #90caf9; border-radius: 4px; font-size: 12px; box-sizing: border-box; }
+    .code-input { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-family: monospace; }
+    .pair-error { color: #d32f2f; font-size: 11px; margin-top: 6px; overflow-wrap: anywhere; }
     .section-header { font-size: 11px; font-weight: 600; color: #888; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
   </style>
 </head>
@@ -43,30 +48,29 @@
   <h2>Subzero</h2>
 
   <div id="pairSection" class="pair-section hidden">
-    <p><strong>Not paired.</strong> Run this on the server:</p>
-    <p style="font-family: monospace; font-size: 11px; background: #fff; padding: 4px;">subzero pair-device</p>
-    <p>Then enter the 8-character code:</p>
-    <input id="pairInput" class="pair-input" type="text" maxlength="8" placeholder="ABCD1234" autocomplete="off">
+    <p><strong>Pair this browser with your Subzero server.</strong></p>
+    <p>On the computer that runs the server, in the project folder, run <code>subzero pair-device</code>
+      with the server's own settings. It prints the address and an 8-character code.</p>
+    <label for="serverInput">Server address</label>
+    <input id="serverInput" class="text-input" type="text" placeholder="https://your-mac.your-tailnet.ts.net" autocomplete="off" spellcheck="false">
+    <label for="pairInput">Pairing code</label>
+    <input id="pairInput" class="text-input code-input" type="text" maxlength="8" placeholder="ABCD1234" autocomplete="off" spellcheck="false">
     <div id="pairError" class="pair-error hidden"></div>
     <button id="pairBtn" class="pair-btn">Pair this browser</button>
   </div>
 
   <div id="mainSection" class="hidden">
+    <div class="server">Saving to <span id="serverLabel"></span><button id="unpairBtn" class="link-btn">Unpair</button></div>
     <div class="section-header">Providers</div>
     <div id="providers"></div>
-    <div id="backfillProgress" class="hidden">
-      <div class="progress-bar"><div id="progressFill" class="progress-bar-fill"></div></div>
-      <div id="progressLabel" class="provider-status working"></div>
-    </div>
+    <div id="queueInfo" class="queue hidden"></div>
     <div class="controls">
       <button id="pauseBtn" class="pause-btn">Pause</button>
       <button id="captureBtn" class="capture-btn">Save Now</button>
-    </div>
-    <div style="margin-top: 8px; display: flex; gap: 8px;">
       <button id="openAllBtn" class="open-all-btn">Open All Tabs</button>
-      <button id="backfillAllBtn" class="backfill-all-btn">Backfill All</button>
+      <button id="backfillAllBtn" class="backfill-all-btn">Import All</button>
     </div>
-    <div id="deadLetter" class="dead-letter hidden"></div>
+    <div id="notice" class="notice hidden"></div>
   </div>
 
   <script src="popup.js" type="module"></script>

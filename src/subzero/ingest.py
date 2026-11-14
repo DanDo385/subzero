@@ -52,6 +52,25 @@ async def _validate_device_token(db, token: str) -> dict[str, Any] | None:
     return dict(row)
 
 
+def _merge_attachments(known: list[Any], new: list[Any]) -> list[Any]:
+    """Union of attachment references, keeping the first seen of each.
+
+    Keyed by the provider's attachment id, else by file name and size.
+    """
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for item in [*known, *new]:
+        if not isinstance(item, dict):
+            continue
+        key = str(
+            item.get("provider_attachment_id") or f"{item.get('file_name')}:{item.get('file_size')}"
+        )
+        if key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
 def _make_token() -> str:
     """Generate a cryptographically random device token."""
     return f"pcd_{secrets.token_urlsafe(32)}"
@@ -234,11 +253,22 @@ def build_ingest_routes(settings: Settings) -> list:
                 conv_id, normalized, provider=provider, conn=conn
             )
             skipped = len(normalized) - inserted
+            # Attachment references accumulate: a later capture that shows
+            # fewer of them must not drop the ones already recorded.
+            known = await conn.fetchval(
+                "SELECT metadata->'_attachments' FROM conversations WHERE id = $1", conv_id
+            )
+            merged = _merge_attachments(known if isinstance(known, list) else [], attachments)
             await conn.execute(
-                "UPDATE conversations SET updated_at = coalesce($2::timestamptz, updated_at), metadata = metadata || $3::jsonb WHERE id = $1",
+                """
+                UPDATE conversations
+                SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz),
+                    metadata = metadata || $3::jsonb
+                WHERE id = $1
+                """,
                 conv_id,
                 updated_at,
-                {"_attachments": attachments} if attachments else {},
+                {"_attachments": merged} if merged else {},
             )
 
         status = "created" if created else "updated"
@@ -264,6 +294,45 @@ def build_ingest_routes(settings: Settings) -> list:
                 "status": status,
                 "messages_inserted": inserted,
                 "messages_skipped": skipped,
+            }
+        )
+
+    # ---- Sync state (what the server already has) ----
+
+    async def sync_state(request: Request) -> JSONResponse:
+        """Per provider: every conversation the server has, with the provider's
+        last update time it has seen. The extension fetches only what is newer."""
+        token = _bearer_token(request)
+        if not token:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        db = get_services().db
+        if await _validate_device_token(db, token) is None:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        provider = request.query_params.get("provider", "")
+        if not provider:
+            return JSONResponse({"error": "provider is required"}, status_code=400)
+        rows = await db.fetch(
+            """
+            SELECT provider_conversation_id, provider_updated_at
+            FROM conversations
+            WHERE provider = $1 AND provider_conversation_id IS NOT NULL
+            """,
+            provider,
+        )
+        conversations = {
+            row["provider_conversation_id"]: (
+                row["provider_updated_at"].isoformat() if row["provider_updated_at"] else None
+            )
+            for row in rows
+        }
+        known = [v for v in conversations.values() if v]
+        return JSONResponse(
+            {
+                "provider": provider,
+                "count": len(conversations),
+                "latest": max(known) if known else None,
+                "conversations": conversations,
             }
         )
 
@@ -316,5 +385,6 @@ def build_ingest_routes(settings: Settings) -> list:
         Route("/api/v1/auth/pair-device", pair_device, methods=["POST"]),
         Route("/api/v1/auth/devices/{device_id}", revoke_device, methods=["DELETE"]),
         Route("/api/v1/ingest/conversation", ingest_conversation, methods=["POST"]),
+        Route("/api/v1/ingest/sync-state", sync_state, methods=["GET"]),
         Route("/api/v1/handoff", handoff, methods=["GET"]),
     ]

@@ -1,320 +1,334 @@
-// Subzero — popup script.
-// Shows sync status per provider, pause toggle, pairing flow, and backfill controls.
+// Subzero — popup: pairing, delivery status per provider, imports.
 
-import { isPaired, pairDevice } from '../lib/api.js';
+import { isPaired, pairDevice, normalizeServerUrl, originPattern, forgetPairing } from '../lib/api.js';
 
 const providers = ['claude', 'chatgpt', 'gemini', 'grok', 'muse'];
 const providerNames = {
-  claude: 'Claude',
-  chatgpt: 'ChatGPT',
-  gemini: 'Gemini',
-  grok: 'Grok',
-  muse: 'Muse',
+  claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', grok: 'Grok', muse: 'Muse',
 };
-const providerHosts = {
+const providerUrls = {
   claude: 'https://claude.ai',
   chatgpt: 'https://chatgpt.com',
   gemini: 'https://gemini.google.com',
   grok: 'https://grok.com',
   muse: 'https://muse.ai',
 };
+// An import whose tab stopped reporting for this long was interrupted.
+const STALE_IMPORT_MS = 2 * 60 * 1000;
 
-let isBackfilling = false;
+const $ = (id) => document.getElementById(id);
 
-async function init() {
-  const paired = await isPaired();
+function showNotice(text, kind = '') {
+  const el = $('notice');
+  el.textContent = text;
+  el.className = `notice ${kind}`;
+}
 
-  if (!paired) {
-    document.getElementById('pairSection').classList.remove('hidden');
-    document.getElementById('mainSection').classList.add('hidden');
+function time(value) {
+  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
-    const pairInput = document.getElementById('pairInput');
-    const pairBtn = document.getElementById('pairBtn');
-    const pairError = document.getElementById('pairError');
+// ---------------------------------------------------------------- pairing
 
-    pairInput.focus();
+async function renderPairing() {
+  $('pairSection').classList.remove('hidden');
+  $('mainSection').classList.add('hidden');
 
-    const doPair = async () => {
-      const code = pairInput.value.trim().toUpperCase();
-      if (code.length !== 8) {
-        pairError.textContent = 'Enter the 8-character code.';
-        pairError.classList.remove('hidden');
-        return;
-      }
+  const { pairDraft = {}, serverUrl } = await chrome.storage.local.get(['pairDraft', 'serverUrl']);
+  $('serverInput').value = pairDraft.server || serverUrl || '';
+  $('pairInput').value = pairDraft.code || '';
+  ($('serverInput').value ? $('pairInput') : $('serverInput')).focus();
 
-      pairBtn.disabled = true;
-      pairBtn.innerHTML = '<span class="pair-spinner"></span>Pairing...';
-      pairError.classList.add('hidden');
+  // Keep what was typed: the browser's permission prompt can close the popup.
+  const saveDraft = () => chrome.storage.local.set({
+    pairDraft: { server: $('serverInput').value, code: $('pairInput').value },
+  });
+  $('serverInput').oninput = saveDraft;
+  $('pairInput').oninput = saveDraft;
 
-      try {
-        await pairDevice(code);
-        init();
-      } catch (err) {
-        pairError.textContent = err.message;
-        pairError.classList.remove('hidden');
-        pairBtn.disabled = false;
-        pairBtn.textContent = 'Pair this browser';
-      }
-    };
+  const fail = (message) => {
+    $('pairError').textContent = message;
+    $('pairError').classList.remove('hidden');
+    $('pairBtn').disabled = false;
+    $('pairBtn').textContent = 'Pair this browser';
+  };
 
-    pairBtn.onclick = doPair;
-    pairInput.onkeydown = (e) => { if (e.key === 'Enter') doPair(); };
-    return;
+  const doPair = async () => {
+    $('pairError').classList.add('hidden');
+    let server;
+    try {
+      server = normalizeServerUrl($('serverInput').value);
+    } catch (err) {
+      fail(err.message);
+      return;
+    }
+    const code = $('pairInput').value.trim().toUpperCase();
+    if (code.length !== 8) {
+      fail('Enter the 8-character code.');
+      return;
+    }
+
+    // Must be the first await: the browser only shows the prompt during the click.
+    let granted = false;
+    try {
+      granted = await chrome.permissions.request({ origins: [originPattern(server)] });
+    } catch (err) {
+      fail(`Could not ask for access to ${server}: ${err.message}`);
+      return;
+    }
+    if (!granted) {
+      fail(`Subzero needs permission to talk to ${server}. Click Pair again and choose Allow.`);
+      return;
+    }
+
+    $('pairBtn').disabled = true;
+    $('pairBtn').textContent = 'Pairing...';
+    try {
+      await pairDevice(server, code);
+      await chrome.storage.local.remove('pairDraft');
+      // Anything captured before pairing (or under an old token) can go now.
+      chrome.runtime.sendMessage({ action: 'drain' });
+      render();
+    } catch (err) {
+      fail(err.message);
+    }
+  };
+
+  $('pairBtn').onclick = doPair;
+  $('pairInput').onkeydown = (e) => { if (e.key === 'Enter') doPair(); };
+}
+
+// ---------------------------------------------------------------- status
+
+function isRunning(progress) {
+  return progress?.state === 'running' && Date.now() - (progress.heartbeatAt || 0) <= STALE_IMPORT_MS;
+}
+
+function importLine(progress) {
+  if (!progress) return null;
+  const what = progress.mode === 'sync' ? 'Sync' : 'Import';
+  const counts = `${progress.checked || 0} checked, ${progress.queued || 0} saved, `
+    + `${progress.unchanged || 0} already up to date`
+    + (progress.failed ? `, ${progress.failed} failed` : '');
+  if (progress.state === 'running' && !isRunning(progress)) {
+    return { text: `${what} stopped (tab closed?): ${counts}. Import again to resume.`, kind: 'error' };
   }
+  if (progress.state === 'running') return { text: `${what} running: ${counts}`, kind: 'working' };
+  if (progress.state === 'error') return { text: `${what} failed: ${progress.lastError}`, kind: 'error' };
+  const when = progress.finishedAt ? ` at ${time(progress.finishedAt)}` : '';
+  const stopped = progress.state === 'stopped' ? ' (stopped)' : '';
+  return {
+    text: `${what}${stopped}${when}: ${counts}`
+      + (progress.failed && progress.lastError ? ` (${progress.lastError})` : ''),
+    kind: progress.failed ? 'error' : progress.queued ? 'success' : '',
+  };
+}
 
-  // Paired — show main section.
-  document.getElementById('pairSection').classList.add('hidden');
-  document.getElementById('mainSection').classList.remove('hidden');
+function statusLine(text, kind = '') {
+  const el = document.createElement('div');
+  el.className = `provider-status ${kind}`;
+  el.textContent = text;
+  return el;
+}
 
-  // Get status from service worker.
+async function renderMain() {
+  $('pairSection').classList.add('hidden');
+  $('mainSection').classList.remove('hidden');
+
   const status = await chrome.runtime.sendMessage({ action: 'getStatus' });
-  const { lastSync = {}, isPaused, deadLength, queueLength } = status;
+  const progressKeys = providers.map((p) => `backfill:${p}`);
+  const progress = await chrome.storage.local.get(progressKeys);
+  const {
+    lastDelivery = {}, deliveryErrors = {}, isPaused, deadLength, queueLength, lastFailure, serverUrl,
+  } = status;
 
-  // Get active backfill status.
-  const { backfillActive = {}, backfillProgress = {} } =
-    await chrome.storage.local.get(['backfillActive', 'backfillProgress']);
+  $('serverLabel').textContent = serverUrl;
 
-  // Render provider cards with backfill buttons.
-  const container = document.getElementById('providers');
+  const container = $('providers');
   container.innerHTML = '';
-
   for (const provider of providers) {
-    const div = document.createElement('div');
-    div.className = 'provider';
-
+    const row = document.createElement('div');
+    row.className = 'provider';
     const info = document.createElement('div');
     info.className = 'provider-info';
 
     const name = document.createElement('div');
     name.className = 'provider-name';
     name.textContent = providerNames[provider];
-
-    const statusEl = document.createElement('div');
-    const last = lastSync[provider];
-    if (last) {
-      const time = new Date(last).toLocaleTimeString();
-      statusEl.textContent = `Last sync: ${time}`;
-      statusEl.className = 'provider-status success';
-    } else {
-      statusEl.textContent = 'No sync yet';
-      statusEl.className = 'provider-status';
-    }
-
     info.appendChild(name);
-    info.appendChild(statusEl);
 
-    // Backfill button per provider.
+    const last = lastDelivery[provider];
+    if (last) {
+      const short = last.title && last.title.length > 40 ? `${last.title.slice(0, 39).trimEnd()}…` : last.title;
+      const title = short ? `"${short}"` : 'a conversation';
+      info.appendChild(statusLine(
+        `Saved ${title} (${last.messages ?? '?'} messages, ${last.messagesInserted} new) at ${time(last.at)}`,
+        'success',
+      ));
+    } else {
+      info.appendChild(statusLine('Nothing confirmed by the server yet'));
+    }
+    if (deliveryErrors[provider]) info.appendChild(statusLine(deliveryErrors[provider], 'error'));
+    const line = importLine(progress[`backfill:${provider}`]);
+    if (line) info.appendChild(statusLine(line.text, line.kind));
+
     const btn = document.createElement('button');
     btn.className = 'backfill-btn';
     btn.dataset.provider = provider;
-
-    if (backfillActive[provider]) {
-      btn.textContent = 'Importing...';
-      btn.className = 'backfill-btn working';
-      btn.disabled = true;
-    } else {
-      btn.textContent = 'Import';
+    btn.textContent = 'Import';
+    const active = isRunning(progress[`backfill:${provider}`]);
+    btn.title = provider === 'claude' || provider === 'chatgpt'
+      ? 'Import your whole history from this site'
+      : 'Save the conversation open in this site\'s tab (history import is not available)';
+    btn.onclick = () => startImport(provider, btn);
+    if (active) {
+      btn.textContent = 'Stop';
+      btn.title = 'Stop the import or sync running in this site\'s tab';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const result = await chrome.runtime.sendMessage({ action: 'stopImport', provider });
+        showNotice(result?.ok ? `${providerNames[provider]}: stopping after the current conversation.`
+          : `${providerNames[provider]}: ${result?.error || 'could not stop'}`, result?.ok ? '' : 'error');
+      };
     }
 
-    btn.onclick = () => startBackfill(provider, btn, statusEl);
-
-    div.appendChild(info);
-    div.appendChild(btn);
-    container.appendChild(div);
+    row.appendChild(info);
+    row.appendChild(btn);
+    container.appendChild(row);
   }
 
+  const queueInfo = $('queueInfo');
+  queueInfo.innerHTML = '';
+  queueInfo.className = 'queue hidden';
   if (queueLength > 0) {
-    const queueInfo = document.createElement('div');
-    queueInfo.className = 'provider-status';
-    queueInfo.style.marginTop = '4px';
-    queueInfo.textContent = `${queueLength} item(s) in queue`;
-    container.appendChild(queueInfo);
+    queueInfo.appendChild(document.createTextNode(`${queueLength} waiting to send. `));
+    queueInfo.classList.remove('hidden');
   }
-
-  // Show backfill progress bar if active.
-  showBackfillProgress(backfillProgress, backfillActive);
-
-  // Pause button.
-  const pauseBtn = document.getElementById('pauseBtn');
-  if (isPaused) {
-    pauseBtn.textContent = 'Resume';
-    pauseBtn.className = 'pause-btn paused';
-  } else {
-    pauseBtn.textContent = 'Pause';
-    pauseBtn.className = 'pause-btn';
-  }
-
-  pauseBtn.onclick = async () => {
-    await chrome.runtime.sendMessage({ action: 'setPaused', paused: !isPaused });
-    init();
-  };
-
-  // Capture button.
-  document.getElementById('captureBtn').onclick = async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) {
-      chrome.tabs.sendMessage(tab.id, { action: 'capture' }).catch(() => {
-        alert('Could not capture. Make sure you are on a supported chat page.');
-      });
-      window.close();
-    }
-  };
-
-  // Open All Tabs button.
-  document.getElementById('openAllBtn').onclick = async () => {
-    for (const provider of providers) {
-      const host = providerHosts[provider];
-      // Check if tab already open.
-      const tabs = await chrome.tabs.query({});
-      const existing = tabs.find((t) => {
-        try { return new URL(t.url || '').hostname.includes(new URL(host).hostname); }
-        catch { return false; }
-      });
-      if (!existing) {
-        await chrome.tabs.create({ url: host, active: false });
-      }
-    }
-    window.close();
-  };
-
-  // Backfill All button.
-  document.getElementById('backfillAllBtn').onclick = async () => {
-    if (isBackfilling) return;
-    isBackfilling = true;
-    document.getElementById('backfillAllBtn').disabled = true;
-
-    // Open all provider tabs first.
-    for (const provider of providers) {
-      const host = providerHosts[provider];
-      const tabs = await chrome.tabs.query({});
-      const existing = tabs.find((t) => {
-        try { return new URL(t.url || '').hostname.includes(new URL(host).hostname); }
-        catch { return false; }
-      });
-      if (!existing) {
-        await chrome.tabs.create({ url: host, active: false });
-      }
-    }
-
-    // Wait a moment for tabs to start loading.
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // Backfill each provider sequentially.
-    for (const provider of providers) {
-      try {
-        await chrome.runtime.sendMessage({
-          action: 'backfill',
-          provider,
-          dryRun: false,
-        });
-      } catch (err) {
-        console.error(`[subzero] Backfill ${provider} error:`, err);
-      }
-    }
-
-    isBackfilling = false;
-    init();
-  };
-
-  // Dead letter queue.
   if (deadLength > 0) {
-    const dl = document.getElementById('deadLetter');
-    dl.className = 'dead-letter';
-    dl.textContent = `${deadLength} item(s) failed. Check the server.`;
+    queueInfo.appendChild(document.createTextNode(
+      `${deadLength} could not be sent${lastFailure ? ` (${lastFailure})` : ''}.`,
+    ));
+    const retry = document.createElement('button');
+    retry.className = 'link-btn';
+    retry.textContent = 'Retry';
+    retry.onclick = async () => {
+      const result = await chrome.runtime.sendMessage({ action: 'retryFailed' });
+      showNotice(`Retrying ${result.count} item(s).`);
+    };
+    queueInfo.appendChild(retry);
+    queueInfo.className = 'queue error';
   }
+
+  $('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+  $('pauseBtn').className = isPaused ? 'pause-btn paused' : 'pause-btn';
+  $('pauseBtn').onclick = async () => {
+    await chrome.runtime.sendMessage({ action: 'setPaused', paused: !isPaused });
+  };
+
+  $('captureBtn').onclick = async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
+    $('captureBtn').disabled = true;
+    showNotice('Reading this conversation...');
+    const result = await chrome.runtime.sendMessage({ action: 'captureTab', tabId: tab.id });
+    $('captureBtn').disabled = false;
+    if (result?.ok) {
+      showNotice(`Queued ${result.messages} messages. Sending to the server...`, 'success');
+    } else {
+      showNotice(result?.error || 'Capture failed', 'error');
+    }
+  };
+
+  $('openAllBtn').onclick = async () => {
+    for (const provider of providers) {
+      if (!(await findTab(provider))) {
+        await chrome.tabs.create({ url: providerUrls[provider], active: false });
+      }
+    }
+  };
+
+  $('backfillAllBtn').onclick = async () => {
+    $('backfillAllBtn').disabled = true;
+    for (const provider of providers) {
+      const btn = container.querySelector(`button[data-provider="${provider}"]`);
+      await startImport(provider, btn, { openTab: true });
+    }
+    $('backfillAllBtn').disabled = false;
+  };
+
+  $('unpairBtn').onclick = async () => {
+    await forgetPairing();
+    render();
+  };
 }
 
-/**
- * Start a backfill for a single provider.
- */
-async function startBackfill(provider, btn, statusEl) {
-  if (isBackfilling) return;
-  isBackfilling = true;
+async function findTab(provider) {
+  const host = new URL(providerUrls[provider]).hostname;
+  const tabs = await chrome.tabs.query({});
+  return tabs.find((t) => {
+    try { return new URL(t.url || '').hostname === host; }
+    catch { return false; }
+  });
+}
 
+function waitForLoad(tabId) {
+  return new Promise((resolve) => {
+    const done = () => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timer);
+      resolve();
+    };
+    const listener = (id, change) => { if (id === tabId && change.status === 'complete') done(); };
+    const timer = setTimeout(done, 20000);
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function startImport(provider, btn, { openTab = false } = {}) {
   btn.disabled = true;
-  btn.textContent = 'Opening...';
-  btn.className = 'backfill-btn working';
-  statusEl.textContent = 'Opening provider tab...';
-  statusEl.className = 'provider-status working';
-
   try {
-    // Find or open the provider tab.
-    const host = providerHosts[provider];
-    const hostname = new URL(host).hostname;
-
-    const tabs = await chrome.tabs.query({});
-    let tab = tabs.find((t) => {
-      try { return new URL(t.url || '').hostname.includes(hostname); }
-      catch { return false; }
-    });
-
-    if (!tab) {
-      tab = await chrome.tabs.create({ url: host, active: false });
-      // Wait for the tab to load.
-      await new Promise((resolve) => {
-        const listener = (tabId, changeInfo) => {
-          if (tabId === tab.id && changeInfo.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(listener);
-            resolve();
-          }
-        };
-        chrome.tabs.onUpdated.addListener(listener);
-        // Timeout after 15s.
-        setTimeout(() => {
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve();
-        }, 15000);
-      });
+    if (!(await findTab(provider))) {
+      if (!openTab) {
+        showNotice(`Open ${providerNames[provider]} in a tab, sign in, then click Import.`, 'error');
+        return;
+      }
+      const tab = await chrome.tabs.create({ url: providerUrls[provider], active: false });
+      await waitForLoad(tab.id);
     }
-
-    btn.textContent = 'Importing...';
-    statusEl.textContent = 'Listing conversations...';
-
-    // Start backfill via service worker.
-    const result = await chrome.runtime.sendMessage({
-      action: 'backfill',
-      provider,
-      dryRun: false,
-    });
-
-    if (result && result.ok !== false) {
-      const count = result.captured || result.result?.captured || 0;
-      const total = result.conversations || result.result?.conversations || 0;
-      statusEl.textContent = `Imported ${count} conversations`;
-      statusEl.className = 'provider-status success';
+    showNotice(`${providerNames[provider]}: listing conversations...`);
+    const result = await chrome.runtime.sendMessage({ action: 'backfill', provider });
+    if (!result?.ok) {
+      showNotice(`${providerNames[provider]}: ${result?.error || 'import failed'}`, 'error');
+    } else if (result.scope === 'current') {
+      showNotice(`${providerNames[provider]}: saved the open conversation (history import is not available for this site).`, 'success');
+    } else if (result.running) {
+      showNotice(`${providerNames[provider]}: an import is already running.`);
     } else {
-      statusEl.textContent = result?.error || 'Backfill failed';
-      statusEl.className = 'provider-status error';
+      showNotice(
+        `${providerNames[provider]}: importing newest first, skipping what the database already has. `
+        + 'Keep the tab open; press Stop to end it.',
+        'success',
+      );
     }
   } catch (err) {
-    statusEl.textContent = err.message || 'Error';
-    statusEl.className = 'provider-status error';
+    showNotice(`${providerNames[provider]}: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Import';
-    btn.className = 'backfill-btn';
-    isBackfilling = false;
   }
 }
 
-/**
- * Show backfill progress from storage.
- */
-function showBackfillProgress(progress, active) {
-  const progDiv = document.getElementById('backfillProgress');
-  const fill = document.getElementById('progressFill');
-  const label = document.getElementById('progressLabel');
+// ---------------------------------------------------------------- render
 
-  const activeProviders = Object.keys(active).filter((k) => active[k]);
-  if (activeProviders.length === 0) {
-    progDiv.classList.add('hidden');
-    return;
-  }
-
-  progDiv.classList.remove('hidden');
-  const pct = Math.min(100, (progress.done || 0) / Math.max(1, progress.total || 1) * 100);
-  fill.style.width = `${pct}%`;
-  label.textContent = `Importing from ${activeProviders.join(', ')}: ${progress.done || 0}/${progress.total || '?'}`;
+async function render() {
+  if (await isPaired()) await renderMain();
+  else await renderPairing();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+let pending = null;
+chrome.storage.onChanged.addListener((_changes, area) => {
+  if (area !== 'local' || $('pairSection').offsetParent) return; // don't wipe a half-typed form
+  clearTimeout(pending);
+  pending = setTimeout(render, 250);
+});
+
+document.addEventListener('DOMContentLoaded', render);

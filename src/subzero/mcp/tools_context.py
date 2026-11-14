@@ -167,3 +167,51 @@ def register(mcp: FastMCP) -> None:
             topic, token_budget=token_budget, project=project
         )
         return dump(package)
+
+    @mcp.tool(
+        name="memory_deep_search",
+        tags={"context", "read"},
+        auth=require_scopes(scopes.CONTEXT_READ),
+        annotations={"readOnlyHint": True, "openWorldHint": False},
+    )
+    async def memory_deep_search(
+        query: Annotated[
+            str,
+            Field(
+                description=(
+                    "What to find, in plain words: a description of the idea works "
+                    "(e.g. 'how we decided to price the API'), exact wording is not needed."
+                )
+            ),
+        ],
+        limit: Annotated[
+            int, Field(ge=1, le=15, description="Maximum conversations to return.")
+        ] = 6,
+        provider: Annotated[
+            str | None,
+            Field(description="Only this source: chatgpt, claude, gemini, grok or muse."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Search every past conversation by meaning, then by words.
+
+        Use when bootstrap and context_search found nothing, or the user asks
+        about something discussed in an old chat whose wording you do not
+        know ("that idea about...", "when did I talk about..."). Returns the
+        best-matching conversations, each with a few verbatim excerpts and its
+        conversation_id. Costs more than context_search; do not call it for
+        every request. If "semantic" is false, only exact words were matched.
+        """
+        from subzero.retrieval.semantic import deep_search
+
+        services = get_services()
+        result = await deep_search(
+            services.db, services.embeddings, query, limit=limit, provider=provider
+        )
+        payload: dict[str, Any] = {
+            "query": result.query,
+            "semantic": result.semantic,
+            "conversations": result.conversations,
+        }
+        if result.note:
+            payload["note"] = result.note
+        return payload

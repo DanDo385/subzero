@@ -22,7 +22,7 @@ Provenance = Literal[
     "system",
 ]
 Sensitivity = Literal["normal", "private", "highly_sensitive"]
-ProviderId = Literal["chatgpt", "claude", "gemini", "grok", "system"]
+ProviderId = Literal["chatgpt", "claude", "gemini", "grok", "muse", "codex", "system"]
 StorageStatus = Literal["captured", "referenced", "pending_import", "failed"]
 
 MemoryKind = Literal["fact", "preference", "relationship", "decision", "knowledge"]

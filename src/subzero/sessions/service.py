@@ -114,8 +114,10 @@ class SessionService:
             ON CONFLICT (provider, provider_conversation_id)
                 WHERE provider_conversation_id IS NOT NULL
             DO UPDATE SET
-                title = coalesce(EXCLUDED.title, conversations.title),
-                model = coalesce(EXCLUDED.model, conversations.model),
+                -- A capture without a title or model (blank, as page-read
+                -- providers often send) never erases the stored one.
+                title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
+                model = coalesce(nullif(btrim(EXCLUDED.model), ''), conversations.model),
                 project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
                 updated_at = now()
             RETURNING id, project_id, metadata, (xmax = 0) AS created
@@ -157,7 +159,7 @@ class SessionService:
             "SELECT coalesce(max(sequence), -1) + 1 FROM messages WHERE conversation_id = $1",
             conversation_id,
         )
-        for offset, message in enumerate(messages):
+        for message in messages:
             content = (message.get("content") or "").strip()
             if not content:
                 continue
@@ -189,7 +191,9 @@ class SessionService:
                 content,
                 sha256_text(content),
                 provenance,
-                message.get("sequence", start + offset),
+                # Next free slot: messages already stored (skipped above) take
+                # none, so re-sent conversations append without gaps.
+                message.get("sequence", start + inserted),
                 message.get("created_at"),
                 message.get("metadata") or {},
             )

@@ -1,3 +1,6 @@
+(function () {
+  'use strict';
+
 // Subzero — Claude.ai provider extractor.
 // Uses Claude's internal JSON API (same endpoints the web app loads).
 // Auth: session cookies, auto-attached by the browser.
@@ -9,6 +12,15 @@ const CLAUDE_CONVERSATION_API = (orgId, convId) =>
   `https://claude.ai/api/organizations/${orgId}/chat_conversations/${convId}?tree=true&rendering_mode=messages&render_all_tools=true`;
 
 let cachedOrgId = null;
+
+/** Error with the HTTP status, so the importer can back off on 429. */
+function httpError(message, resp) {
+  const err = new Error(`${message}: ${resp.status}`);
+  err.status = resp.status;
+  const retryAfter = Number(resp.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterMs = retryAfter * 1000;
+  return err;
+}
 
 /**
  * Detect the chat-capable organization ID.
@@ -22,7 +34,12 @@ async function getOrgId() {
   });
 
   if (!resp.ok) {
-    throw new Error(`Failed to fetch organizations: ${resp.status}`);
+    throw httpError(
+      resp.status === 401 || resp.status === 403
+        ? 'Not signed in to Claude in this tab. Sign in and try again'
+        : 'Failed to fetch organizations',
+      resp,
+    );
   }
 
   const orgs = await resp.json();
@@ -35,23 +52,42 @@ async function getOrgId() {
 }
 
 /**
- * List all conversations (for backfill).
- * Returns [{ uuid, name, model, created_at, updated_at, is_temporary }].
+ * One page of conversations, most recently updated first.
+ * cursor: { offset, seen } from the previous page, or undefined to start.
+ * Returns { items, next } where next is null after the last page. Stops when a
+ * page adds nothing new, so it also ends if the API ignores paging.
  */
-async function listConversations() {
+async function listPage(cursor = { offset: 0, seen: [] }, limit = 100) {
   const orgId = await getOrgId();
-  const resp = await fetch(CLAUDE_CONVERSATIONS_API(orgId), {
+  const url = `${CLAUDE_CONVERSATIONS_API(orgId)}?limit=${limit}&offset=${cursor.offset}`;
+  const resp = await fetch(url, {
     credentials: 'include',
     headers: { 'Accept': 'application/json' },
   });
-
-  if (!resp.ok) {
-    throw new Error(`Failed to list conversations: ${resp.status}`);
+  if (!resp.ok) throw httpError('Failed to list conversations', resp);
+  const page = await resp.json();
+  const seen = new Set(cursor.seen);
+  const items = [];
+  for (const conv of Array.isArray(page) ? page : page.data || []) {
+    if (!conv?.uuid || seen.has(conv.uuid)) continue;
+    seen.add(conv.uuid);
+    // Temporary (incognito) chats are not kept.
+    if (!conv.is_temporary) items.push({ ...conv, id: conv.uuid });
   }
+  const added = seen.size - cursor.seen.length;
+  const next = added < limit ? null : { offset: cursor.offset + limit, seen: [...seen] };
+  return { items, next };
+}
 
-  const convs = await resp.json();
-  // Filter out temporary chats.
-  return convs.filter((c) => !c.is_temporary);
+/** Every conversation (all pages). */
+async function listConversations() {
+  const all = [];
+  for (let cursor; ;) {
+    const { items, next } = await listPage(cursor);
+    all.push(...items);
+    if (!next) return all;
+    cursor = next;
+  }
 }
 
 /**
@@ -66,7 +102,7 @@ async function fetchConversation(conversationId) {
   });
 
   if (!resp.ok) {
-    throw new Error(`Failed to fetch conversation ${conversationId}: ${resp.status}`);
+    throw httpError(`Failed to fetch conversation ${conversationId}`, resp);
   }
 
   const raw = await resp.json();
@@ -85,7 +121,7 @@ async function fetchConversation(conversationId) {
     current = msgMap[current].parent_message_uuid;
   }
 
-  // Convert to normalized format.
+  // Convert to normalized format, dropping messages with no text.
   const messages = activeMessages.map((msg) => {
     const role = msg.sender === 'human' ? 'user' : 'assistant';
     // Extract text from content blocks.
@@ -95,7 +131,8 @@ async function fetchConversation(conversationId) {
     const thinkingBlocks = (msg.content || [])
       .filter((b) => b.type === 'thinking' && b.thinking)
       .map((b) => `[thinking] ${b.thinking}`);
-    const content = [...textBlocks, ...thinkingBlocks].join('\n\n');
+    // Older conversations carry plain `text` instead of content blocks.
+    const content = [...thinkingBlocks, ...textBlocks].join('\n\n') || msg.text || '';
 
     return {
       provider_message_id: msg.uuid,
@@ -104,7 +141,7 @@ async function fetchConversation(conversationId) {
       created_at: msg.created_at,
       model: role === 'assistant' ? raw.model : null,
     };
-  });
+  }).filter((m) => m.content.trim());
 
   // Extract attachment references.
   const attachments = [];
@@ -148,5 +185,7 @@ async function extractCurrentConversation() {
 // Registered for the content script: MV3 content scripts are classic scripts
 // and cannot import ES modules, so providers attach to a shared global.
 (globalThis.__subzeroProviders ||= {}).claude = {
-  getOrgId, listConversations, fetchConversation, extractCurrentConversation,
+  getOrgId, listPage, listConversations, fetchConversation, extractCurrentConversation,
 };
+
+})();

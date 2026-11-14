@@ -244,7 +244,67 @@ def pair_device(device_name: str, agents: bool) -> None:
     _asyncio.run(run())
 
     click.secho(f"\n  Pairing code: {click.style(code, bold=True, fg='green')}", fg="white")
-    click.secho("  Enter this code in the extension popup within 5 minutes.\n", fg="white")
+    click.secho(f"  Server:       {str(settings.base_url).rstrip('/')}", fg="white")
+    click.secho(f"  Database:     {settings.database_target()}", fg="white")
+    click.secho(
+        "  Enter the server address and this code in the extension popup within 5 minutes.\n"
+        "  The code only works on a server that uses the database above.\n",
+        fg="white",
+    )
+
+
+@main.command(name="embed-backfill")
+@click.option("--batch-size", default=64, show_default=True, help="Messages per embedding call.")
+@click.option(
+    "--max-batches", default=0, help="Stop after this many batches (0: until nothing is pending)."
+)
+def embed_backfill(batch_size: int, max_batches: int) -> None:
+    """Embed stored messages that have no vector yet (newest first).
+
+    The server does this by itself every few minutes; run this to catch up a
+    large backlog at once. Needs SUBZERO_EMBEDDING_PROVIDER and its API key.
+    """
+    from subzero.embeddings.refresh import refresh_backlog
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> None:
+        services = await _with_services(settings)
+        try:
+            if not services.embeddings.enabled:
+                raise click.ClickException(
+                    "Embeddings are off. Set SUBZERO_EMBEDDING_PROVIDER (openai or gemini) "
+                    "and its API key."
+                )
+            total = {"embedded": 0, "skipped": 0, "failed": 0}
+            batches = 0
+            while not max_batches or batches < max_batches:
+                step = await refresh_backlog(
+                    services.db, services.embeddings, batch_size=batch_size, max_batches=1
+                )
+                batches += 1
+                total["embedded"] += step.embedded
+                total["skipped"] += step.skipped
+                total["failed"] += step.failed
+                click.echo(
+                    f"  batch {batches}: {step.embedded} embedded, {step.skipped} skipped"
+                    + (f", {step.failed} failed" if step.failed else "")
+                )
+                if step.touched == 0 or step.failed:
+                    break
+            pending = await services.db.fetchval(
+                "SELECT count(*) FROM messages WHERE embedding IS NULL AND NOT embedding_skipped"
+            )
+            click.secho(
+                f"Done: {total['embedded']} embedded, {total['skipped']} skipped, "
+                f"{total['failed']} failed; {pending} still pending.",
+                fg="green" if not total["failed"] else "yellow",
+            )
+        finally:
+            await services.aclose()
+
+    asyncio.run(run())
 
 
 @main.command()

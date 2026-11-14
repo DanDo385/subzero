@@ -137,7 +137,12 @@ hooks must never fail the harness, and the board serves only 127.0.0.1 and never
 token to the page.
 
 **Embeddings are optional.** `SUBZERO_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
-full-text search alone, so nothing may assume a vector is present.
+full-text search alone, so nothing may assume a vector is present. When a provider is set,
+`embeddings/refresh.py` fills `messages.embedding` in the server's background (small batches every
+`SUBZERO_EMBEDDING_REFRESH_SECONDS`, `embedding_skipped` marks what policy forbids), and
+`retrieval/semantic.py` serves `memory_deep_search` and bootstrap's optional `semantic` layer, the one
+read path that makes a model call (one, with a 2 s timeout). Pass vectors as `$n::text::vector` with
+`vector_literal`.
 
 **Historical backfill is two passes.** Import screens sensitivity deterministically
 (`importers/sensitivity.py`, can only raise a level), then Jev classifies an excerpt (pass 1),
