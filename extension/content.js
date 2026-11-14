@@ -23,9 +23,22 @@
   window.__subzeroInstance = instance;
   const isCurrent = () => window.__subzeroInstance === instance;
 
-  // Pause between conversation fetches (tests set the override to 0).
-  const IMPORT_DELAY_MS = globalThis.__subzeroImportDelayMs ?? 1000;
+  // Pause between conversation fetches. It adapts: doubles on every 429 (up
+  // to MAX_DELAY_MS) and eases back after a run of successes, so an import
+  // runs as fast as the provider allows. Tests set the override to 0.
+  const IMPORT_DELAY_MS = globalThis.__subzeroImportDelayMs ?? 250;
+  const MAX_DELAY_MS = 8000;
   const RATE_LIMIT_WAIT_MS = 30000;
+  const pace = { delay: IMPORT_DELAY_MS, streak: 0 };
+  function paceAfter(rateLimited) {
+    if (rateLimited) {
+      pace.delay = Math.min(MAX_DELAY_MS, Math.max(pace.delay * 2, 500));
+      pace.streak = 0;
+    } else if (++pace.streak >= 20 && pace.delay > IMPORT_DELAY_MS) {
+      pace.delay = Math.max(IMPORT_DELAY_MS, Math.round(pace.delay * 0.75));
+      pace.streak = 0;
+    }
+  }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   console.log(`[subzero] Detected provider: ${provider}`);
@@ -127,7 +140,9 @@
     let wait = RATE_LIMIT_WAIT_MS;
     for (let attempt = 0; ; attempt++) {
       try {
-        return await mod.fetchConversation(id);
+        const data = await mod.fetchConversation(id);
+        paceAfter(attempt > 0);
+        return data;
       } catch (err) {
         if (err.status !== 429 || attempt >= 4) throw err;
         await sleep(err.retryAfterMs || wait);
@@ -170,7 +185,7 @@
           progress.lastError = err.message;
         }
         await saveProgress(progress);
-        await sleep(IMPORT_DELAY_MS);
+        await sleep(pace.delay);
       }
       if (!next) break;
       cursor = next;

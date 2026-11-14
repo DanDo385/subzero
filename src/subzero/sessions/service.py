@@ -13,6 +13,7 @@ leaves nothing behind.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -47,6 +48,82 @@ from subzero.retrieval import inference
 from subzero.util import sha256_text, truncate_for_budget, utcnow
 
 logger = get_logger(__name__)
+
+#: Batch insert for add_messages. $3..$10 are parallel arrays, one entry per
+#: message; WITH ORDINALITY keeps the caller's order for the sequence numbers.
+_INSERT_MESSAGES_SQL = """
+WITH incoming AS (
+    SELECT *
+    FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
+                $8::text[], $9::timestamptz[], $10::text[])
+         WITH ORDINALITY AS m(provider_message_id, model, role, content, content_sha256,
+                              provenance, created_at, metadata, ord)
+),
+fresh AS (
+    SELECT i.*
+    FROM incoming i
+    WHERE i.provider_message_id IS NULL
+       OR NOT EXISTS (
+            SELECT 1 FROM messages e
+            WHERE e.conversation_id = $1 AND e.provider_message_id = i.provider_message_id)
+),
+next_free AS (
+    SELECT coalesce(max(sequence), -1) + 1 AS n FROM messages WHERE conversation_id = $1
+)
+INSERT INTO messages (
+    conversation_id, provider, provider_message_id, model, role,
+    content, content_sha256, provenance, sequence, created_at, metadata
+)
+SELECT $1, $2, f.provider_message_id, f.model, f.role,
+       f.content, f.content_sha256, f.provenance::pc_provenance,
+       next_free.n + row_number() OVER (ORDER BY f.ord) - 1,
+       coalesce(f.created_at, now()), f.metadata::jsonb
+FROM fresh f, next_free
+ORDER BY f.ord
+ON CONFLICT (conversation_id, provider_message_id)
+    WHERE provider_message_id IS NOT NULL
+DO NOTHING
+RETURNING id
+"""
+
+
+def _message_rows(messages: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """add_messages input as rows for _INSERT_MESSAGES_SQL: empty messages
+    dropped, a provider message id repeated in one batch kept once."""
+    rows: list[tuple[Any, ...]] = []
+    seen: set[str] = set()
+    for message in messages:
+        content = (message.get("content") or "").strip()
+        if not content:
+            continue
+        message_id = message.get("provider_message_id")
+        if message_id is not None:
+            message_id = str(message_id)
+            if message_id in seen:
+                continue
+            seen.add(message_id)
+        role = message.get("role") or "user"
+        provenance = message.get("provenance") or (
+            "user_statement"
+            if role == "user"
+            else "tool_result"
+            if role == "tool"
+            else "assistant_generated"
+        )
+        rows.append(
+            (
+                message_id,
+                message.get("model"),
+                role,
+                content,
+                sha256_text(content),
+                provenance,
+                message.get("created_at"),
+                json.dumps(message.get("metadata") or {}),
+            )
+        )
+    return rows
+
 
 #: How much of a summary is worth sending to the classifier.
 _CLASSIFIER_SUMMARY_TOKENS = 3000
@@ -152,54 +229,25 @@ class SessionService:
         provider: str,
         conn: asyncpg.Connection | None = None,
     ) -> int:
-        """Insert raw messages (layer 1). Idempotent on provider message id."""
+        """Insert raw messages (layer 1). Idempotent on provider message id.
+
+        One statement for the whole batch, however many messages: against a
+        remote database (Supabase is ~200 ms away from a home machine) a
+        round trip per message made re-sending a long conversation take
+        tens of seconds. Messages already stored are skipped; new ones take
+        the next free sequence numbers in the order given, without gaps.
+        """
+        rows = _message_rows(messages)
+        if not rows:
+            return 0
         executor = conn or self._db
-        inserted = 0
-        start = await executor.fetchval(
-            "SELECT coalesce(max(sequence), -1) + 1 FROM messages WHERE conversation_id = $1",
+        inserted = await executor.fetch(
+            _INSERT_MESSAGES_SQL,
             conversation_id,
+            provider,
+            *(list(column) for column in zip(*rows, strict=True)),
         )
-        for message in messages:
-            content = (message.get("content") or "").strip()
-            if not content:
-                continue
-            role = message.get("role") or "user"
-            provenance = message.get("provenance") or (
-                "user_statement"
-                if role == "user"
-                else "tool_result"
-                if role == "tool"
-                else "assistant_generated"
-            )
-            result = await executor.fetchval(
-                """
-                INSERT INTO messages (
-                    conversation_id, provider, provider_message_id, model, role,
-                    content, content_sha256, provenance, sequence, created_at, metadata
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::pc_provenance,$9,
-                          coalesce($10, now()),$11)
-                ON CONFLICT (conversation_id, provider_message_id)
-                    WHERE provider_message_id IS NOT NULL
-                DO NOTHING
-                RETURNING id
-                """,
-                conversation_id,
-                provider,
-                message.get("provider_message_id"),
-                message.get("model"),
-                role,
-                content,
-                sha256_text(content),
-                provenance,
-                # Next free slot: messages already stored (skipped above) take
-                # none, so re-sent conversations append without gaps.
-                message.get("sequence", start + inserted),
-                message.get("created_at"),
-                message.get("metadata") or {},
-            )
-            if result:
-                inserted += 1
-        return inserted
+        return len(inserted)
 
     # -------------------------------------------------------- checkpoint
 

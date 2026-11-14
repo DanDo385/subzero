@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 
 from subzero.config import Settings
 from subzero.importers.base import parse_timestamp
+from subzero.importers.sensitivity import screen_texts
 from subzero.logging_setup import get_logger
 from subzero.services import get_services
 
@@ -33,23 +34,28 @@ def _bearer_token(request: Request) -> str | None:
 
 
 async def _validate_device_token(db, token: str) -> dict[str, Any] | None:
-    """Validate a device token. Returns device record or None."""
+    """The device a live token belongs to, or None. Records the use in the
+    same statement: one round trip, which matters against a remote database."""
     row = await db.fetchrow(
         """
-        SELECT id, device_id, device_name, scopes
-        FROM device_tokens
+        UPDATE device_tokens SET last_used_at = now()
         WHERE token = $1 AND revoked_at IS NULL
+        RETURNING id, device_id, device_name, scopes
         """,
         token,
     )
-    if row is None:
-        return None
-    # Update last_used_at.
-    await db.execute(
-        "UPDATE device_tokens SET last_used_at = now() WHERE id = $1",
-        row["id"],
-    )
-    return dict(row)
+    return dict(row) if row is not None else None
+
+
+#: Provider ids are fixed by migrations; read once per process, and again
+#: only when a capture names one not seen yet.
+_known_providers: set[str] = set()
+
+
+async def _provider_exists(db, provider: str) -> bool:
+    if provider not in _known_providers:
+        _known_providers.update(r["id"] for r in await db.fetch("SELECT id FROM providers"))
+    return provider in _known_providers
 
 
 def _merge_attachments(known: list[Any], new: list[Any]) -> list[Any]:
@@ -217,7 +223,7 @@ def build_ingest_routes(settings: Settings) -> list:
             return JSONResponse(
                 {"error": "provider and provider_conversation_id must be strings"}, status_code=400
             )
-        if not await db.fetchval("SELECT EXISTS(SELECT 1 FROM providers WHERE id = $1)", provider):
+        if not await _provider_exists(db, provider):
             return JSONResponse({"error": "unknown provider"}, status_code=400)
 
         normalized = []
@@ -255,20 +261,39 @@ def build_ingest_routes(settings: Settings) -> list:
             skipped = len(normalized) - inserted
             # Attachment references accumulate: a later capture that shows
             # fewer of them must not drop the ones already recorded.
-            known = await conn.fetchval(
-                "SELECT metadata->'_attachments' FROM conversations WHERE id = $1", conv_id
+            merged: list[Any] = []
+            if attachments:
+                known = await conn.fetchval(
+                    "SELECT metadata->'_attachments' FROM conversations WHERE id = $1", conv_id
+                )
+                merged = _merge_attachments(known if isinstance(known, list) else [], attachments)
+            # The deterministic sensitivity screen file imports run, here on
+            # every capture (local pattern matching, nothing leaves the
+            # process). It only ever raises the stored level, and it runs
+            # before anything (embeddings, Jev) could send the text out.
+            screen = (
+                screen_texts(
+                    [title or "", *(m["content"] for m in normalized)],
+                    default=settings.import_default_sensitivity,
+                )
+                if settings.import_sensitivity_screen
+                else None
             )
-            merged = _merge_attachments(known if isinstance(known, list) else [], attachments)
+            metadata: dict[str, Any] = {"_attachments": merged} if merged else {}
+            if screen and screen.reasons:
+                metadata["sensitivity_screen"] = screen.reasons
             await conn.execute(
                 """
                 UPDATE conversations
                 SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz),
+                    sensitivity = greatest(sensitivity, $4::pc_sensitivity),
                     metadata = metadata || $3::jsonb
                 WHERE id = $1
                 """,
                 conv_id,
                 updated_at,
-                {"_attachments": merged} if merged else {},
+                metadata,
+                screen.level if screen else settings.import_default_sensitivity,
             )
 
         status = "created" if created else "updated"

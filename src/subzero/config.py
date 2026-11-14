@@ -240,6 +240,15 @@ class Settings(BaseSettings):
     #: query) when embeddings are on. One embedding call per bootstrap.
     semantic_bootstrap: bool = True
 
+    # ------------------------------------------------- background classification
+    #: Pass-1 classification (Jev) of conversations the browser extension
+    #: saves. Every this many seconds the server classifies up to
+    #: auto_classify_batch conversations that were never classified. 0 (the
+    #: default) leaves it off: turn it on in exactly one long-running server
+    #: (not in serverless instances, which would each repeat the work).
+    auto_classify_seconds: int = Field(default=0, ge=0)
+    auto_classify_batch: int = Field(default=10, ge=1, le=200)
+
     # ------------------------------------------------ gemini drive digest
     #: For assistants that cannot connect (Gemini without custom apps): a
     #: weekly digest pushed to one Google Doc that a Gemini Gem reads.

@@ -400,7 +400,10 @@ test('a newer capture of the same conversation replaces the queued one', async (
   await queue.enqueue({ ...payload, provider_conversation_id: 'conv-2' });
   await queue.enqueue({ ...payload, messages: [...payload.messages, { provider_message_id: 'm2', content: 'more' }] });
   assert.deepEqual(state.captureQueue.map((i) => i.provider_conversation_id), ['conv-1', 'conv-2']);
-  assert.equal(state.captureQueue[0].messages.length, 2);
+  assert.equal(state['queue:chatgpt:conv-1'].messages.length, 2);
+  // The index holds headers only: the messages live in each conversation's own entry.
+  assert.equal(state.captureQueue[0].messages, undefined);
+  assert.equal(state.captureQueue[0]._messages, 2);
 });
 
 test('a thinner re-capture never drops messages still waiting to be sent', async () => {
@@ -409,9 +412,9 @@ test('a thinner re-capture never drops messages still waiting to be sent', async
   await queue.enqueue({ ...payload, provider_conversation_id: 'thin', messages: [m(1), m(2), m(3)] });
   // Read again before the page finished loading: only the last turn, plus a new one, no title.
   await queue.enqueue({ ...payload, provider_conversation_id: 'thin', title: '', messages: [m(3), m(4)] });
-  const item = state.captureQueue.find((i) => i.provider_conversation_id === 'thin');
+  const item = state['queue:chatgpt:thin'];
   assert.deepEqual(item.messages.map((x) => x.provider_message_id), ['m1', 'm2', 'm3', 'm4']);
-  assert.equal(item.title, 'Test');
+  assert.equal(state.captureQueue.find((i) => i.provider_conversation_id === 'thin').title, 'Test');
 });
 
 test('delivery confirms only what the server stored, at the paired server only', async () => {
@@ -425,6 +428,38 @@ test('delivery confirms only what the server stored, at the paired server only',
   assert.equal(state.lastDelivery.chatgpt.serverUrl, 'https://server.example');
   assert.equal(state.lastDelivery.chatgpt.messages, 1);
   assert.equal(state.delivered['chatgpt:conv-1'], Date.parse(payload.updated_at));
+  assert.equal(state['queue:chatgpt:conv-1'], undefined);
+  // Only the conversation itself goes to the server, not the queue's bookkeeping.
+  assert.deepEqual(Object.keys(requests[0].body).filter((k) => k.startsWith('_q') || k === '_key'), []);
+});
+
+test('several conversations are delivered at once, never one twice at once', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  let active = 0;
+  let peak = 0;
+  respond = async (_url, init) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 10));
+    active--;
+    const body = JSON.parse(init.body);
+    return { ok: true, status: 200, url: 'https://server.example/x', json: async () => ({ conversation_id: body.provider_conversation_id, messages_inserted: 1 }) };
+  };
+  for (let n = 0; n < 7; n++) await queue.enqueue({ ...payload, provider_conversation_id: `c${n}` });
+  await queue.drain();
+  assert.equal(requests.length, 7);
+  assert.equal(peak, 3);
+  assert.equal(state.captureQueue.length, 0);
+  assert.deepEqual(Object.keys(state).filter((k) => k.startsWith('queue:')), []);
+});
+
+test('a queue saved by an older version is split up and still delivered', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  state.captureQueue = [{ ...payload, _key: 'chatgpt:conv-1', _queuedAt: 1, _attempts: 0, _nextAttemptAt: 0 }];
+  await queue.drain();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.messages.length, 1);
+  assert.equal(state.captureQueue.length, 0);
 });
 
 test('captures made while a delivery is in flight are kept', async () => {

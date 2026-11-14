@@ -81,7 +81,8 @@ server answers, so it is proof the conversation reached your database. Under the
 - **Save Now** — save the conversation in the tab you are looking at, right now.
 - **Pause / Resume** — stop or restart automatic capture everywhere.
 
-Conversations travel through a small queue inside the browser and are sent straight away. If
+Conversations travel through a small queue inside the browser and are sent straight away,
+up to three at a time. If
 the server is asleep or offline, they wait and are retried with growing gaps (30 seconds, then
 a minute, up to an hour). The popup shows how many are waiting, and the error the server gave.
 Anything the server refuses outright, or that keeps failing, is kept under *could not be sent*
@@ -114,9 +115,15 @@ within a few minutes.
 
 Notes:
 
-- Import fetches about one conversation per second, and slows down by itself if the app asks
-  it to (rate limiting). A history of a few thousand conversations takes an hour or more; that
-  is normal. You can keep using the browser meanwhile.
+- Import fetches a few conversations per second, and slows down by itself when the app asks
+  it to (rate limiting), speeding up again once the app stops complaining. A history of a few
+  thousand conversations takes half an hour or more; that is normal. You can keep using the
+  browser meanwhile, and run imports in several provider tabs at once.
+- Every saved conversation is screened for sensitive content (card numbers, ID numbers, keys,
+  health and money topics) on your server as it arrives. A conversation marked
+  `highly_sensitive` is never sent to an outside service (embeddings, Jev).
+- If the server has `SUBZERO_AUTO_CLASSIFY_SECONDS` set, it also files new conversations under
+  a project and decides which deserve a summary, a few at a time in the background.
 - **Claude and ChatGPT** import and sync every conversation in your account.
 - **Gemini, Grok and Muse** have no history import. **Import** (and **Save Now**) save only the
   conversation open on screen, and an open tab is re-saved every two minutes if it changed.

@@ -197,6 +197,56 @@ async def test_ingest_append_messages(client, device_token, provider, services):
     assert [row["sequence"] for row in sequences] == list(range(len(payload["messages"])))
 
 
+async def test_a_batch_stores_each_message_once_in_order(client, device_token, services):
+    messages = [
+        {"provider_message_id": "m1", "role": "user", "content": "first"},
+        {"provider_message_id": "m2", "role": "assistant", "content": "second"},
+        {"provider_message_id": "m1", "role": "user", "content": "first, repeated"},
+        {"provider_message_id": "m3", "role": "assistant", "content": "   "},
+        {"role": "user", "content": "no id"},
+    ]
+    resp = await client.post(
+        "/api/v1/ingest/conversation",
+        json={"provider": "claude", "provider_conversation_id": "batch", "messages": messages},
+        headers={"Authorization": f"Bearer {device_token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["messages_inserted"] == 3
+    rows = await services.db.fetch(
+        "SELECT provider_message_id, content, sequence FROM messages "
+        "WHERE conversation_id = $1 ORDER BY sequence",
+        UUID(resp.json()["conversation_id"]),
+    )
+    assert [(r["provider_message_id"], r["content"], r["sequence"]) for r in rows] == [
+        ("m1", "first", 0),
+        ("m2", "second", 1),
+        (None, "no id", 2),
+    ]
+
+
+async def test_a_capture_is_screened_and_never_lowered(client, device_token, services):
+    async def send(content: str) -> str:
+        resp = await client.post(
+            "/api/v1/ingest/conversation",
+            json={
+                "provider": "chatgpt",
+                "provider_conversation_id": "screened",
+                "messages": [{"provider_message_id": content[:8], "role": "user", "content": content}],
+            },
+            headers={"Authorization": f"Bearer {device_token}"},
+        )
+        assert resp.status_code == 200
+        return await services.db.fetchval(
+            "SELECT sensitivity::text FROM conversations WHERE id = $1",
+            UUID(resp.json()["conversation_id"]),
+        )
+
+    assert await send("What should I cook tonight?") == "normal"
+    assert await send("My SSN is 123-45-6789, fill in the form") == "highly_sensitive"
+    # A later, harmless capture never makes it less private.
+    assert await send("Thanks, that worked") == "highly_sensitive"
+
+
 async def test_revoke_device(client, device_token, services):
     """Revoking a device token invalidates it."""
     # The fixture token is paired through the one-time-code endpoint.
