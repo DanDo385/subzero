@@ -375,3 +375,16 @@ async def test_sync_state_reports_what_the_server_has(client, device_token):
 
     empty = (await client.get("/api/v1/ingest/sync-state?provider=grok", headers=headers)).json()
     assert empty == {"provider": "grok", "count": 0, "latest": None, "conversations": {}}
+
+    # recent=N: only the most recently updated, which is all a sync needs.
+    payload["provider_conversation_id"] = "sync-2"
+    payload["updated_at"] = "2026-11-14T10:00:00Z"
+    assert (
+        await client.post("/api/v1/ingest/conversation", json=payload, headers=headers)
+    ).status_code == 200
+    newest = (
+        await client.get("/api/v1/ingest/sync-state?provider=claude&recent=1", headers=headers)
+    ).json()
+    assert list(newest["conversations"]) == ["sync-2"]
+    bad = await client.get("/api/v1/ingest/sync-state?provider=claude&recent=x", headers=headers)
+    assert bad.status_code == 400

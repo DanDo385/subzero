@@ -163,8 +163,9 @@ async function ingestConversation(payload) {
  * What the server already has for a provider:
  * { count, latest, conversations: { providerConversationId: providerUpdatedAt|null } }.
  */
-async function getSyncState(provider) {
-  const resp = await authedFetch(`/api/v1/ingest/sync-state?provider=${encodeURIComponent(provider)}`);
+async function getSyncState(provider, { recent = 0 } = {}) {
+  const query = `provider=${encodeURIComponent(provider)}${recent ? `&recent=${recent}` : ''}`;
+  const resp = await authedFetch(`/api/v1/ingest/sync-state?${query}`);
   if (!resp.ok) {
     throw new ServerError(`Could not read sync state: ${resp.status} ${await errorText(resp)}`, resp.status);
   }

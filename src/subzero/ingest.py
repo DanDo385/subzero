@@ -337,13 +337,23 @@ def build_ingest_routes(settings: Settings) -> list:
         provider = request.query_params.get("provider", "")
         if not provider:
             return JSONResponse({"error": "provider is required"}, status_code=400)
+        # ?recent=N: only the N most recently updated. A sync stops at the
+        # first conversation that is up to date, which is always among the
+        # newest, so it needs a few hundred rows, not the whole history.
+        try:
+            recent = int(request.query_params.get("recent", "0"))
+        except ValueError:
+            return JSONResponse({"error": "recent must be a number"}, status_code=400)
         rows = await db.fetch(
             """
             SELECT provider_conversation_id, provider_updated_at
             FROM conversations
             WHERE provider = $1 AND provider_conversation_id IS NOT NULL
+            ORDER BY provider_updated_at DESC NULLS LAST
+            LIMIT $2
             """,
             provider,
+            recent if recent > 0 else None,
         )
         conversations = {
             row["provider_conversation_id"]: (

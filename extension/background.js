@@ -14,6 +14,8 @@ const SYNC_ALARM = 'periodicSync';
 const SYNC_MINUTES = 2;
 // Providers whose whole history can be listed (the others save the open page).
 const HISTORY_PROVIDERS = new Set(['claude', 'chatgpt']);
+// How many of the server's most recently updated conversations a sync asks for.
+const SYNC_RECENT = 200;
 
 function ensureAlarms() {
   // Delivery retries (the queue applies its own per-item backoff).
@@ -53,7 +55,10 @@ async function startInTab(provider, tab, action) {
     // server's answer a sync is pointless; an import falls back to what this
     // browser has delivered.
     try {
-      known = (await getSyncState(provider)).conversations || {};
+      // A sync stops at the first conversation already up to date, always
+      // among the newest: it needs only the most recent few hundred.
+      const options = action === 'sync' ? { recent: SYNC_RECENT } : {};
+      known = (await getSyncState(provider, options)).conversations || {};
     } catch (err) {
       if (action === 'sync') throw err;
     }
