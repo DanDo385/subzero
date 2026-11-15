@@ -231,7 +231,9 @@ async def test_a_capture_is_screened_and_never_lowered(client, device_token, ser
             json={
                 "provider": "chatgpt",
                 "provider_conversation_id": "screened",
-                "messages": [{"provider_message_id": content[:8], "role": "user", "content": content}],
+                "messages": [
+                    {"provider_message_id": content[:8], "role": "user", "content": content}
+                ],
             },
             headers={"Authorization": f"Bearer {device_token}"},
         )
