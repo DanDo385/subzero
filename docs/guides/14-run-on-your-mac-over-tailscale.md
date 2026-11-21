@@ -19,6 +19,12 @@ computers, not from your phone. Their computers are not on your tailnet, so a ta
 looks like it doesn't exist to them. **Public** uses Tailscale Funnel, which forwards internet
 traffic to the Mac without opening any port on your router.
 
+**What Public shows the internet.** Only what an app needs to connect: the MCP URL, the sign-in
+pages, and `/healthz`. Everything else (the browser extension, agents, the Obsidian helper and
+file transfers) answers only to devices on your tailnet; from the internet those addresses look
+like they don't exist. Even the MCP URL returns nothing until someone signs in with an account on
+your allowlist. (`SUBZERO_FUNNEL_MCP_ONLY=true`, the default, does this. Leave it on.)
+
 Either way, the address only answers while the Mac is awake and connected to Tailscale. When it
 sleeps, the apps report that the connector is unavailable, and they carry on without it.
 
@@ -96,4 +102,5 @@ tail -f ~/Library/Logs/subzero/server.err.log # see what it's doing
 | `Could not read this Mac's tailnet name` | MagicDNS or HTTPS certificates are off. | Do step 1. |
 | `The server did not start` | A setting is missing or wrong. | Run `uv run subzero check`; it lists what to fix. |
 | An app says the connector is unavailable | The Mac is asleep, or you installed without `--public`. | Wake the Mac, or re-run with `--public`. |
+| The extension or `subzero agent` says `not found` | It is reaching the Mac through the public address from a device that is not on your tailnet. | Turn Tailscale on for that device. These parts are tailnet-only on purpose. |
 | `redirect_uri_mismatch` when signing in | Step 3 was skipped or has a typo. | Copy the **Sign-in** line exactly. |

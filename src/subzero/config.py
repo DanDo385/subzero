@@ -97,6 +97,11 @@ class Settings(BaseSettings):
 
     #: Hostnames the server will answer on (DNS-rebinding protection).
     allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    #: Behind Tailscale Funnel (a Mac made public), internet requests reach
+    #: only the MCP endpoint, OAuth sign-in and /healthz. The browser
+    #: extension, agent, bridge and worker APIs answer only on the tailnet.
+    #: Funnel marks each internet request, so this has no effect elsewhere.
+    funnel_mcp_only: bool = True
 
     # ------------------------------------------------------------- database
     database_url: SecretStr = SecretStr("")

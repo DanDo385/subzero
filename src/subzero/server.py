@@ -276,6 +276,56 @@ class PathAliasMiddleware:
         await self.app(scope, receive, send)
 
 
+#: Paths an internet caller needs to connect an AI app: OAuth discovery,
+#: registration and sign-in, and the MCP endpoint itself.
+_FUNNEL_PUBLIC_PATHS = frozenset(
+    {
+        "/",
+        "/healthz",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-protected-resource",
+        "/authorize",
+        "/token",
+        "/register",
+        "/consent",
+        "/auth/callback",
+    }
+)
+
+
+class FunnelGuardMiddleware:
+    """Over Tailscale Funnel, answer only what an AI app needs to connect.
+
+    Tailscale Serve adds ``Tailscale-Funnel-Request`` to every request that
+    arrived from the internet through Funnel; tailnet requests never carry it,
+    and an internet caller cannot remove it. Those requests may reach the MCP
+    endpoint, OAuth sign-in and /healthz. Everything else (the browser
+    extension, agent, bridge, worker and artifact APIs) gets the same 404 as a
+    path that does not exist, so device tokens and the worker key are useless
+    from the internet and the surface the internet sees stays minimal. Runs
+    before path aliasing, on the path as the caller sent it.
+    """
+
+    def __init__(self, app: Any, *, mcp_path: str) -> None:
+        self.app = app
+        self.public = _FUNNEL_PUBLIC_PATHS | {
+            mcp_path,
+            f"{mcp_path}/",
+            f"/.well-known/oauth-protected-resource{mcp_path}",
+        }
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if (
+            scope["type"] == "http"
+            and scope["path"] not in self.public
+            and any(k.lower() == b"tailscale-funnel-request" for k, _ in scope.get("headers", []))
+        ):
+            response = JSONResponse({"error": "not found"}, status_code=404)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 #: Bodies above this are not parsed for the request log; they are still served.
 _LOGGED_BODY_LIMIT = 256 * 1024
 _KNOWN_AUTH_SCHEMES = frozenset({"bearer", "basic", "dpop", "negotiate"})
@@ -578,6 +628,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
             RequestLogMiddleware,
             mcp_path=settings.mcp_path,
             log_bodies=not settings.is_prod and settings.log_level.upper() == "DEBUG",
+        ),
+        *(
+            [Middleware(FunnelGuardMiddleware, mcp_path=settings.mcp_path)]
+            if settings.funnel_mcp_only
+            else []
         ),
         Middleware(
             PathAliasMiddleware,
