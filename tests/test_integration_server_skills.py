@@ -366,7 +366,7 @@ async def test_scheduled_email_stays_local_until_confirmation(services, inbox):
     )
     assert receipt["status"] == "scheduled"
     assert requests[0][1]["send_at"] == when.isoformat()
-    assert requests[0][1]["client_id"].startswith("pc-")
+    assert requests[0][1]["client_id"].startswith("sz-")
     assert not deliveries  # No immediate send endpoint was called.
 
 

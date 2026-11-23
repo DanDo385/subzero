@@ -111,7 +111,10 @@ def _merge_attachments(known: list[Any], new: list[Any]) -> list[Any]:
 
 def _make_token() -> str:
     """Generate a cryptographically random device token."""
-    return f"pcd_{secrets.token_urlsafe(32)}"
+    # New tokens carry the project's current initials. Tokens paired before the
+    # rename keep their old prefix and still validate: the column is matched
+    # exactly, so the prefix is decoration, not a version the reader parses.
+    return f"szd_{secrets.token_urlsafe(32)}"
 
 
 def build_ingest_routes(settings: Settings) -> list:

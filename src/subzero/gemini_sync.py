@@ -196,7 +196,7 @@ async def push(
                 raise DriveSyncError(f"Updating the Doc failed (HTTP {response.status_code}).")
             # Deleted in Drive: fall through and create a new one.
 
-        boundary = "pc-" + secrets.token_hex(12)
+        boundary = "sz-" + secrets.token_hex(12)
         metadata = json.dumps({"name": settings.gemini_digest_doc_name, "mimeType": DOC_MIME})
         body = (
             (

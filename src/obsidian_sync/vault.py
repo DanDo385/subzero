@@ -99,7 +99,7 @@ class Vault:
         target.parent.mkdir(parents=True, exist_ok=True)
         # Write to a temp file in the same directory and rename, so a crash
         # mid-write cannot leave a half-written note in the vault.
-        fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".pc-", suffix=".tmp")
+        fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".sz-", suffix=".tmp")
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
