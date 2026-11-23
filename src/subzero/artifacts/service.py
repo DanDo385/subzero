@@ -151,7 +151,7 @@ class ArtifactService:
                     slug, title, description, artifact_type, source_type, source_provider,
                     source_conversation_id, source_message_id, project_id, storage_status,
                     sensitivity, storage_prefix, version, parent_artifact_id
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'referenced',$10::pc_sensitivity,
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'referenced',$10::sz_sensitivity,
                           $11,$12,$13)
                 RETURNING id
                 """,
@@ -319,7 +319,7 @@ class ArtifactService:
                 INSERT INTO artifacts (
                     slug, title, description, artifact_type, source_type, source_provider,
                     source_conversation_id, project_id, storage_status, version, metadata
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::pc_storage_status,
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::sz_storage_status,
                           $10,$11)
                 RETURNING id
                 """,
@@ -342,7 +342,7 @@ class ArtifactService:
                     INSERT INTO artifact_files (
                         artifact_id, relative_path, original_filename, mime_type, extension,
                         byte_size, sha256, object_key, storage_status
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8::pc_storage_status)
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8::sz_storage_status)
                     """,
                     artifact_id,
                     sanitize_relative_path(filename),
@@ -591,7 +591,7 @@ class ArtifactService:
               AND ($2::uuid IS NULL OR a.project_id = $2)
               AND ($3::text IS NULL OR a.artifact_type = $3)
               AND ($4::text IS NULL OR a.source_provider = $4)
-              AND ($5::text IS NULL OR a.storage_status = $5::pc_storage_status)
+              AND ($5::text IS NULL OR a.storage_status = $5::sz_storage_status)
             ORDER BY rank DESC, a.created_at DESC
             LIMIT $6
             """,
@@ -676,7 +676,7 @@ class ArtifactService:
             INSERT INTO artifact_relationships (
                 artifact_id, relation, target_type, target_id, relationship_status,
                 provenance
-            ) VALUES ($1,$2,$3,$4,$5,$6::pc_provenance)
+            ) VALUES ($1,$2,$3,$4,$5,$6::sz_provenance)
             ON CONFLICT (artifact_id, relation, target_type, target_id) DO NOTHING
             """,
             artifact_id,
@@ -739,7 +739,7 @@ class ArtifactService:
         await self._db.execute(
             """
             UPDATE artifacts
-            SET classification_status = $2::pc_classification_status,
+            SET classification_status = $2::sz_classification_status,
                 jev_classification = $3
             WHERE id = $1
             """,

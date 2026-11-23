@@ -213,10 +213,22 @@ def test_note_frontmatter_carries_identity_and_provenance() -> None:
             "citations": [{"title": "Spec", "url": "https://example.com"}],
         }
     )
-    assert f"pc_id: {note_id}" in markdown
+    assert f"sz_id: {note_id}" in markdown
     assert "provenance: assistant_generated" in markdown
     assert note_id_of(markdown) == str(note_id)
     assert "[Spec](https://example.com)" in markdown
+
+
+def test_a_note_renders_before_the_rename_is_still_readable() -> None:
+    """Files already in the vault say ``pc_id``; the reader has to keep up.
+
+    The vault is on a laptop that may be asleep, so it cannot be rewritten in
+    one pass. Writing the new marker and reading both is what keeps an old file
+    linked to its note instead of orphaned.
+    """
+    note_id = uuid.uuid4()
+    assert note_id_of(f"---\npc_id: {note_id}\n---\n\nbody\n") == str(note_id)
+    assert note_id_of(f"---\nsz_id: {note_id}\n---\n\nbody\n") == str(note_id)
 
 
 # ------------------------------------------------------------------ writing

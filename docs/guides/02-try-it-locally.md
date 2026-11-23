@@ -94,7 +94,7 @@ To show messages from a terminal coding harness in the extension's Bridge tab, a
 capability token to `.env.local` and restart the server:
 
 ```bash
-PC_HARNESS_API_KEY=choose-a-long-random-secret
+SUBZERO_HARNESS_API_KEY=choose-a-long-random-secret
 ```
 
 Then create a bridge session and append messages from another Terminal window:

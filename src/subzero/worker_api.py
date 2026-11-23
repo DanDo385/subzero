@@ -274,7 +274,8 @@ async def push_edits(request: Request, services: Services) -> Response:
 async def _apply_list_edits(services: Services, edit: dict[str, Any]) -> dict[str, Any]:
     """Apply checkbox state parsed out of a rendered list file.
 
-    Identity comes from the `pc:id` marker only. An item whose marker is
+    Identity comes from the `sz:id` marker only, or the `pc:id` marker that
+    files rendered before the rename still carry. An item whose marker is
     missing is reported, never matched by text - guessing here would tick the
     wrong thing.
     """
@@ -298,7 +299,7 @@ async def _apply_list_edits(services: Services, edit: dict[str, Any]) -> dict[st
             SET status = $2,
                 completed_at = CASE WHEN $2 = 'done' THEN coalesce(completed_at, now())
                                     ELSE NULL END,
-                provenance = 'user_statement'::pc_provenance
+                provenance = 'user_statement'::sz_provenance
             WHERE id = $1 AND status <> $2
             """,
             item_id,

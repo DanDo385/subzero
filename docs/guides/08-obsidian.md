@@ -118,7 +118,8 @@ Existing files are not moved by this update. If a file already has a different
 tracked path, the server refuses a second copy and asks you to relocate it first.
 
 An older list note may still be in the vault from before lists left Subzero.
-Leave it, including any hidden `pc:id` comments. Do not start a new list here.
+Leave it. Hidden `sz:id` comments keep its items linked; notes rendered before
+the rename say `pc:id` instead, and both are read. Do not start a new list here.
 Ordinary Markdown checkboxes in a prose note are just checkboxes.
 
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user
@@ -160,8 +161,8 @@ sees your version. Two things to know:
   as a *conflict* instead of overwriting you.
 
 Ticking a checkbox in an older list note (`- [x]`) can still complete that item
-on the next poll, if the hidden `pc:id` comments are intact. New lists are not
-created this way.
+on the next poll, if the hidden `sz:id` comments are intact (`pc:id` on notes
+rendered before the rename). New lists are not created this way.
 
 ## Common problems
 

@@ -214,7 +214,7 @@ async def test_worker_lease_returns_rendered_markdown(services) -> None:
     # Rendering happens server-side so the worker stays a dumb file writer.
     assert jobs[0]["vault_path"] == "30-Research/mcp-oauth.md"
     assert "Grok requires DCR." in jobs[0]["content"]
-    assert f"pc_id: {note_id}" in jobs[0]["content"]
+    assert f"sz_id: {note_id}" in jobs[0]["content"]
 
 
 async def test_worker_credential_check_leases_no_jobs(services) -> None:

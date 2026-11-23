@@ -121,9 +121,10 @@ allowlist of subjects; capability scopes (`auth/scopes.py`) granted server-side 
 in depth only — `tests/test_http_security.py` asserts an unauthenticated caller learns nothing with
 or without it. Keep that test honest when adding routes.
 
-**Config is environment-only**, `SUBZERO_`-prefixed (old `PC_` names are still read as a fallback), in `config.py`, documented in `.env.example`.
-`Settings.validate_startup()` reports *every* unsafe configuration at once and the server refuses to
-boot on one (`auth_mode=none|static` in prod, plain HTTP in prod, OAuth without an allowlist).
+**Config is environment-only**, `SUBZERO_`-prefixed, in `config.py`, documented in `.env.example`.
+The pre-rename `PC_` names are no longer read. `Settings.validate_startup()` reports *every* unsafe
+configuration at once and the server refuses to boot on one (`auth_mode=none|static` in prod, plain
+HTTP in prod, OAuth without an allowlist, or a stale `PC_` variable still set).
 
 **Sigils are parsed by code, before Jev** (`sigils.py`): `%project`, `^lesson`, `&setup`, `#concept`,
 `@person`, `>agent`. Read in `session_checkpoint`, `note_write` and `context_bootstrap`; a `%project`

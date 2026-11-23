@@ -299,7 +299,7 @@ class ListService:
             INSERT INTO list_items (
                 list_id, text, text_sha256, notes, priority, position, due_date,
                 source_provider, source_conversation_id, provenance
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::pc_provenance)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::sz_provenance)
             ON CONFLICT (list_id, text_sha256) DO UPDATE
                 SET notes = coalesce(EXCLUDED.notes, list_items.notes),
                     priority = greatest(list_items.priority, EXCLUDED.priority),

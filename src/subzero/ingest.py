@@ -111,7 +111,10 @@ def _merge_attachments(known: list[Any], new: list[Any]) -> list[Any]:
 
 def _make_token() -> str:
     """Generate a cryptographically random device token."""
-    return f"pcd_{secrets.token_urlsafe(32)}"
+    # New tokens carry the project's current initials. Tokens paired before the
+    # rename keep their old prefix and still validate: the column is matched
+    # exactly, so the prefix is decoration, not a version the reader parses.
+    return f"szd_{secrets.token_urlsafe(32)}"
 
 
 def build_ingest_routes(settings: Settings) -> list:
@@ -318,7 +321,7 @@ def build_ingest_routes(settings: Settings) -> list:
                 """
                 UPDATE conversations
                 SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz),
-                    sensitivity = greatest(sensitivity, $4::pc_sensitivity),
+                    sensitivity = greatest(sensitivity, $4::sz_sensitivity),
                     metadata = metadata || $3::jsonb
                 WHERE id = $1
                 """,
