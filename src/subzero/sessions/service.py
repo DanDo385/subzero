@@ -241,8 +241,18 @@ class SessionService:
         rows = _message_rows(messages)
         if not rows:
             return 0
-        executor = conn or self._db
-        inserted = await executor.fetch(
+        if conn is None:
+            async with self._db.transaction() as own:
+                return await self.add_messages(
+                    conversation_id, messages, provider=provider, conn=own
+                )
+        # Numbering reads max(sequence), so two writers for one conversation
+        # must take turns: the second waits here, then reads the first's rows.
+        # NO KEY UPDATE serialises writers without blocking foreign-key checks.
+        await conn.execute(
+            "SELECT 1 FROM conversations WHERE id = $1 FOR NO KEY UPDATE", conversation_id
+        )
+        inserted = await conn.fetch(
             _INSERT_MESSAGES_SQL,
             conversation_id,
             provider,
