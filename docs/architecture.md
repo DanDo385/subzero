@@ -960,7 +960,7 @@ real HTTP server, and a real filesystem vault - not mocked.
 The full vertical slice, end to end over HTTP:
 
 ```
- [ 1] connected + authenticated; 48 tools advertised
+ [ 1] connected + authenticated; 53 tools advertised
  [ 2] memory_save -> created
  [ 3] memory_search -> 1 hit
  [ 4] project_create -> personal-ai
