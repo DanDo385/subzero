@@ -1,67 +1,136 @@
-# When something fails
+# Troubleshooting
 
-## `clang++: command not found`
+Start here: **`uv run subzero check`** tests your settings, database, storage and
+classifier, and lists **every** problem it finds at once, in plain words. Most answers below begin
+with it.
 
-The C++ compiler is not installed. On this Mac it comes with the Command Line Tools:
+Find what you're seeing below. Each guide also ends with a table for its own step.
 
-```bash
-xcode-select --install
-```
+## Named actions: email and vault
 
-A window opens. Choose Install, wait, then run `clang++ --version`. Success is a line that starts with `Apple clang`.
+Browser capture returning HTTP 400 means its payload was rejected. An unknown
+provider, non-text message content, or non-list `messages`/`attachments` must be
+corrected by updating the extension. Captures and their original message times
+are stored through the same canonical writers as imported conversations.
 
-This machine already has Apple clang 14.0.3. You do not need Homebrew or a separate C++ download.
+| You see | What to do |
+| --- | --- |
+| `AgentMail is not configured` | Leave email in `dry_run=true`, or configure the two `SUBZERO_AGENTMAIL_*` settings using [daily use](guides/12-daily-use.md#optional-email-setup). Restart the server. |
+| No `email` tool appears | Grant the client `email:send` in `SUBZERO_CLIENT_SCOPE_POLICY`, then reconnect it. Read-only clients cannot send. |
+| `Resolve recipients explicitly` | Supply the full address confirmed by the user, not a name or display-name address. |
+| `send_at must be in the future with an explicit timezone` | Ask for a timezone and choose a future time. Do not silently send immediately. |
+| `Confirmation does not match the preview` | Read the existing draft, show it and get confirmation again. |
+| `That email key already names a different draft` | For an intentional content change, create a new draft and review it. For a retry, use the original ID and confirmation. |
+| `AgentMail did not return a usable receipt` | Retry the same draft. Do not invent a new key or assume the email failed to send. |
+| `Email delivery is uncertain` | The safe retry window has expired. Reconcile the sending inbox in AgentMail before taking further action. |
+| `The approved send time has passed` | Check the original schedule in AgentMail if a send was attempted. For an unsent draft, review and confirm a new time. |
+| `This sensitivity level cannot be sent to AgentMail` | The content's privacy level is blocked by `SUBZERO_NO_EXTERNAL_SENSITIVITY`. Keep it local; do not lower the level just to send it. |
+| `A project home must match an existing project` | Use `project_search` to find the existing project slug or select `other`. |
+| `This object already has a different vault path` | No second copy was queued. Keep the original home, or relocate the managed file and update its tracked path before retrying. Files are not auto-moved. |
+| Vault result is `not_queued` | Check `SUBZERO_OBSIDIAN_ENABLED`, the request's `queue_for_vault` flag and sensitivity. Only normal notes are queued. |
+| Vault result is `busy`, `failed` or `conflict` | The note is not confirmed written. Inspect `sync_status` and the helper's log; preserve human edits when resolving conflicts. |
 
-## `Missing ALCHEMY_API_KEY` or `Missing INFURA_API_KEY`
+## Installing
 
-The binary only sees keys that `scripts/race.sh` put in the environment with `op read`. From the repo root:
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `command not found: uv` | The Terminal hasn't noticed the new program. | Close the Terminal window, open a new one, try again. |
+| `command not found: subzero` | You ran it without `uv run`, or outside the project folder. | `cd ~/subzero`, then `uv run subzero ...`. |
+| `Cannot connect to the Docker daemon` | Docker Desktop isn't running. | Open the Docker Desktop app, wait for it to say *running*, try again. |
 
-```bash
-cp deploy/keys.op.example deploy/keys.op
-./scripts/race.sh --once
-```
+## Settings
 
-`deploy/keys.op` holds `op://` references. It does not hold the key text. If your 1Password items use different titles, edit the references. Confirm a reference resolves without printing it:
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `.env.local already exists` from `init` | The wizard won't overwrite your settings by accident. | Rename the old file (`mv .env.local .env.old`) or run `init --force`. |
+| `Refusing to start. Fix the configuration problems above` | A setting is missing or unsafe. | The lines above it say exactly which; `check` shows them too. |
+| `SUBZERO_AUTH_MODE=static is refused when SUBZERO_ENVIRONMENT=prod` | Test settings are being used online. | Run `init` again and choose `online`. |
+| `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
+| `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
+| `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
+| `PC_HARNESS_API_KEY is required for bridge commands` | The CLI has no capability token for the browser bridge. | Add `PC_HARNESS_API_KEY` to `.env.local`, restart the server, and run the bridge command again. |
 
-```bash
-op read "op://Dev/Alchemy/credential" >/dev/null && echo alchemy ok
-op read "op://Dev/Infura/credential" >/dev/null && echo infura ok
-```
+## Browser session bridge
 
-Success is `alchemy ok` and `infura ok`. If `op` asks you to sign in, open the 1Password app and approve it.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Bridge request failed with status 401` | The harness token is missing or does not match the server. | Check that `PC_HARNESS_API_KEY` is identical in the CLI and server environment. |
+| The Bridge tab says `Not paired` | The browser has no device token. | Pair the extension with `uv run subzero pair-device`, then paste the code into the extension popup. |
+| The Bridge tab stays empty | The session has no messages, or the server has not applied the bridge migration. | Run `uv run subzero migrate`, then append a message with `bridge-message`. |
 
-## `ALCHEMY_API_KEY has characters that cannot go in a URL path`
+## Database
 
-The key is appended to the provider URL. The program accepts letters, digits, `_`, and `-` only, so a quote or a slash cannot change the URL. Check that the 1Password field is the credential and not a whole URL.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `database: cannot connect (InvalidPasswordError)` | The password in the connection string is wrong. | Reset it in Supabase (**Project Settings → Database**) to letters and numbers only, update `SUBZERO_DATABASE_URL`. |
+| `database: cannot connect (gaierror / timeout)` | The address can't be reached. | Use Supabase's **Transaction pooler** string, not *Direct connection*. |
+| `N pending migrations` | New database changes haven't been applied. | `uv run subzero migrate` (always safe). |
+| Everything stopped working after a week of not using it | Supabase paused the free project. | Resume it in the Supabase dashboard. |
 
-## `provider rejected the call` or `Must be authenticated!`
+## Online (Vercel)
 
-The HTTP call reached the provider and the provider refused it. The usual cause is a wrong key, or a key that is not enabled for Ethereum mainnet. The sqlite row stores the provider's message when that message does not contain a URL. Look at it with `make inspect`. The key itself is not in the row.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| A Vercel login page at `/healthz` | Vercel's own protection is on. | `vercel project protection disable subzero --sso` |
+| `500` / *Serverless Function has crashed* | The server refused its settings. | `check` locally; fix `.env.local`; `deploy/vercel-env.sh .env.local`; `vercel deploy --prod`. The **Logs** tab on vercel.com shows the reason. |
+| Build error mentioning `README.md` | An old copy of the project. | `git pull`, then deploy again. |
 
-## `connection failed` or a timeout
+## Connecting the AI apps
 
-The call did not finish within 8 seconds. Run one heat again. A single timeout does not wipe the other lane: if one provider answers, that lane gets the fill.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `redirect_uri_mismatch` | Google doesn't know your server's address. | Add `https://<your-address>/auth/callback` to the Google client ([guide 3](guides/03-google-sign-in.md)). |
+| *has not completed the Google verification process* | The Google sign-in app is still in Testing. | Publish it ([guide 3](guides/03-google-sign-in.md), step 3). |
+| Sign-in succeeds, then *access denied* | That Google account isn't allowed. | Add its email to `SUBZERO_ALLOWED_SUBJECTS`, push settings, redeploy. |
+| Connected, but no tools show up | The app didn't finish setting up the connector, or the server isn't answering the way apps expect. | Run `uv run subzero probe https://<your-address>/mcp`: any `FAIL` line names the broken step. If all checks pass, remove and re-add the connector and reload the page. |
+| One app has fewer tools than the others | `SUBZERO_CLIENT_SCOPE_POLICY` grants that app fewer permissions; an app that matches no entry gets read-only tools. | Grant it more (`{"*":["*"]}` gives every app everything), push settings, redeploy, then remove and re-add the connector. |
+| *Invalid or expired consent token*, or Approve leaves you on the `/consent` page | The approval page is single-use: it was already submitted, left open over 15 minutes, or (before the fix in this version) the browser blocked the hand-off to Google. | Close the sign-in window, then click **Connect** in the app again for a fresh page; click Approve once. If it persists, run `git pull` and redeploy. |
+| Worked for a week, then asks to sign in again | The Google app is in Testing (7-day limit). | Publish it. |
+| Gemini: *Account linking is required to use this custom app. Try again.* | Google finished your sign-in but the linking handshake did not complete. Most often you signed in with a Google Workspace (work/school) account, which Gemini refuses to link custom apps on, or one that isn't in `SUBZERO_ALLOWED_SUBJECTS`. | Remove the custom app in Gemini (Settings & help → Connected Apps → More details → Remove app), sign in to gemini.google.com as your **personal** Google account (the same one that's in `SUBZERO_ALLOWED_SUBJECTS` and that you used for the other apps), and add the custom app again with only the URL. Retry the whole flow; Google's side can also fail once transiently. |
+| Gemini: *Client ID ... is not registered with this server* | Manual credentials were entered under Advanced features, and they aren't an MCP registration of this server. | Leave the credential fields empty (this server supports Dynamic Client Registration); remove the custom app in Gemini and add it again with only the URL. |
+| Gemini's *Custom apps* option or the connector disappeared | *Gemini Apps Activity / Keep Activity* was turned off. | Turn it back on; custom apps need it. You can still turn off *past chats*. |
+| The app never uses its memory unprompted | The custom instruction is missing. | Paste [instructions/shared.md](../instructions/shared.md) into the app's settings. |
+| The app pastes your whole message into `context_bootstrap` | It is following an older instruction. | Paste the current [instructions/shared.md](../instructions/shared.md) again. Old calls still work: the server keeps only the key words and adds a note saying `user_message` is deprecated. |
+| A chat's work doesn't show up when you start a new chat about that project | That session was saved without a project. | Ask the app to name the project when it checkpoints (`project` in `session_checkpoint`). Untagged sessions that mention the project by name still appear, marked as possibly belonging to it. |
+| `No project matches '...'; the session was saved without one` | The app named a project that doesn't exist, or misspelled it badly. | Ask the app to call `project_list` and checkpoint again with the real name. Nothing is created automatically. |
+| A package lists `conflicts` | A newer item on the same subject may overrule an older decision, and the server can't tell which one stands. | Tell the app which one is current; it can record that as a new decision. |
 
-## `Could not read schema`
+## Obsidian
 
-`make` bakes the path to `schema.sql` into the binary. If you move the folder, run `make clean && make` from the new location.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Vault directory does not exist` | The folder in `OBSIDIAN_SYNC_VAULT_PATH` isn't there. | Create it or correct the path. |
+| `worker rejected: check OBSIDIAN_SYNC_API_KEY` | Helper and server disagree on the shared key. | Make `OBSIDIAN_SYNC_API_KEY` equal `SUBZERO_WORKER_API_KEY`; push settings and redeploy if you changed the server's. |
+| An edit of mine didn't show up in the apps | The helper wasn't running when you edited. | Start it; changed notes are pushed on its next pass. If the server also changed that note, the server's update is held back as a *conflict* and your edit stays in the vault. |
 
-## `Could not open derby.sqlite`
+## Gemini digest
 
-The current directory is not writable, or the path passed to `--db` is wrong. Run from the repo root, or pass `--db` with a path you can write.
+See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#common-problems).
 
-## Terminal is smaller than 78x20
+## Importing
 
-The scoreboard needs 78 columns and 20 rows. Widen the window, or run `./scripts/race.sh --once` for the plain report.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Could not identify which provider produced this archive` | Unknown file layout. | Name the app: `import gemini file.zip`. For Gemini, export **JSON**, not HTML. |
+| Many `classifier_degraded` | TypeSafe was unreachable. | Nothing is lost. `uv run subzero reclassify` later. |
 
-## Heads differ by N blocks
+## Still stuck?
 
-Both calls worked. One provider returned an older block number. That is a real feed gap, not a crash. The race still scores whoever answered the reserves call first.
+Open an issue using the **Setup help** template on GitHub. Include what you ran, what you expected and
+what you saw, plus the output of `check`. **Never include your `.env.local` or any secret**; `check` doesn't
+print any.
 
-## Reset the scoreboard
+## Agents, hooks and the board
 
-```bash
-rm -f derby.sqlite
-```
+See [guide 15](guides/15-agents-messages-and-the-board.md#when-something-goes-wrong) for the full
+table. The common ones:
 
-The next run creates a new database and applies `schema.sql`.
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Not connected. Run: subzero connect ...` | This machine has no device token. | `subzero pair-device` on the server, then `subzero connect <address>` here. |
+| `The server refused this device` | The device token was revoked. | Connect again with a new pairing code. |
+| `this device is not paired for agents` | The token can only save chats (the extension's kind). | `subzero pair-device --agents` on the server, then `subzero connect` again. |
+| No master prompt in Claude Code | Hooks not installed, or the session predates them. | `subzero hooks install`; start a new session; read `~/.cache/subzero/hook-errors.log`. |
+| `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
+| `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |
+

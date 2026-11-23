@@ -1,5 +1,48 @@
+# Secrets — never commit a filled-in environment file.
+.env
+.env.*
+!.env.example
+!.env.local.example
+*.pem
+*.key
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
 build/
-derby.sqlite
-derby.sqlite-wal
-derby.sqlite-shm
-deploy/keys.op
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data
+.data/
+*.sqlite3
+
+# Provider exports — these are your entire conversation history in plaintext.
+exports/
+*.zip
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+.DS_Store
+.vercel
+.env*
+!.env.example
+!.env.local.example
+_uv/
+
+# Personal deployment config: copy the matching *.example and fill it in.
+deploy/local.env
+deploy/*.env.op
+!deploy/*.env.op.example
+.1password/
+.env.production

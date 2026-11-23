@@ -1,7 +1,0 @@
-# Copy this file to deploy/keys.op. These are 1Password references, not key values.
-# scripts/race.sh resolves each line with `op read`. Keep the copy gitignored.
-#
-# Canonical items in the Dev vault are titled Alchemy and Infura.
-# The field is the API Credential item's concealed credential.
-ALCHEMY_API_KEY=op://Dev/Alchemy/credential
-INFURA_API_KEY=op://Dev/Infura/credential
