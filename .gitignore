@@ -33,7 +33,7 @@ exports/
 # Editors / OS
 .DS_Store
 .idea/
-.vscode/
+.zed/
 .DS_Store
 .vercel
 .env*
