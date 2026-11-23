@@ -172,23 +172,32 @@ subzero/
 ├── instructions/             # per-provider setup + the shared instruction
 ├── skills/                   # portable workflows, including search/save/email/vault
 ├── scripts/                  # per-provider import wrappers
+├── extension/                # browser extension: capture, durable queue, pairing
 ├── src/subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── email.py              # immutable previews, AgentMail adapter, durable receipts
 │   ├── server.py             # Starlette app, routes, lifespan
 │   ├── services.py           # explicit service wiring
 │   ├── models.py             # the shapes that cross the MCP boundary
+│   ├── ingest.py             # /api/v1/ingest: the extension's write path, sync-state
+│   ├── sigils.py             # %project ^lesson &setup #concept @person >agent
+│   ├── cli.py cli_agents.py  # `subzero` commands; client.py is their HTTP side
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
 │   ├── db/                   # asyncpg pool + migration runner
 │   ├── memory/ sessions/ projects/ lists/ notes/
 │   ├── retrieval/            # hybrid search + context packages
-│   ├── artifacts/            # keys, manifests, archive guards, service
+│   ├── artifacts/            # keys, manifests, archive guards, filing, service
 │   ├── classifier/           # base, questions, rules, jev, policy, service
 │   ├── storage/              # object store: supabase | local
 │   ├── embeddings/           # provider abstraction + privacy gate
 │   ├── obsidian/             # path validation, rendering, job queue
-│   ├── importers/            # per-provider adapters + pipeline
+│   ├── importers/            # per-provider adapters + pipeline, reclassification
+│   ├── extraction/           # pass 2: deep extraction through session_checkpoint
+│   ├── wiki/                 # note graph and maps, kept in Postgres
+│   ├── agents/ board/        # coding sessions, messages, dispatch; the local board
+│   ├── bridge/               # browser session bridge to a CLI
+│   ├── memorylab/            # triage and recovery of stored sessions
 │   ├── review/ audit/
 │   └── worker_api.py         # the local worker's outbound surface
 ├── src/obsidian_sync/        # the local worker
@@ -250,8 +259,10 @@ flowchart TB
 ## Context retrieval
 
 Full-text search in Postgres, ranked in Python, packed to a token budget. No
-model, classifier or vault call happens on these paths; embeddings, when
-enabled, are used for writing and deduplication, not for reads.
+classifier or vault call happens on these paths. The one model call is
+optional: with embeddings enabled, `memory_deep_search` and bootstrap's
+semantic layer embed the query itself (one call, 2 s timeout) and fall back to
+full-text search when it fails.
 
 ```
 context_bootstrap(query=None, project=None, token_budget=1200, user_message=None)
@@ -341,9 +352,9 @@ Every returned item carries provenance:
 **Embeddings are optional.** Retrieval runs on full-text search alone, so nothing leaves the process
 on a read. `SUBZERO_EMBEDDING_PROVIDER=none` is the default, so the system is useful before you have
 picked an embedding vendor. When a provider is set, a memory's and a session summary's vectors are
-computed when they are written, and a message's or a note's by the background refresh loop, because
-a vector is derived data and computing it inline would put a 30 s network call inside a database
-transaction. The read path still makes no model call except the query's own embedding in
+computed when they are written, before the checkpoint transaction opens, and a message's or a
+note's by the background refresh loop, because a vector is derived data and computing it inline
+would put a 30 s network call inside a database transaction. The read path still makes no model call except the query's own embedding in
 `memory_deep_search` and bootstrap's optional semantic layer.
 
 ---
@@ -1052,15 +1063,10 @@ until a real `SUBZERO_TYPESAFE_API_KEY` is configured.
 
 Not built, deliberately:
 
-1. **Browser extension** for capturing web conversation turns and artifact
-   bytes at source — the only way to close the attachment gap for Gemini.
-   Designed for, not built; the ingestion API it would target is the same one
-   the worker uses.
-2. **Application-level encryption** for `highly_sensitive` artifacts.
-3. **Embedding backfill worker** for content saved while embeddings were off.
-4. **Classification quality review** over `classification_events` — the data is
+1. **Application-level encryption** for `highly_sensitive` artifacts.
+2. **Classification quality review** over `classification_events`: the data is
    already being collected for exactly this.
-5. **Provider API ingestion** where official conversation APIs exist, to reduce
+3. **Provider API ingestion** where official conversation APIs exist, to reduce
    reliance on manual exports.
-6. **Multi-user support.** Single-user assumptions are isolated to the auth
+4. **Multi-user support.** Single-user assumptions are isolated to the auth
    layer and the allowlist; the schema already carries the provenance needed.

@@ -21,7 +21,7 @@ from uuid import UUID
 import asyncpg
 
 from subzero.config import Settings
-from subzero.db.pool import Database
+from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.models import MemoryRecord, MemorySaveResult, Provenance_
 from subzero.util import normalized_sha256, sha256_text
@@ -29,6 +29,13 @@ from subzero.util import normalized_sha256, sha256_text
 #: Ratio above which two memories about the same subject are "the same claim
 #: restated". Below it they are treated as distinct facts.
 _TEXT_SIMILARITY = 0.88
+
+
+class NotComputed:
+    """The type of NOT_COMPUTED: no vector was supplied, so save computes one."""
+
+
+NOT_COMPUTED = NotComputed()
 
 
 def _provenance(row: asyncpg.Record) -> Provenance_:
@@ -78,7 +85,15 @@ class MemoryService:
         source_conversation_id: UUID | None = None,
         confidence: float | None = None,
         conn: asyncpg.Connection | None = None,
+        embedding: list[float] | NotComputed | None = NOT_COMPUTED,
     ) -> MemorySaveResult:
+        """Save, deduplicate or supersede one durable memory.
+
+        ``embedding`` is the content's vector when the caller already has it,
+        ``None`` when it has none to give. A caller inside a transaction must
+        pass it, computed before the transaction opened: the default makes a
+        network call, and a network call must not run while locks are held.
+        """
         content = content.strip()
         if not content:
             raise ValueError("Memory content is empty.")
@@ -107,16 +122,18 @@ class MemoryService:
                 reason="An identical memory already exists; its timestamp was refreshed.",
             )
 
+        # One vector serves both the near-duplicate check and the stored row.
+        if isinstance(embedding, NotComputed):
+            embedding = await self._embeddings.embed_one(content, sensitivity=sensitivity)
+
         # 2/3. Near duplicate, by subject then by embedding.
         candidate = await self._find_near_duplicate(
             executor,
             content=content,
             subject=subject,
             dedup_hash=dedup_hash,
-            sensitivity=sensitivity,
+            embedding=embedding,
         )
-
-        embedding = await self._embeddings.embed_one(content, sensitivity=sensitivity)
 
         if candidate is not None:
             return await self._supersede(
@@ -143,7 +160,7 @@ class MemoryService:
                 source_conversation_id, provenance, sensitivity, importance,
                 confidence, embedding
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::pc_provenance,$9::pc_sensitivity,
-                      $10,$11,$12)
+                      $10,$11,$12::text::vector)
             ON CONFLICT (content_sha256, coalesce(subject, '')) DO NOTHING
             RETURNING id
             """,
@@ -158,7 +175,7 @@ class MemoryService:
             sensitivity,
             importance,
             confidence,
-            embedding,
+            vector_literal(embedding),
         )
         if memory_id is None:  # lost a race with a concurrent identical insert
             memory_id = await executor.fetchval(
@@ -193,7 +210,7 @@ class MemoryService:
         content: str,
         subject: str | None,
         dedup_hash: str,
-        sensitivity: str,
+        embedding: list[float] | None,
     ) -> asyncpg.Record | None:
         # Normalised-text match: same claim, different punctuation or case.
         if subject:
@@ -218,11 +235,9 @@ class MemoryService:
                 if ratio >= _TEXT_SIMILARITY:
                     return row
 
-        # Semantic match, only when embeddings are actually available and the
-        # content is allowed to be embedded.
-        if not self._embeddings.enabled or not self._embeddings.allowed(sensitivity):
-            return None
-        vector = await self._embeddings.embed_one(content, sensitivity=sensitivity)
+        # Semantic match, only when the content has a vector: none is computed
+        # when embeddings are off or the privacy policy forbids it.
+        vector = embedding
         if not vector:
             return None
         return await executor.fetchrow(
@@ -232,11 +247,11 @@ class MemoryService:
                        AS version
             FROM memories m
             WHERE m.status = 'active' AND m.embedding IS NOT NULL
-              AND (m.embedding <=> $1) < $2
-            ORDER BY m.embedding <=> $1
+              AND (m.embedding <=> $1::text::vector) < $2
+            ORDER BY m.embedding <=> $1::text::vector
             LIMIT 1
             """,
-            vector,
+            vector_literal(vector),
             self._settings.memory_dedup_distance,
         )
 
@@ -292,7 +307,7 @@ class MemoryService:
                 confidence = coalesce($10, confidence),
                 source_provider = coalesce($11, source_provider),
                 source_conversation_id = coalesce($12, source_conversation_id),
-                embedding = coalesce($13, embedding),
+                embedding = coalesce($13::text::vector, embedding),
                 updated_at = now(),
                 last_used_at = now()
             WHERE id = $1
@@ -309,7 +324,7 @@ class MemoryService:
             confidence,
             source_provider,
             source_conversation_id,
-            embedding,
+            vector_literal(embedding),
         )
         return MemorySaveResult(
             id=previous["id"],
@@ -354,10 +369,10 @@ class MemoryService:
                 WHERE m.search_tsv @@ websearch_to_tsquery('english', $1)
             ),
             vector_hits AS (
-                SELECT m.id, 1 - (m.embedding <=> $5) AS rank
+                SELECT m.id, 1 - (m.embedding <=> $5::text::vector) AS rank
                 FROM memories m
-                WHERE $5::vector IS NOT NULL AND m.embedding IS NOT NULL
-                ORDER BY m.embedding <=> $5
+                WHERE $5::text IS NOT NULL AND m.embedding IS NOT NULL
+                ORDER BY m.embedding <=> $5::text::vector
                 LIMIT 50
             ),
             merged AS (
@@ -386,7 +401,7 @@ class MemoryService:
             project_id,
             kind,
             min_importance,
-            vector,
+            vector_literal(vector),
             limit,
         )
         if rows:

@@ -56,6 +56,7 @@ def _artifact_record(row: asyncpg.Record, files: list[asyncpg.Record]) -> Artifa
         source_provider=row["source_provider"],
         project=row.get("project_slug"),
         storage_status=row["storage_status"],
+        sensitivity=row["sensitivity"],
         classification_status=row["classification_status"],
         version=row["version"],
         file_count=len(files),
@@ -135,100 +136,105 @@ class ArtifactService:
 
         base_slug = slugify(slug or title, fallback="artifact")
         resolved_type = artifact_type or detect_artifact_type(list(normalized))
-        resolved_version = version or await self._next_version(base_slug)
+        async with self._db.transaction() as conn:
+            resolved_version = await self._allocate_version(conn, base_slug, version)
+            prefix = artifact_prefix(
+                artifact_slug=base_slug,
+                version=resolved_version,
+                project_slug=project_slug,
+                semantic_category=semantic_category,
+                artifact_type=resolved_type,
+            )
+            artifact_id = await conn.fetchval(
+                """
+                INSERT INTO artifacts (
+                    slug, title, description, artifact_type, source_type, source_provider,
+                    source_conversation_id, source_message_id, project_id, storage_status,
+                    sensitivity, storage_prefix, version, parent_artifact_id
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'referenced',$10::pc_sensitivity,
+                          $11,$12,$13)
+                RETURNING id
+                """,
+                base_slug,
+                title.strip(),
+                description,
+                resolved_type,
+                source_type,
+                source_provider,
+                source_conversation_id,
+                source_message_id,
+                project_id,
+                sensitivity,
+                prefix,
+                resolved_version,
+                parent_artifact_id,
+            )
 
-        prefix = artifact_prefix(
-            artifact_slug=base_slug,
-            version=resolved_version,
-            project_slug=project_slug,
-            semantic_category=semantic_category,
-            artifact_type=resolved_type,
-        )
+        try:
+            stored_rows: list[dict[str, Any]] = []
+            for relative_path, data in sorted(normalized.items()):
+                digest = sha256_bytes(data)
+                mime = guess_mime(relative_path)
+                key = object_key(prefix, relative_path)
 
-        artifact_id = await self._db.fetchval(
-            """
-            INSERT INTO artifacts (
-                slug, title, description, artifact_type, source_type, source_provider,
-                source_conversation_id, source_message_id, project_id, storage_status,
-                sensitivity, storage_prefix, version, parent_artifact_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'referenced',$10::pc_sensitivity,
-                      $11,$12,$13)
-            RETURNING id
-            """,
-            base_slug,
-            title.strip(),
-            description,
-            resolved_type,
-            source_type,
-            source_provider,
-            source_conversation_id,
-            source_message_id,
-            project_id,
-            sensitivity,
-            prefix,
-            resolved_version,
-            parent_artifact_id,
-        )
+                await self._put_verified(key, data, mime_type=mime, digest=digest)
 
-        stored_rows: list[dict[str, Any]] = []
-        for relative_path, data in sorted(normalized.items()):
-            digest = sha256_bytes(data)
-            mime = guess_mime(relative_path)
-            key = object_key(prefix, relative_path)
-
-            stored = await self._store.put(key, data, mime_type=mime)
-            # Verify what came back, not what we intended to send.
-            if stored.sha256 != digest:
-                raise IntegrityError(
-                    f"Stored bytes for {relative_path} did not match the expected hash."
+                await self._db.execute(
+                    """
+                    INSERT INTO artifact_files (
+                        artifact_id, relative_path, original_filename, mime_type, extension,
+                        byte_size, sha256, object_key, storage_status, version
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'captured',$9)
+                    """,
+                    artifact_id,
+                    relative_path,
+                    (original_names or {}).get(relative_path),
+                    mime,
+                    "." + relative_path.rsplit(".", 1)[-1].lower()
+                    if "." in relative_path
+                    else None,
+                    len(data),
+                    digest,
+                    key,
+                    resolved_version,
+                )
+                stored_rows.append(
+                    {
+                        "relative_path": relative_path,
+                        "sha256": digest,
+                        "mime_type": mime,
+                        "byte_size": len(data),
+                        "storage_status": "captured",
+                        "original_filename": (original_names or {}).get(relative_path),
+                    }
                 )
 
+            await self._write_manifest(
+                artifact_id=artifact_id,
+                slug=base_slug,
+                title=title,
+                description=description,
+                artifact_type=resolved_type,
+                source_provider=source_provider,
+                source_conversation_id=source_conversation_id,
+                project_slug=project_slug,
+                version=resolved_version,
+                prefix=prefix,
+                files=stored_rows,
+            )
+
+            # Only now, with every byte written and verified, is it "captured".
             await self._db.execute(
-                """
-                INSERT INTO artifact_files (
-                    artifact_id, relative_path, original_filename, mime_type, extension,
-                    byte_size, sha256, object_key, storage_status, version
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'captured',$9)
-                """,
-                artifact_id,
-                relative_path,
-                (original_names or {}).get(relative_path),
-                mime,
-                "." + relative_path.rsplit(".", 1)[-1].lower() if "." in relative_path else None,
-                len(data),
-                digest,
-                key,
-                resolved_version,
+                "UPDATE artifacts SET storage_status = 'captured' WHERE id = $1", artifact_id
             )
-            stored_rows.append(
-                {
-                    "relative_path": relative_path,
-                    "sha256": digest,
-                    "mime_type": mime,
-                    "byte_size": len(data),
-                    "storage_status": "captured",
-                    "original_filename": (original_names or {}).get(relative_path),
-                }
+        except BaseException:
+            # Leave an honest record instead of a 'referenced' row that never
+            # says what happened. Files already verified keep their 'captured'
+            # rows, which stay true; the artifact as a whole is not captured.
+            await self._db.execute(
+                "UPDATE artifacts SET storage_status = 'failed' WHERE id = $1", artifact_id
             )
-
-        await self._write_manifest(
-            artifact_id=artifact_id,
-            slug=base_slug,
-            title=title,
-            description=description,
-            artifact_type=resolved_type,
-            source_provider=source_provider,
-            source_conversation_id=source_conversation_id,
-            project_slug=project_slug,
-            version=resolved_version,
-            prefix=prefix,
-            files=stored_rows,
-        )
-
-        # Only now, with every byte written and verified, is it "captured".
-        await self._db.execute(
-            "UPDATE artifacts SET storage_status = 'captured' WHERE id = $1", artifact_id
-        )
+            raise
 
         if parent_artifact_id:
             await self.relate(
@@ -307,55 +313,132 @@ class ArtifactService:
                 record = await self.get(existing)
                 if record is not None:
                     return record
-        artifact_id = await self._db.fetchval(
-            """
-            INSERT INTO artifacts (
-                slug, title, description, artifact_type, source_type, source_provider,
-                source_conversation_id, project_id, storage_status, version, metadata
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::pc_storage_status,
-                      $10,$11)
-            RETURNING id
-            """,
-            slug,
-            title.strip(),
-            description,
-            artifact_type,
-            source_type,
-            source_provider,
-            source_conversation_id,
-            project_id,
-            status,
-            await self._next_version(slug),
-            metadata or {},
-        )
-        for entry in expected_files or []:
-            filename = str(entry.get("filename") or entry.get("path") or "unknown")
-            await self._db.execute(
+        async with self._db.transaction() as conn:
+            artifact_id = await conn.fetchval(
                 """
-                INSERT INTO artifact_files (
-                    artifact_id, relative_path, original_filename, mime_type, extension,
-                    byte_size, sha256, object_key, storage_status
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8::pc_storage_status)
+                INSERT INTO artifacts (
+                    slug, title, description, artifact_type, source_type, source_provider,
+                    source_conversation_id, project_id, storage_status, version, metadata
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::pc_storage_status,
+                          $10,$11)
+                RETURNING id
                 """,
-                artifact_id,
-                sanitize_relative_path(filename),
-                filename,
-                entry.get("mime_type") or guess_mime(filename),
-                "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else None,
-                int(entry.get("byte_size") or 0),
-                # No bytes, so no hash. An empty string would look like one.
-                entry.get("sha256") or "",
+                slug,
+                title.strip(),
+                description,
+                artifact_type,
+                source_type,
+                source_provider,
+                source_conversation_id,
+                project_id,
                 status,
+                await self._allocate_version(conn, slug, None),
+                metadata or {},
             )
+            for entry in expected_files or []:
+                filename = str(entry.get("filename") or entry.get("path") or "unknown")
+                await conn.execute(
+                    """
+                    INSERT INTO artifact_files (
+                        artifact_id, relative_path, original_filename, mime_type, extension,
+                        byte_size, sha256, object_key, storage_status
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8::pc_storage_status)
+                    """,
+                    artifact_id,
+                    sanitize_relative_path(filename),
+                    filename,
+                    entry.get("mime_type") or guess_mime(filename),
+                    "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else None,
+                    int(entry.get("byte_size") or 0),
+                    # No bytes, so no hash. An empty string would look like one.
+                    entry.get("sha256") or "",
+                    status,
+                )
         record = await self.get(artifact_id)
         assert record is not None
         return record
 
-    async def _next_version(self, slug: str) -> int:
-        current = await self._db.fetchval(
-            "SELECT max(version) FROM artifacts WHERE slug = $1", slug
-        )
+    async def _allocate_version(
+        self, conn: asyncpg.Connection, slug: str, requested: int | None
+    ) -> int:
+        """The version to insert for ``slug``, serialised per slug.
+
+        The lock is held until the caller's transaction commits the row, so a
+        concurrent save of the same slug reads the new maximum instead of the
+        same one. A requested version is used as given; asking twice for one
+        is a real conflict and the unique key reports it.
+        """
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext('artifact:' || $1))", slug)
+        if requested is not None:
+            return requested
+        current = await conn.fetchval("SELECT max(version) FROM artifacts WHERE slug = $1", slug)
         return int(current or 0) + 1
+
+    async def _put_verified(self, key: str, data: bytes, *, mime_type: str, digest: str) -> None:
+        """Store bytes, then read them back: 'captured' means what is stored was checked.
+
+        A store's own report of what it wrote is a hash of what it was sent,
+        so comparing with it proves nothing.
+        """
+        await self._store.put(key, data, mime_type=mime_type)
+        if not await self.stored_bytes_match(key, digest):
+            raise IntegrityError(f"Stored bytes at {key} did not match the expected hash.")
+
+    async def complete_upload(
+        self, artifact_id: UUID, relative_path: str, sha256: str
+    ) -> str | None:
+        """Mark a signed upload captured once its stored bytes match ``sha256``.
+
+        Returns ``None`` on success, or the reason it is not captured. The
+        caller's hash is checked against what storage holds, never recorded on
+        trust, and a file is captured together with its artifact or not at all.
+        """
+        key = await self._db.fetchval(
+            "SELECT object_key FROM artifact_files WHERE artifact_id = $1 AND relative_path = $2",
+            artifact_id,
+            relative_path,
+        )
+        if not key:
+            return "No pending upload matches that path."
+        if not await self._store.exists(key):
+            return (
+                "Nothing was found at the upload location. The artifact remains "
+                "pending_import - do not tell the user it was saved."
+            )
+        if not await self.stored_bytes_match(key, sha256):
+            return (
+                "The uploaded bytes do not match that SHA-256. The artifact remains "
+                "pending_import - do not tell the user it was saved; upload the file again."
+            )
+        async with self._db.transaction() as conn:
+            await conn.execute(
+                """
+                UPDATE artifact_files SET sha256 = $3, storage_status = 'captured'
+                WHERE artifact_id = $1 AND relative_path = $2
+                """,
+                artifact_id,
+                relative_path,
+                sha256.lower(),
+            )
+            await conn.execute(
+                """
+                UPDATE artifacts SET storage_status = 'captured'
+                WHERE id = $1 AND NOT EXISTS (
+                    SELECT 1 FROM artifact_files f
+                    WHERE f.artifact_id = $1 AND f.storage_status <> 'captured'
+                )
+                """,
+                artifact_id,
+            )
+        return None
+
+    async def stored_bytes_match(self, key: str, digest: str) -> bool:
+        """Whether the object at ``key`` exists and hashes to ``digest``."""
+        try:
+            stored = await self._store.get(key)
+        except Exception:
+            return False
+        return sha256_bytes(stored) == digest.lower()
 
     async def _write_manifest(
         self,

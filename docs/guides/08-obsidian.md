@@ -83,6 +83,13 @@ systemctl --user enable --now obsidian-sync.timer
 The timer runs the helper every 5 minutes. To stop: `systemctl --user disable --now obsidian-sync.timer`.
 Logs: `journalctl --user -u obsidian-sync -f`.
 
+**Your edits go back too.** When you change a note the helper wrote, the helper sends your version
+to the database on its next run, even after a restart or on the Linux timer. It keeps a small record
+of what it wrote in `~/.local/state/subzero/obsidian-sync/` (outside the vault, so a vault synced to
+another device does not carry it along). A note written before this record existed is tracked from
+the next time the server rewrites it. To keep the record somewhere else, set
+`OBSIDIAN_SYNC_STATE_DIR`.
+
 ## How notes and lists reach the vault
 
 Chat apps no longer write vault notes directly: the note tools were removed in

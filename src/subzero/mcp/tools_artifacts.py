@@ -18,156 +18,18 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.artifacts.filing import classify_and_file, queue_vault_mirror
 from subzero.artifacts.keys import artifact_prefix, object_key, sanitize_relative_path
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
-from subzero.classifier.policy import Verdict
 from subzero.errors import ValidationError
-from subzero.logging_setup import get_logger
 from subzero.models import ArtifactRecord
-from subzero.services import Services, get_services
+from subzero.services import get_services
 from subzero.util import guess_mime
 
 #: Inline base64 is allowed only for genuinely small payloads. Anything bigger
 #: goes through a signed upload so bytes never sit in a tool argument.
-logger = get_logger(__name__)
-
-#: Inline base64 cap.
 MAX_INLINE_BASE64_BYTES = 2 * 1024 * 1024
-
-
-async def _classify_and_file(
-    services: Services, record: ArtifactRecord, *, stated_project: str | None
-) -> dict:
-    """Run artifact classification and apply whatever the policy permits."""
-    state = {
-        "title": record.title,
-        "description": record.description or "",
-        "artifact_type": record.artifact_type,
-        "source_type": record.source_type,
-        "source_provider": record.source_provider or "",
-        "file_paths": [f.relative_path for f in record.files],
-        "file_types": sorted({f.mime_type for f in record.files}),
-        "total_bytes": record.total_bytes,
-        "stated_project": stated_project,
-        "sensitivity": "normal",
-    }
-    # Small text files carry their own best description; include a little.
-    text_preview = [
-        f.relative_path
-        for f in record.files
-        if f.mime_type.startswith("text/") and f.byte_size < 60_000
-    ]
-    if text_preview:
-        state["textual_files"] = text_preview[:20]
-
-    result, routing, event_id = await services.classification.classify_artifact(
-        state, object_id=record.id
-    )
-    policy = services.classification.policy()
-    project_slug, _ = policy.artifact_project(result)
-    semantic_category, _ = result.choice("semantic_category")
-
-    project_id = await services.projects.resolve(stated_project or project_slug)
-    if project_id:
-        await services.artifacts.attach_to_project(record.id, project_id)
-
-    await services.artifacts.record_classification(
-        record.id,
-        semantic_category=semantic_category,
-        project_id=project_id,
-        promote_to_vault=routing.promote_to_vault is Verdict.YES,
-        needs_human_review=routing.needs_review,
-        long_term_value=routing.importance,
-        confidence=routing.confidence,
-        classifier=f"{result.classifier}:{result.model}" if result.model else result.classifier,
-        answers=result.answers_json(),
-    )
-
-    queued = 0
-    if (
-        routing.promote_to_vault is Verdict.YES
-        and services.settings.obsidian_enabled
-        and record.storage_status == "captured"
-    ):
-        queued = await _queue_vault_mirror(
-            services,
-            record,
-            project_slug=stated_project or project_slug,
-            classification_event_id=event_id,
-        )
-
-    if routing.needs_review:
-        await services.classification.queue_review(
-            object_type="artifact",
-            object_id=record.id,
-            reason=routing.review_reasons[0] if routing.review_reasons else "low_confidence",
-            question=f"Where should the artifact {record.title!r} be filed?",
-            suggested=routing.as_json(),
-            confidence=routing.confidence,
-            classification_event_id=event_id,
-        )
-
-    return {
-        "classifier": result.classifier,
-        "model": result.model,
-        "degraded": result.degraded,
-        "semantic_category": semantic_category,
-        "project": stated_project or project_slug,
-        "queued_vault_jobs": queued,
-        **routing.as_json(),
-    }
-
-
-async def _queue_vault_mirror(
-    services: Services,
-    record: ArtifactRecord,
-    *,
-    project_slug: str | None,
-    classification_event_id: UUID | None,
-) -> int:
-    """Queue an artifact note, plus file mirrors for anything small enough."""
-    note_path = services.vault_paths.artifact_note(record.slug, project_slug=project_slug)
-    queued = 0
-    if await services.sync_queue.enqueue(
-        job_type="write_artifact_note",
-        object_type="artifact",
-        object_id=record.id,
-        vault_path=note_path,
-        payload={"artifact_id": str(record.id), "project_slug": project_slug},
-        classification_event_id=classification_event_id,
-    ):
-        queued += 1
-
-    max_bytes = int(services.settings.obsidian_mirror_max_mb * 1024 * 1024)
-    for file in await services.artifacts.files_for_mirror(record.id, max_bytes=max_bytes):
-        try:
-            path = services.vault_paths.artifact_file(
-                record.slug, file["relative_path"], project_slug=project_slug
-            )
-        except Exception as exc:
-            # A file whose name cannot be represented safely in the vault is
-            # skipped; it is still available from object storage.
-            logger.info(
-                "artifact file not mirrored to the vault",
-                extra={"relative_path": file["relative_path"], "why": str(exc)},
-            )
-            continue
-        if await services.sync_queue.enqueue(
-            job_type="mirror_artifact_files",
-            object_type="artifact",
-            object_id=record.id,
-            vault_path=path,
-            payload={
-                "artifact_id": str(record.id),
-                "object_key": file["object_key"],
-                "relative_path": file["relative_path"],
-            },
-            content_sha256=file["sha256"],
-            classification_event_id=classification_event_id,
-        ):
-            queued += 1
-    return queued
 
 
 def register(mcp: FastMCP) -> None:
@@ -209,7 +71,7 @@ def register(mcp: FastMCP) -> None:
             source_type="generated_by_model",
             original_names={sanitize_relative_path(filename): filename},
         )
-        classification = await _classify_and_file(services, record, stated_project=project)
+        classification = await classify_and_file(services, record, stated_project=project)
         await services.audit.record(
             tool="artifact_save_text",
             action="create",
@@ -279,7 +141,7 @@ def register(mcp: FastMCP) -> None:
             source_provider=principal.provider if principal.provider != "unknown" else None,
             source_type="generated_by_model",
         )
-        classification = await _classify_and_file(services, record, stated_project=project)
+        classification = await classify_and_file(services, record, stated_project=project)
         await services.audit.record(
             tool="artifact_save_bundle",
             action="create",
@@ -351,7 +213,7 @@ def register(mcp: FastMCP) -> None:
             source_type="uploaded_by_user",
             original_names={sanitize_relative_path(filename): filename},
         )
-        classification = await _classify_and_file(services, record, stated_project=project)
+        classification = await classify_and_file(services, record, stated_project=project)
         refreshed = await services.artifacts.get(record.id) or record
         return {
             "artifact": refreshed.model_dump(mode="json"),
@@ -450,45 +312,14 @@ def register(mcp: FastMCP) -> None:
         If it does not, the status is left unchanged and this says so.
         """
         services = get_services()
-        row = await services.db.fetchrow(
-            "SELECT object_key FROM artifact_files WHERE artifact_id = $1 AND relative_path = $2",
-            artifact_id,
-            sanitize_relative_path(relative_path),
+        reason = await services.artifacts.complete_upload(
+            artifact_id, sanitize_relative_path(relative_path), sha256
         )
-        if row is None or not row["object_key"]:
-            return {"captured": False, "reason": "No pending upload matches that path."}
-
-        if not await services.store.exists(row["object_key"]):
-            return {
-                "captured": False,
-                "reason": (
-                    "Nothing was found at the upload location. The artifact remains "
-                    "pending_import - do not tell the user it was saved."
-                ),
-            }
-
-        await services.db.execute(
-            """
-            UPDATE artifact_files SET sha256 = $3, storage_status = 'captured'
-            WHERE artifact_id = $1 AND relative_path = $2
-            """,
-            artifact_id,
-            sanitize_relative_path(relative_path),
-            sha256.lower(),
-        )
-        await services.db.execute(
-            """
-            UPDATE artifacts SET storage_status = 'captured'
-            WHERE id = $1 AND NOT EXISTS (
-                SELECT 1 FROM artifact_files f
-                WHERE f.artifact_id = $1 AND f.storage_status <> 'captured'
-            )
-            """,
-            artifact_id,
-        )
+        if reason is not None:
+            return {"captured": False, "reason": reason}
         record = await services.artifacts.get(artifact_id)
         assert record is not None
-        classification = await _classify_and_file(services, record, stated_project=None)
+        classification = await classify_and_file(services, record, stated_project=None)
         return {
             "captured": record.storage_status == "captured",
             "artifact": record.model_dump(mode="json"),
@@ -760,7 +591,7 @@ def register(mcp: FastMCP) -> None:
                     "mirror until its bytes are captured."
                 ),
             }
-        queued = await _queue_vault_mirror(
+        queued = await queue_vault_mirror(
             services, record, project_slug=record.project, classification_event_id=None
         )
         return {
@@ -787,4 +618,4 @@ def register(mcp: FastMCP) -> None:
         record = await services.artifacts.get(artifact)
         if record is None:
             return {"error": f"No artifact matches {artifact!r}."}
-        return await _classify_and_file(services, record, stated_project=project)
+        return await classify_and_file(services, record, stated_project=project)
