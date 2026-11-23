@@ -6,8 +6,10 @@ vector yet, newest first, then sleeps. New conversations from the browser
 extension become searchable within a couple of minutes, a large backlog drains
 over time without spikes, and an idle server makes one cheap query per interval.
 
-Vectors are derived data, so no write path computes one inline: messages and
-notes both store ``embedding`` as null and this loop fills it in. Doing it
+Vectors are derived data. Messages and notes store ``embedding`` as null and
+this loop fills it in. Memories and session summaries are embedded when they
+are written (before the writer's transaction opens), and this loop fills in
+any written while embeddings were off or failing. Doing it
 inline meant a network call of up to 30 s inside the caller's database
 transaction, holding row locks and a pooled connection while a provider was
 slow, and it left rows permanently without a vector when the call failed,
@@ -76,6 +78,11 @@ def _note_text(row: dict[str, Any]) -> str:
     return f"{(row.get('title') or '').strip()}\n\n{(row.get('content') or '').strip()}"
 
 
+def _memory_text(row: dict[str, Any]) -> str:
+    # Exactly what memories.save embeds, so old and new vectors compare.
+    return (row.get("content") or "").strip()
+
+
 _SOURCES: tuple[_Source, ...] = (
     _Source(
         name="messages",
@@ -104,6 +111,37 @@ _SOURCES: tuple[_Source, ...] = (
             """,
         skip_sql="UPDATE notes SET embedding_skipped = true WHERE id = ANY($1::uuid[])",
         store_sql="UPDATE notes SET embedding = $2::text::vector WHERE id = $1",
+        text=_note_text,
+        min_chars=0,
+    ),
+    _Source(
+        name="memories",
+        pending_sql="""
+            SELECT id, left(content, $2) AS content, sensitivity::text AS sensitivity
+            FROM memories
+            WHERE embedding IS NULL AND NOT embedding_skipped AND status = 'active'
+            ORDER BY updated_at DESC
+            LIMIT $1
+            """,
+        skip_sql="UPDATE memories SET embedding_skipped = true WHERE id = ANY($1::uuid[])",
+        store_sql="UPDATE memories SET embedding = $2::text::vector WHERE id = $1",
+        text=_memory_text,
+        min_chars=0,
+    ),
+    _Source(
+        name="session_summaries",
+        # Title and summary, the text a checkpoint embeds for its summary.
+        pending_sql="""
+            SELECT id, left(summary, $2) AS content, title, sensitivity::text AS sensitivity
+            FROM session_summaries
+            WHERE embedding IS NULL AND NOT embedding_skipped
+            ORDER BY updated_at DESC
+            LIMIT $1
+            """,
+        skip_sql=(
+            "UPDATE session_summaries SET embedding_skipped = true WHERE id = ANY($1::uuid[])"
+        ),
+        store_sql="UPDATE session_summaries SET embedding = $2::text::vector WHERE id = $1",
         text=_note_text,
         min_chars=0,
     ),
