@@ -575,3 +575,39 @@ isolation, and choosing between them is a decision about what those tools promis
 in-process `_written` map needs a server-side manifest endpoint, which is a protocol change for the
 Obsidian helper. And `memories` still embeds inline, because its deduplication compares vectors and
 so needs one synchronously; moving that means changing how deduplication works.
+
+---
+
+## Second pass: what is still open on `main`
+
+A second audit, written against the same base commit `341e6d2`, was re-checked against `main` after
+the changes above had landed. Four of its findings were already fixed by them (the second pooled
+connection, the summary embedding inside the transaction, the leased-path drop, and the unlocked
+migration runner and loops) and are not repeated here. What remains is below, in the order it is
+being fixed. Each fix starts with a failing test that reproduces the bug.
+
+The second audit also cited a 15 s statement timeout. The measurement at the top of this document
+(120 s, no `lock_timeout`, no `idle_in_transaction_session_timeout`) is the one to trust.
+
+| # | Finding | Chapter | Evidence on `main` |
+| --- | --- | --- | --- |
+| S1 | `subzero reclassify` sends a queued artifact to Jev as `sensitivity: "normal"` whatever its real level, so a `highly_sensitive` artifact can leave the process, and the result is never recorded on the artifact. A queued live checkpoint is skipped without being removed, so it stays at the head of the queue for ever. | 1, 11, privacy | `cli.py:601-645` |
+| S2 | `memories.save` calls the embedding provider inside the checkpoint transaction, holding row locks across a network call, and a new memory with no subject match is embedded twice: once to look for a near duplicate and again to store. | 7, 8 | `sessions/service.py:532,552`, `memory/service.py:119,225` |
+| S3 | The Obsidian helper keeps "what I last wrote" only in memory. After a restart, and on every `obsidian-sync run --once` (the Linux timer path), the map is empty, so no human edit is ever sent upstream. The server's `expected_sha256` stops it being overwritten, so the edit is stranded rather than lost. | 5, 11 | `obsidian_sync/worker.py:35,86` |
+| S4 | `save_files` "verifies" storage by comparing the hash of the local buffer with itself, because `put()` hashes what it sent, not what was stored. `_next_version` reads `max(version)` with no lock, so two saves of one slug collide. A failed upload part-way through a bundle leaves `captured` file rows under a `referenced` artifact. | 7, 12 | `artifacts/service.py:138-231`, `storage/supabase.py:102-123` |
+| S5 | In the extension, a drain worker stops at the first conversation that fails, stranding everything due behind it. Re-queueing an unsent conversation keeps the newer attachment list and drops the older one. ZIP imports never set `provider_updated_at`, so periodic sync cannot tell they are up to date and walks past them. | 8, 11 | `extension/lib/queue.js:265`, `importers/runner.py:419` |
+| S6 | `add_messages` numbers new messages from `max(sequence) + 1` without locking the conversation, so two concurrent writers for one conversation pick the same numbers and one fails on `messages_conv_seq_key`. | 7 | `sessions/service.py:54-87`, `ingest.py:290`, `importers/runner.py:433` |
+| S7 | `oauth_kv.purge_expired()` has no caller (727 rows in production). A crashed agent leaves its `dispatch_jobs` row `claimed` for ever; the board only masks the session as idle. | 8 | `auth/kv.py:134`, `agents/service.py:478` |
+| S8 | `docs/architecture.md` still lists the browser extension and the embedding backfill under "Not built, deliberately". | 1 | `docs/architecture.md:1057-1066` |
+
+Three earlier "deliberately not done" notes are revisited by this list. S3 keeps the helper's state in
+a file beside the vault instead of adding a server endpoint: the helper is the only writer of that
+vault, so its own record of what it wrote is the right source, and no protocol change is needed. S2
+keeps deduplication by vector and computes the vector once, before the transaction, passing it in.
+S4 settles the version race with a retry on the unique key, the smaller of the two options.
+
+**Left as they are.** The duplicate migration prefixes (`0009_*`, `0010_*`, `0012_*`) are harmless:
+the runner records each file by name and content hash, and renaming an applied file would make it
+look new. A test now refuses a new duplicate instead. Messages with no provider id are not
+deduplicated by content alone, because two genuine "ok" turns would merge. The seven to nine round
+trips in `ingest_conversation` are latency, not correctness, and wait for the reconcile work.
