@@ -20,7 +20,13 @@ FILE="${1:-}"
 if [[ -z "$FILE" ]]; then
   if [[ -f deploy/production.env.op ]]; then FILE=deploy/production.env.op; else FILE=.env.local; fi
 fi
-[[ -f "$FILE" ]] || { echo "No settings file at $FILE. See docs/guides/05-put-it-online.md." >&2; exit 1; }
+if [[ ! -f "$FILE" ]]; then
+  echo "No settings file at $FILE. See docs/guides/05-put-it-online.md." >&2
+  echo "deploy/*.env.op is Git-ignored, so it exists only in the checkout that holds" >&2
+  echo "your deployment files (~/Code/subzero), not in a worktree. Run this from there," >&2
+  echo "or pass the file: deploy/vercel-env.sh /abs/path/deploy/production.env.op" >&2
+  exit 1
+fi
 # The Vercel project may still be named personal-context-mcp: set
 # SUBZERO_VERCEL_PROJECT=personal-context-mcp in deploy/local.env until you rename it.
 PROJECT="${SUBZERO_VERCEL_PROJECT:-subzero}"
