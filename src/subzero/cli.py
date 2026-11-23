@@ -260,7 +260,7 @@ def pair_device(device_name: str, agents: bool) -> None:
     "--max-batches", default=0, help="Stop after this many batches (0: until nothing is pending)."
 )
 def embed_backfill(batch_size: int, max_batches: int) -> None:
-    """Embed stored messages and notes that have no vector yet (newest first).
+    """Embed stored messages, notes, memories and summaries with no vector yet.
 
     The server does this by itself every few minutes; run this to catch up a
     large backlog at once. Needs SUBZERO_EMBEDDING_PROVIDER and its API key.
@@ -299,6 +299,11 @@ def embed_backfill(batch_size: int, max_batches: int) -> None:
                 SELECT (SELECT count(*) FROM messages
                         WHERE embedding IS NULL AND NOT embedding_skipped)
                      + (SELECT count(*) FROM notes
+                        WHERE embedding IS NULL AND NOT embedding_skipped)
+                     + (SELECT count(*) FROM memories
+                        WHERE embedding IS NULL AND NOT embedding_skipped
+                          AND status = 'active')
+                     + (SELECT count(*) FROM session_summaries
                         WHERE embedding IS NULL AND NOT embedding_skipped)
                 """
             )

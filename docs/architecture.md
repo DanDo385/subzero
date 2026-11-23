@@ -1068,12 +1068,9 @@ until a real `SUBZERO_TYPESAFE_API_KEY` is configured.
 Not built, deliberately:
 
 1. **Application-level encryption** for `highly_sensitive` artifacts.
-2. **Embedding backfill for memories and session summaries** saved while
-   embeddings were off. Messages and notes already have one: the background
-   refresh loop and `subzero embed-backfill`.
-3. **Classification quality review** over `classification_events`: the data is
+2. **Classification quality review** over `classification_events`: the data is
    already being collected for exactly this.
-4. **Provider API ingestion** where official conversation APIs exist, to reduce
+3. **Provider API ingestion** where official conversation APIs exist, to reduce
    reliance on manual exports.
-5. **Multi-user support.** Single-user assumptions are isolated to the auth
+4. **Multi-user support.** Single-user assumptions are isolated to the auth
    layer and the allowlist; the schema already carries the provenance needed.
