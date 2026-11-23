@@ -42,18 +42,29 @@ HONCHO_BATCH = 50
 async def extraction_targets(
     services: Services, *, limit: int, redo: bool = False
 ) -> list[Candidate]:
+    # Pick first, then size only the picked sessions: summing message lengths
+    # for every triaged session times out on a full history.
     rows = await services.db.fetch(
         """
-        SELECT t.conversation_id, t.outcome, t.bucket, c.title,
-               (t.scores->>'worth_processing')::float AS worth,
-               (SELECT coalesce(sum(length(m.content)), 0)
-                  FROM messages m WHERE m.conversation_id = c.id) AS chars
-        FROM memory_triage t JOIN conversations c ON c.id = t.conversation_id
-        WHERE t.layers && ARRAY['vault', 'structured']
-          AND ($2 OR (t.extracted_at IS NULL AND NOT (c.metadata ? 'extraction')))
-          AND c.sensitivity::text = ANY($3::text[])
-        ORDER BY ('vault' = ANY(t.layers)) DESC, worth DESC NULLS LAST, c.started_at DESC
-        LIMIT $1
+        WITH picked AS (
+            SELECT t.conversation_id, t.outcome, t.bucket, c.title, c.started_at,
+                   (t.scores->>'worth_processing')::float AS worth,
+                   ('vault' = ANY(t.layers)) AS vault
+            FROM memory_triage t JOIN conversations c ON c.id = t.conversation_id
+            WHERE t.layers && ARRAY['vault', 'structured']
+              AND ($2 OR (t.extracted_at IS NULL AND NOT (c.metadata ? 'extraction')))
+              AND c.sensitivity::text = ANY($3::text[])
+            ORDER BY vault DESC, worth DESC NULLS LAST, c.started_at DESC NULLS LAST
+            LIMIT $1
+        ),
+        sized AS (
+            SELECT m.conversation_id, sum(length(m.content)) AS chars
+            FROM messages m WHERE m.conversation_id IN (SELECT conversation_id FROM picked)
+            GROUP BY m.conversation_id
+        )
+        SELECT p.*, coalesce(s.chars, 0) AS chars
+        FROM picked p LEFT JOIN sized s USING (conversation_id)
+        ORDER BY p.vault DESC, p.worth DESC NULLS LAST, p.started_at DESC NULLS LAST
         """,
         limit,
         redo,
