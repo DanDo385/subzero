@@ -49,6 +49,11 @@ def migrations_dir() -> Path:
     raise FileNotFoundError("Could not locate the migrations/ directory")
 
 
+#: Historical duplicate numeric prefixes already applied in production.
+#: Any new migration must use a unique numeric prefix.
+_LEGACY_DUPLICATE_PREFIXES = frozenset({"0009", "0010"})
+
+
 def load_migrations(directory: Path | None = None) -> list[Migration]:
     directory = directory or migrations_dir()
     migrations = [
@@ -57,6 +62,15 @@ def load_migrations(directory: Path | None = None) -> list[Migration]:
     ]
     if not migrations:
         raise FileNotFoundError(f"No .sql migrations found in {directory}")
+    seen_prefixes: dict[str, str] = {}
+    for migration in migrations:
+        prefix = migration.version.split("_", 1)[0]
+        if prefix in seen_prefixes and prefix not in _LEGACY_DUPLICATE_PREFIXES:
+            raise RuntimeError(
+                f"Duplicate migration prefix {prefix!r}: {seen_prefixes[prefix]} and "
+                f"{migration.version}. Give the new migration the next available number."
+            )
+        seen_prefixes[prefix] = migration.version
     return migrations
 
 
@@ -83,6 +97,19 @@ async def apply_migrations(conn: asyncpg.Connection, directory: Path | None = No
 
         logger.info("applying migration", extra={"version": migration.version})
         async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('subzero:schema_migrations'))"
+            )
+            already = await conn.fetchval(
+                "SELECT sha256 FROM schema_migrations WHERE version = $1",
+                migration.version,
+            )
+            if already is not None:
+                if already != migration.sha256:
+                    raise RuntimeError(
+                        f"Migration {migration.version} was modified after it was applied."
+                    )
+                continue
             await conn.execute(migration.sql)
             await conn.execute(
                 "INSERT INTO schema_migrations (version, sha256) VALUES ($1, $2)",

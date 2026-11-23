@@ -1,6 +1,9 @@
-// Subzero — content script.
+// Subzero - content script (on-demand emergency rescue).
 // Runs in each provider tab. Detects the provider, captures the open
-// conversation on demand or after a reply finishes, and runs history imports.
+// conversation on demand ("Save Now"), and runs manual history imports.
+// Conversations are created directly in Postgres on turn 1 via MCP or agent
+// hooks, so this content script does not attach a background DOM
+// MutationObserver.
 
 (function () {
   'use strict';
@@ -245,51 +248,5 @@
     return false;
   });
 
-  // --- Auto-capture after a reply finishes or the conversation changes ---
-
-  function replyJustFinished() {
-    switch (provider) {
-      case 'claude':
-        return !document.querySelector('[data-is-streaming="true"]');
-      case 'chatgpt':
-        return !document.querySelector('.result-streaming, [data-testid="stop-button"]');
-      case 'gemini':
-        return !document.querySelector('processing-state');
-      default:
-        // Grok and Muse: no reliable streaming signal; the debounce stands in.
-        return true;
-    }
-  }
-
-  let debounceTimer = null;
-  function scheduleAutoCapture() {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(async () => {
-      if (!isCurrent()) return;
-      try {
-        const { isPaused } = await chrome.storage.local.get('isPaused');
-        if (isPaused || !replyJustFinished()) return;
-        await captureCurrent({ automatic: true });
-      } catch {
-        // chrome.* throws once this copy is orphaned by an extension reload.
-        observer.disconnect();
-      }
-    }, 3000);
-  }
-
-  let lastUrl = window.location.href;
-  const observer = new MutationObserver(() => {
-    if (!isCurrent()) {
-      observer.disconnect();
-      return;
-    }
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      lastFingerprint = null;
-    }
-    scheduleAutoCapture();
-  });
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-
-  console.log('[subzero] Content script ready');
+  console.log('[subzero] Content script ready (manual rescue mode)');
 })();

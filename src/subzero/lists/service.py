@@ -120,7 +120,9 @@ class ListService:
 
     # ---------------------------------------------------------------- lists
 
-    async def resolve(self, reference: str) -> UUID | None:
+    async def resolve(
+        self, reference: str, *, conn: asyncpg.Connection | None = None
+    ) -> UUID | None:
         """Resolve a UUID, slug or display name to a list id.
 
         A UUID has to work: tools that have just created a list hand its id
@@ -134,7 +136,8 @@ class ListService:
         except (ValueError, AttributeError):
             as_uuid = None
 
-        row = await self._db.fetchrow(
+        executor = conn or self._db
+        row = await executor.fetchrow(
             """
             SELECT id FROM lists
             WHERE ($1::uuid IS NOT NULL AND id = $1::uuid)
@@ -148,8 +151,8 @@ class ListService:
         )
         return row["id"] if row else None
 
-    async def require(self, reference: str) -> UUID:
-        list_id = await self.resolve(reference)
+    async def require(self, reference: str, *, conn: asyncpg.Connection | None = None) -> UUID:
+        list_id = await self.resolve(reference, conn=conn)
         if list_id is None:
             raise NotFoundError(
                 f"No list matches {reference!r}. Call list_search first - the list "
@@ -191,7 +194,7 @@ class ListService:
     async def get_or_create(
         self, reference: str, *, list_type: str = "general", conn: asyncpg.Connection | None = None
     ) -> UUID:
-        existing = await self.resolve(reference)
+        existing = await self.resolve(reference, conn=conn)
         if existing:
             return existing
         list_id, _ = await self.create(name=reference, list_type=list_type, conn=conn)
@@ -323,14 +326,17 @@ class ListService:
         await self.queue_render(list_id, conn=conn)
         return row["id"], bool(row["created"])
 
-    async def resolve_item(self, list_id: UUID, reference: str) -> UUID | None:
+    async def resolve_item(
+        self, list_id: UUID, reference: str, *, conn: asyncpg.Connection | None = None
+    ) -> UUID | None:
         """Find an item by UUID or by its text. IDs win; text is a fallback."""
         try:
             item_uuid = UUID(reference)
         except (ValueError, AttributeError):
             item_uuid = None
 
-        row = await self._db.fetchrow(
+        executor = conn or self._db
+        row = await executor.fetchrow(
             """
             SELECT id FROM list_items
             WHERE list_id = $1

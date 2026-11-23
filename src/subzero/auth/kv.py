@@ -75,6 +75,8 @@ class PostgresKeyValue:
             dict(value),
             float(ttl) if ttl is not None else None,
         )
+        if ttl is not None:
+            await self.purge_expired()
 
     async def delete(self, key: str, *, collection: str | None = None) -> bool:
         result = await self._db.execute(

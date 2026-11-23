@@ -36,6 +36,7 @@ from subzero.models import (
     CheckpointDecision,
     CheckpointFact,
     CheckpointListUpdate,
+    CheckpointMessage,
     CheckpointProjectUpdate,
     CheckpointResult,
     CheckpointTask,
@@ -51,8 +52,13 @@ logger = get_logger(__name__)
 
 #: Batch insert for add_messages. $3..$10 are parallel arrays, one entry per
 #: message; WITH ORDINALITY keeps the caller's order for the sequence numbers.
+#: conv_lock serializes concurrent add_messages calls on the parent
+#: conversations row in zero extra round trips so max(sequence) + 1 is race-free.
 _INSERT_MESSAGES_SQL = """
-WITH incoming AS (
+WITH conv_lock AS (
+    SELECT id FROM conversations WHERE id = $1 FOR UPDATE
+),
+incoming AS (
     SELECT *
     FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
                 $8::text[], $9::timestamptz[], $10::text[])
@@ -62,13 +68,22 @@ WITH incoming AS (
 fresh AS (
     SELECT i.*
     FROM incoming i
-    WHERE i.provider_message_id IS NULL
-       OR NOT EXISTS (
-            SELECT 1 FROM messages e
-            WHERE e.conversation_id = $1 AND e.provider_message_id = i.provider_message_id)
+    WHERE (i.provider_message_id IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM messages e
+               WHERE e.conversation_id = $1 AND e.provider_message_id = i.provider_message_id))
+       OR (i.provider_message_id IS NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM messages e
+               WHERE e.conversation_id = $1
+                 AND e.provider_message_id IS NULL
+                 AND e.role = i.role
+                 AND e.content_sha256 = i.content_sha256))
 ),
 next_free AS (
-    SELECT coalesce(max(sequence), -1) + 1 AS n FROM messages WHERE conversation_id = $1
+    SELECT coalesce(max(m.sequence), -1) + 1 AS n
+    FROM conv_lock
+    LEFT JOIN messages m ON m.conversation_id = conv_lock.id
 )
 INSERT INTO messages (
     conversation_id, provider, provider_message_id, model, role,
@@ -80,29 +95,35 @@ SELECT $1, $2, f.provider_message_id, f.model, f.role,
        coalesce(f.created_at, now()), f.metadata::jsonb
 FROM fresh f, next_free
 ORDER BY f.ord
-ON CONFLICT (conversation_id, provider_message_id)
-    WHERE provider_message_id IS NOT NULL
-DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING id
 """
 
 
 def _message_rows(messages: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
     """add_messages input as rows for _INSERT_MESSAGES_SQL: empty messages
-    dropped, a provider message id repeated in one batch kept once."""
+    dropped, a provider message id (or id-less role + content hash) repeated
+    in one batch kept once."""
     rows: list[tuple[Any, ...]] = []
-    seen: set[str] = set()
+    seen_ids: set[str] = set()
+    seen_hashes: set[tuple[str, str]] = set()
     for message in messages:
         content = (message.get("content") or "").strip()
         if not content:
             continue
+        role = message.get("role") or "user"
+        digest = sha256_text(content)
         message_id = message.get("provider_message_id")
         if message_id is not None:
             message_id = str(message_id)
-            if message_id in seen:
+            if message_id in seen_ids:
                 continue
-            seen.add(message_id)
-        role = message.get("role") or "user"
+            seen_ids.add(message_id)
+        else:
+            key = (role, digest)
+            if key in seen_hashes:
+                continue
+            seen_hashes.add(key)
         provenance = message.get("provenance") or (
             "user_statement"
             if role == "user"
@@ -116,7 +137,7 @@ def _message_rows(messages: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
                 message.get("model"),
                 role,
                 content,
-                sha256_text(content),
+                digest,
                 provenance,
                 message.get("created_at"),
                 json.dumps(message.get("metadata") or {}),
@@ -164,14 +185,18 @@ class SessionService:
         *,
         provider: str,
         provider_conversation_id: str | None,
+        conversation_id: UUID | None = None,
         title: str | None = None,
         model: str | None = None,
         project_id: UUID | None = None,
         imported: bool = False,
         started_at: Any = None,
+        provider_updated_at: Any = None,
+        sensitivity: str | None = None,
+        metadata_patch: dict[str, Any] | None = None,
         conn: asyncpg.Connection | None = None,
     ) -> tuple[UUID, bool]:
-        """Idempotent on (provider, provider_conversation_id).
+        """Idempotent on conversation_id (when known) or (provider, provider_conversation_id).
 
         When the provider gives us no conversation id - which several of them
         do not - we mint a stable synthetic one from the provider, the title
@@ -179,40 +204,92 @@ class SessionService:
         onto one conversation instead of creating a new row each time.
         """
         executor = conn or self._db
-        external_id = provider_conversation_id or (
-            f"synthetic:{sha256_text(f'{provider}:{title or ""}:{utcnow():%Y-%m-%d}')[:32]}"
-        )
-        row = await executor.fetchrow(
-            """
-            INSERT INTO conversations (
-                provider, provider_conversation_id, title, model, project_id,
-                imported, started_at, import_key
-            ) VALUES ($1,$2,$3,$4,$5,$6,coalesce($7, now()),$8)
-            ON CONFLICT (provider, provider_conversation_id)
-                WHERE provider_conversation_id IS NOT NULL
-            DO UPDATE SET
-                -- A capture without a title or model (blank, as page-read
-                -- providers often send) never erases the stored one.
-                title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
-                model = coalesce(nullif(btrim(EXCLUDED.model), ''), conversations.model),
-                project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
-                updated_at = now()
-            RETURNING id, project_id, metadata, (xmax = 0) AS created
-            """,
-            provider,
-            external_id,
-            title,
-            model,
-            project_id,
-            imported,
-            started_at,
-            f"{provider}:{external_id}",
-        )
+        initial_metadata = home_metadata(None, None) if project_id is None else {}
+        if metadata_patch:
+            initial_metadata = {**initial_metadata, **metadata_patch}
+
+        row = None
+        if conversation_id is not None:
+            row = await executor.fetchrow(
+                """
+                UPDATE conversations
+                SET title = coalesce(nullif(btrim($2), ''), conversations.title),
+                    model = coalesce(nullif(btrim($3), ''), conversations.model),
+                    project_id = coalesce($4, conversations.project_id),
+                    provider_updated_at = greatest(conversations.provider_updated_at, $5::timestamptz),
+                    sensitivity = greatest(
+                        conversations.sensitivity,
+                        coalesce($6::pc_sensitivity, conversations.sensitivity)
+                    ),
+                    metadata = conversations.metadata || $7::jsonb,
+                    updated_at = now()
+                WHERE id = $1
+                RETURNING id, project_id, metadata, false AS created
+                """,
+                conversation_id,
+                title,
+                model,
+                project_id,
+                provider_updated_at,
+                sensitivity,
+                metadata_patch or {},
+            )
+
+        if row is None:
+            external_id = provider_conversation_id or (
+                f"synthetic:{sha256_text(f'{provider}:{title or ""}:{utcnow():%Y-%m-%d}')[:32]}"
+            )
+            row = await executor.fetchrow(
+                """
+                INSERT INTO conversations (
+                    provider, provider_conversation_id, title, model, project_id,
+                    imported, started_at, import_key, provider_updated_at,
+                    sensitivity, metadata
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, coalesce($7, now()), $8, $9::timestamptz,
+                    coalesce($10::pc_sensitivity, 'normal'::pc_sensitivity), $11::jsonb
+                )
+                ON CONFLICT (provider, provider_conversation_id)
+                    WHERE provider_conversation_id IS NOT NULL
+                DO UPDATE SET
+                    -- A capture without a title or model (blank, as page-read
+                    -- providers often send) never erases the stored one.
+                    title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
+                    model = coalesce(nullif(btrim(EXCLUDED.model), ''), conversations.model),
+                    project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
+                    provider_updated_at = greatest(
+                        conversations.provider_updated_at, EXCLUDED.provider_updated_at
+                    ),
+                    sensitivity = greatest(
+                        conversations.sensitivity,
+                        coalesce($10::pc_sensitivity, conversations.sensitivity)
+                    ),
+                    metadata = conversations.metadata || $12::jsonb,
+                    updated_at = now()
+                RETURNING id, project_id, metadata, (xmax = 0) AS created
+                """,
+                provider,
+                external_id,
+                title,
+                model,
+                project_id,
+                imported,
+                started_at,
+                f"{provider}:{external_id}",
+                provider_updated_at,
+                sensitivity,
+                initial_metadata,
+                metadata_patch or {},
+            )
         if row is None:  # pragma: no cover - the upsert always returns a row
             raise RuntimeError("conversation upsert returned no row")
         if not (row["metadata"] or {}).get("home"):
-            slug = await executor.fetchval(
-                "SELECT slug FROM projects WHERE id = $1", row["project_id"]
+            slug = (
+                await executor.fetchval(
+                    "SELECT slug FROM projects WHERE id = $1", row["project_id"]
+                )
+                if row["project_id"] is not None
+                else None
             )
             await executor.execute(
                 "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
@@ -256,6 +333,7 @@ class SessionService:
         *,
         provider: str,
         principal: Principal,
+        conversation_id: UUID | None = None,
         provider_conversation_id: str | None = None,
         title: str | None = None,
         summary: str | None = None,
@@ -269,6 +347,7 @@ class SessionService:
         resolved_questions: list[str] | None = None,
         artifacts: list[CheckpointArtifactRef] | None = None,
         important_context: list[str] | None = None,
+        messages: list[CheckpointMessage] | None = None,
         model: str | None = None,
         sensitivity: str = "normal",
         historical_import: bool = False,
@@ -285,11 +364,13 @@ class SessionService:
         resolved_questions = [q for q in (resolved_questions or []) if q.strip()]
         artifacts = artifacts or []
         important_context = important_context or []
+        messages = messages or []
 
         created: dict[str, int] = {}
         updated: dict[str, int] = {}
         skipped: dict[str, int] = {}
         notes_out: list[str] = []
+        messages_inserted = 0
 
         def bump(bucket: dict[str, int], key: str, n: int = 1) -> None:
             if n:
@@ -309,7 +390,7 @@ class SessionService:
                 concepts = list(marks.concepts)
             notes_out.append("Sigils read: " + " ".join(marks.found))
 
-        # ---- 1. classify first, so routing informs what we write ---------
+        # ---- 1. classify & embed first, before opening the DB transaction
         # A project the caller names outright decides where the session goes.
         # It is matched like a search filter (slug, name, alias, near
         # misspelling) and never creates a project.
@@ -343,14 +424,40 @@ class SessionService:
             state, historical_import=historical_import
         )
 
+        # Pre-compute embeddings outside the database transaction so external
+        # HTTP latency never holds row locks or pool connections.
+        summary_embedding = (
+            await self._embeddings.embed_one(
+                f"{title or ''}\n\n{summary.strip()}", sensitivity=sensitivity
+            )
+            if summary and summary.strip()
+            else None
+        )
+        decision_embeddings = {
+            d.statement.strip(): await self._embeddings.embed_one(
+                d.statement.strip(), sensitivity=sensitivity
+            )
+            for d in decisions
+            if d.statement.strip()
+        }
+        fact_embeddings = (
+            [
+                await self._embeddings.embed_one(f.content.strip(), sensitivity=f.sensitivity)
+                for f in facts
+            ]
+            if (routing.save_memory is not Verdict.NO or facts)
+            else []
+        )
+
         # ---- 2. everything else in one transaction ----------------------
         async with self._db.transaction() as conn:
             routed_project_id = explicit.id if explicit else None
             if routed_project_id is None and routing.project_slug:
-                routed_project_id = await self._projects.resolve(routing.project_slug)
+                routed_project_id = await self._projects.resolve(routing.project_slug, conn=conn)
             conversation_id, conv_created = await self.ensure_conversation(
                 provider=provider,
                 provider_conversation_id=provider_conversation_id,
+                conversation_id=conversation_id,
                 title=title,
                 model=model,
                 project_id=routed_project_id,
@@ -359,9 +466,27 @@ class SessionService:
             )
             bump(created if conv_created else updated, "conversations")
 
+            if messages:
+                messages_inserted = await self.add_messages(
+                    conversation_id,
+                    [
+                        {
+                            "role": m.role,
+                            "content": m.content,
+                            "provider_message_id": m.provider_message_id,
+                            "model": m.model or model,
+                        }
+                        for m in messages
+                    ],
+                    provider=provider,
+                    conn=conn,
+                )
+                bump(created, "messages", messages_inserted)
+                bump(skipped, "messages", len(messages) - messages_inserted)
+
             # -- project updates (explicit beats inferred) ----------------
             for update in project_updates:
-                project_id = await self._projects.resolve(update.project)
+                project_id = await self._projects.resolve(update.project, conn=conn)
                 if project_id is None:
                     project_id, _ = await self._projects.create(
                         name=update.project,
@@ -467,6 +592,7 @@ class SessionService:
                     resolved_questions=resolved_all,
                     sensitivity=sensitivity,
                     needs_review=routing.needs_review,
+                    embedding=summary_embedding,
                 )
                 bump(created if summary_created else updated, "session_summaries")
             elif existing and (open_questions or resolved_questions or important_context):
@@ -491,7 +617,9 @@ class SessionService:
 
             # -- decisions ------------------------------------------------
             for decision in decisions:
-                project_id = await self._projects.resolve(decision.project) or routed_project_id
+                project_id = (
+                    await self._projects.resolve(decision.project, conn=conn) or routed_project_id
+                )
                 inserted = await conn.fetchval(
                     """
                     INSERT INTO decisions (
@@ -513,7 +641,7 @@ class SessionService:
                 # A decision is also durable memory; storing it once in each
                 # place is what makes it retrievable by both paths.
                 if inserted:
-                    saved = await self._memories.save(
+                    saved_mem = await self._memories.save(
                         content=decision.statement.strip(),
                         kind="decision",
                         subject=decision.project or routing.project_slug,
@@ -524,14 +652,17 @@ class SessionService:
                         source_provider=provider,
                         source_conversation_id=conversation_id,
                         conn=conn,
+                        embedding=decision_embeddings.get(decision.statement.strip()),
                     )
-                    bump(created if saved.outcome == "created" else updated, "memories")
+                    bump(created if saved_mem.outcome == "created" else updated, "memories")
 
             # -- facts / durable memory -----------------------------------
             if routing.save_memory is not Verdict.NO or facts:
-                for fact in facts:
-                    project_id = await self._projects.resolve(fact.project) or routed_project_id
-                    saved = await self._memories.save(
+                for idx, fact in enumerate(facts):
+                    project_id = (
+                        await self._projects.resolve(fact.project, conn=conn) or routed_project_id
+                    )
+                    saved_mem = await self._memories.save(
                         content=fact.content,
                         kind=fact.kind,
                         subject=fact.subject,
@@ -547,12 +678,13 @@ class SessionService:
                         source_conversation_id=conversation_id,
                         confidence=routing.confidence or None,
                         conn=conn,
+                        embedding=fact_embeddings[idx] if idx < len(fact_embeddings) else None,
                     )
                     bump(
                         created
-                        if saved.outcome == "created"
+                        if saved_mem.outcome == "created"
                         else skipped
-                        if saved.outcome == "duplicate"
+                        if saved_mem.outcome == "duplicate"
                         else updated,
                         "memories",
                     )
@@ -561,7 +693,9 @@ class SessionService:
 
             # -- tasks ----------------------------------------------------
             for task in tasks:
-                project_id = await self._projects.resolve(task.project) or routed_project_id
+                project_id = (
+                    await self._projects.resolve(task.project, conn=conn) or routed_project_id
+                )
                 list_ref = task.list_ref or await self._default_task_list(conn, project_id)
                 list_id = await self._lists.get_or_create(list_ref, list_type="task", conn=conn)
                 _, item_created = await self._lists.add_item(
@@ -577,7 +711,7 @@ class SessionService:
 
             # -- list updates ---------------------------------------------
             for list_update in list_updates:
-                resolved_list_id = await self._lists.resolve(list_update.list_ref)
+                resolved_list_id = await self._lists.resolve(list_update.list_ref, conn=conn)
                 if resolved_list_id is None:
                     resolved_list_id, _ = await self._lists.create(
                         name=list_update.list_ref, conn=conn
@@ -597,7 +731,7 @@ class SessionService:
                     )
                     bump(created if item_created else skipped, "list_items")
                 for reference in list_update.complete:
-                    item_id = await self._lists.resolve_item(resolved_list_id, reference)
+                    item_id = await self._lists.resolve_item(resolved_list_id, reference, conn=conn)
                     if item_id:
                         await self._lists.update_item(item_id, status="done", conn=conn)
                         bump(updated, "list_items")
@@ -608,7 +742,7 @@ class SessionService:
                             "nothing was completed."
                         )
                 for reference in list_update.remove:
-                    item_id = await self._lists.resolve_item(resolved_list_id, reference)
+                    item_id = await self._lists.resolve_item(resolved_list_id, reference, conn=conn)
                     if item_id:
                         await self._lists.update_item(item_id, status="dropped", conn=conn)
                         bump(updated, "list_items")
@@ -715,6 +849,7 @@ class SessionService:
             created=created,
             updated=updated,
             skipped=skipped,
+            messages_inserted=messages_inserted,
             classification={
                 "classifier": result.classifier,
                 "model": result.model,
@@ -784,10 +919,12 @@ class SessionService:
         sensitivity: str,
         needs_review: bool,
         resolved_questions: list[str] | None = None,
+        embedding: list[float] | None = None,
     ) -> tuple[UUID, bool]:
-        embedding = await self._embeddings.embed_one(
-            f"{title or ''}\n\n{summary}", sensitivity=sensitivity
-        )
+        if embedding is None:
+            embedding = await self._embeddings.embed_one(
+                f"{title or ''}\n\n{summary}", sensitivity=sensitivity
+            )
         row = await conn.fetchrow(
             """
             INSERT INTO session_summaries (

@@ -15,6 +15,7 @@ import time
 from typing import Any
 from uuid import UUID
 
+from subzero.classifier.policy import Verdict
 from subzero.classifier.questions import QUESTIONS_VERSION
 from subzero.importers.base import (
     ImportReport,
@@ -32,6 +33,205 @@ from subzero.logging_setup import get_logger
 from subzero.services import Services
 
 logger = get_logger(__name__)
+
+
+async def reclassify_live_checkpoint(services: Services, conversation_id: UUID) -> bool:
+    """Re-run classification for a non-imported live checkpoint from stored layer-2 rows."""
+    conv = await services.db.fetchrow(
+        """
+        SELECT c.id, c.provider, c.title, c.sensitivity::text AS sensitivity,
+               p.slug AS project_slug,
+               s.id AS summary_id, s.summary, s.open_questions, s.important_context
+        FROM conversations c
+        LEFT JOIN projects p ON p.id = c.project_id
+        LEFT JOIN session_summaries s ON s.conversation_id = c.id
+        WHERE c.id = $1
+        """,
+        conversation_id,
+    )
+    if conv is None:
+        return True
+    decisions = [
+        r["statement"]
+        for r in await services.db.fetch(
+            "SELECT statement FROM decisions WHERE source_conversation_id = $1 LIMIT 20",
+            conversation_id,
+        )
+    ]
+    facts = [
+        r["content"]
+        for r in await services.db.fetch(
+            "SELECT content FROM memories WHERE source_conversation_id = $1 LIMIT 30",
+            conversation_id,
+        )
+    ]
+    tasks = [
+        r["text"]
+        for r in await services.db.fetch(
+            "SELECT text FROM list_items WHERE source_conversation_id = $1 LIMIT 20",
+            conversation_id,
+        )
+    ]
+    state = {
+        "title": conv["title"] or "",
+        "provider": conv["provider"],
+        "summary": conv["summary"] or "",
+        "decisions": decisions,
+        "facts": facts,
+        "tasks": tasks,
+        "open_questions": list(conv["open_questions"] or [])[:10],
+        "important_context": list(conv["important_context"] or [])[:10],
+        "sensitivity": conv["sensitivity"] or "normal",
+        "stated_project": conv["project_slug"],
+    }
+    result, routing, event_id = await services.classification.classify_checkpoint(
+        state, object_id=conversation_id, historical_import=False
+    )
+    if result.degraded:
+        return False
+    project_id = (
+        await services.projects.resolve(routing.project_slug) if routing.project_slug else None
+    )
+    if project_id:
+        await services.db.execute(
+            "UPDATE conversations SET project_id = coalesce(project_id, $2) WHERE id = $1",
+            conversation_id,
+            project_id,
+        )
+    if conv["summary_id"]:
+        await services.db.execute(
+            """
+            UPDATE session_summaries
+            SET project_id = coalesce($2, project_id),
+                classification_status = $3::pc_classification_status,
+                updated_at = now()
+            WHERE id = $1
+            """,
+            conv["summary_id"],
+            project_id,
+            "needs_review" if routing.needs_review else "classified",
+        )
+    if routing.needs_review:
+        await services.sessions._queue_reviews(
+            routing, conversation_id=conversation_id, event_id=event_id
+        )
+    return True
+
+
+async def drain_reclassification_queue(services: Services, *, limit: int = 50) -> tuple[int, int]:
+    """Process due rows in reclassification_queue. Returns (reclassified, examined)."""
+    rows = await services.db.fetch(
+        """
+        SELECT object_type, object_id, reason FROM reclassification_queue
+        WHERE next_attempt_at <= now()
+        ORDER BY next_attempt_at LIMIT $1
+        """,
+        limit,
+    )
+    if not rows:
+        return 0, 0
+
+    done = 0
+    for row in rows:
+        object_id = row["object_id"]
+        object_type = row["object_type"]
+        if object_type == "checkpoint":
+            conv_row = await services.db.fetchrow(
+                "SELECT imported FROM conversations WHERE id = $1", object_id
+            )
+            if conv_row is None:
+                await services.db.execute(
+                    "DELETE FROM reclassification_queue WHERE object_id = $1", object_id
+                )
+                continue
+            if conv_row["imported"]:
+                report = await reclassify_conversations(services, [object_id])
+                ok = not report.errors
+            else:
+                ok = await reclassify_live_checkpoint(services, object_id)
+            if ok:
+                await services.db.execute(
+                    "DELETE FROM reclassification_queue WHERE object_id = $1", object_id
+                )
+                done += 1
+            else:
+                await services.db.execute(
+                    """
+                    UPDATE reclassification_queue
+                    SET attempts = attempts + 1,
+                        next_attempt_at = now() + interval '15 minutes'
+                    WHERE object_id = $1
+                    """,
+                    object_id,
+                )
+            continue
+
+        if object_type == "artifact":
+            record = await services.artifacts.get(object_id)
+            if record is None:
+                await services.db.execute(
+                    "DELETE FROM reclassification_queue WHERE object_id = $1", object_id
+                )
+                continue
+            sensitivity = (
+                await services.db.fetchval(
+                    "SELECT sensitivity::text FROM artifacts WHERE id = $1", record.id
+                )
+                or "normal"
+            )
+            result, routing, _ = await services.classification.classify_artifact(
+                {
+                    "title": record.title,
+                    "description": record.description or "",
+                    "artifact_type": record.artifact_type,
+                    "source_type": record.source_type,
+                    "source_provider": record.source_provider or "",
+                    "file_paths": [f.relative_path for f in record.files],
+                    "sensitivity": sensitivity,
+                },
+                object_id=record.id,
+            )
+            if not result.degraded:
+                policy = services.classification.policy()
+                project_slug, _ = policy.artifact_project(result)
+                semantic_category, _ = result.choice("semantic_category")
+                project_id = await services.projects.resolve(project_slug) if project_slug else None
+                if project_id:
+                    await services.artifacts.attach_to_project(record.id, project_id)
+                await services.artifacts.record_classification(
+                    record.id,
+                    semantic_category=semantic_category,
+                    project_id=project_id,
+                    promote_to_vault=routing.promote_to_vault is Verdict.YES,
+                    needs_human_review=routing.needs_review,
+                    long_term_value=routing.importance,
+                    confidence=routing.confidence,
+                    classifier=(
+                        f"{result.classifier}:{result.model}" if result.model else result.classifier
+                    ),
+                    answers=result.answers_json(),
+                )
+                await services.db.execute(
+                    "DELETE FROM reclassification_queue WHERE object_id = $1", record.id
+                )
+                done += 1
+            else:
+                await services.db.execute(
+                    """
+                    UPDATE reclassification_queue
+                    SET attempts = attempts + 1,
+                        next_attempt_at = now() + interval '15 minutes'
+                    WHERE object_id = $1
+                    """,
+                    record.id,
+                )
+            continue
+
+        # Unknown object_type: remove so it never blocks the queue head.
+        await services.db.execute(
+            "DELETE FROM reclassification_queue WHERE object_id = $1", object_id
+        )
+    return done, len(rows)
 
 
 async def stale_conversations(
@@ -233,6 +433,7 @@ async def classify_forever(services: Services) -> None:
                         "failed": len(report.errors),
                     },
                 )
+            await drain_reclassification_queue(services, limit=settings.auto_classify_batch)
         except Exception:
             logger.exception("background classification failed; retrying next interval")
         await asyncio.sleep(settings.auto_classify_seconds)

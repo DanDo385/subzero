@@ -290,3 +290,50 @@ async def test_one_odd_note_class_does_not_break_note_search(world, db) -> None:
         raise_on_error=False,
     )
     assert refused.is_error
+
+
+async def test_turn_1_conversation_creation_and_checkpoint_handoff(world, db) -> None:
+    """Passing title or opening_message to context_bootstrap creates the conversation
+    and first message on turn 1 and returns conversation_id for session_checkpoint."""
+    client, _ = world
+    package = await _bootstrap(
+        client,
+        project="harbor-notes",
+        query="tombstone sync",
+        title="Harbor Notes turn-1 test",
+        opening_message="How should tombstones work on mobile?",
+    )
+    conv_id = package.get("conversation_id")
+    assert conv_id is not None
+
+    # Turn-1 row and opening message are already in Postgres before any checkpoint.
+    stored_msgs = await db.fetch(
+        "SELECT role, content, sequence FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        _uuid(conv_id),
+    )
+    assert [(m["role"], m["content"], m["sequence"]) for m in stored_msgs] == [
+        ("user", "How should tombstones work on mobile?", 0)
+    ]
+
+    # Subsequent session_checkpoint updates the exact same conversation_id and appends new messages.
+    cp = await client.call_tool(
+        "session_checkpoint",
+        {
+            "provider": "claude",
+            "conversation_id": conv_id,
+            "summary": "Agreed on 30-day tombstones for mobile clients.",
+            "messages": [
+                {"role": "assistant", "content": "Use 30-day tombstones with a sequence cursor."}
+            ],
+        },
+    )
+    data = cp.structured_content
+    assert data["conversation_id"] == conv_id
+    assert data["messages_inserted"] == 1
+    assert data["updated"].get("conversations") == 1
+
+    all_msgs = await db.fetch(
+        "SELECT role, content, sequence FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        _uuid(conv_id),
+    )
+    assert [(m["role"], m["sequence"]) for m in all_msgs] == [("user", 0), ("assistant", 1)]

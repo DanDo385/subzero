@@ -1,4 +1,4 @@
-# Subzero — shared custom instruction
+# Subzero - shared custom instruction
 
 Paste this into each provider's custom-instruction field. It is deliberately
 short: it has to be worth its cost on **every** turn, including the ones where
@@ -18,12 +18,14 @@ grok, gemini, pi, me, crew).
 
 When my request depends on past work (a project, earlier decisions, my lists,
 "remember", a continuing task or lesson), call context_bootstrap once with a
-few key terms or sigils, never my whole message. Skip it for standalone
-questions.
+few key terms or sigils, never my whole message, plus title or
+provider_conversation_id so the conversation is registered in Postgres on turn 1.
+Skip it for standalone questions.
 
 When durable state is established, checkpoint it once (decisions, facts,
-tasks, list changes, open questions), with sigils or the project. No noise or
-duplicates. Use my real lists through the list tools.
+tasks, list changes, open questions), passing conversation_id from
+context_bootstrap and sigils or the project. No noise or duplicates. Use my
+real lists through the list tools.
 
 Never say a file is archived unless its bytes or full text were stored.
 
@@ -40,8 +42,8 @@ distinct from model analysis and outside research.
 ## Why it is this short
 
 Every token here is paid on every message in every conversation, forever. The
-detailed procedures — when exactly to checkpoint, how to pick between artifact
-tools, how to resolve a list name — belong where they are loaded on demand:
+detailed procedures - when exactly to checkpoint, how to pick between artifact
+tools, how to resolve a list name - belong where they are loaded on demand:
 
 - **Skills** (Claude, and ChatGPT where account-level skills are available)
 - **MCP tool descriptions**, which the model reads when it considers a tool

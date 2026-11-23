@@ -379,7 +379,8 @@ class NoteService:
         would nest another copy of them into the note.
         """
         row = await self._db.fetchrow(
-            "SELECT id, title, version, content_sha256 FROM notes WHERE vault_path = $1",
+            "SELECT id, title, version, content_sha256, sensitivity::text AS sensitivity "
+            "FROM notes WHERE vault_path = $1",
             vault_path,
         )
         if row is None:
@@ -393,12 +394,16 @@ class NoteService:
             return {"note_id": str(row["id"]), "changed": False, "version": row["version"]}
 
         version = row["version"] + 1
+        embedding = await self._embeddings.embed_one(
+            f"{row['title']}\n\n{body}", sensitivity=row["sensitivity"] or "normal"
+        )
         await self._db.execute(
             """
             UPDATE notes
             SET content = $2, content_sha256 = $3, version = $4,
                 vault_synced_sha256 = coalesce($5, vault_synced_sha256), vault_synced_at = now(),
-                provenance = 'user_statement'
+                provenance = 'user_statement',
+                embedding = $6
             WHERE id = $1
             """,
             row["id"],
@@ -406,6 +411,7 @@ class NoteService:
             content_hash,
             version,
             file_sha256,
+            embedding,
         )
         await self._add_version(
             self._db, row["id"], version, row["title"], body, content_hash, author

@@ -510,6 +510,44 @@ test('server errors back off and keep the item; rejected items move to the faile
   assert.deepEqual(state.captureQueue.map((i) => i.provider_conversation_id), ['conv-1']);
 });
 
+test('a single failed item does not stop drain workers from delivering other due items', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  respond = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.provider_conversation_id === 'bad-1') {
+      return { ok: false, status: 400, text: async () => '{"error":"bad payload"}' };
+    }
+    return {
+      ok: true, status: 200, url: 'https://server.example/x',
+      json: async () => ({ conversation_id: body.provider_conversation_id, messages_inserted: 1 }),
+    };
+  };
+  await queue.enqueue({ ...payload, provider_conversation_id: 'bad-1' });
+  for (let i = 1; i <= 5; i++) {
+    await queue.enqueue({ ...payload, provider_conversation_id: `good-${i}` });
+  }
+  await queue.drain();
+  assert.equal(state.deadLetterQueue.length, 1);
+  assert.equal(state.deadLetterQueue[0].provider_conversation_id, 'bad-1');
+  assert.equal(state.captureQueue.length, 0, 'all good items were delivered despite bad-1 failing first');
+});
+
+test('enqueue merges attachments when replacing an unsent capture', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  await queue.enqueue({
+    ...payload,
+    provider_conversation_id: 'with-att',
+    attachments: [{ provider_attachment_id: 'a1', file_name: 'first.pdf' }],
+  });
+  await queue.enqueue({
+    ...payload,
+    provider_conversation_id: 'with-att',
+    attachments: [{ provider_attachment_id: 'a2', file_name: 'second.png' }],
+  });
+  const body = state['queue:chatgpt:with-att'];
+  assert.deepEqual(body.attachments.map((a) => a.provider_attachment_id), ['a1', 'a2']);
+});
+
 test('a rejected token keeps every item and asks to pair again', async () => {
   const queue = await import(moduleUrl('lib/queue.js'));
   respond = async () => ({ ok: false, status: 401, text: async () => '{"error":"unauthorized"}' });

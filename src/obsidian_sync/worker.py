@@ -6,6 +6,7 @@ Poll, lease, write, acknowledge. Nothing in this process listens on a socket.
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
 from typing import Any
 
@@ -19,6 +20,8 @@ from subzero.util import sha256_bytes
 
 logger = get_logger(__name__)
 
+_STATE_FILENAME = ".subzero-sync-state.json"
+
 
 class ObsidianSyncWorker:
     def __init__(self, settings: WorkerSettings) -> None:
@@ -31,8 +34,31 @@ class ObsidianSyncWorker:
             dry_run=settings.dry_run,
         )
         self._stopping = asyncio.Event()
-        #: vault path -> sha we last wrote, used to spot human edits.
-        self._written: dict[str, str] = {}
+        self._state_path = settings.resolved_vault / _STATE_FILENAME
+        #: vault path -> sha we last wrote, used to spot human edits across restarts.
+        self._written: dict[str, str] = self._load_state()
+
+    def _load_state(self) -> dict[str, str]:
+        if self._settings.dry_run or not self._state_path.is_file():
+            return {}
+        try:
+            raw = json.loads(self._state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {str(k): str(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
+
+    def _save_state(self) -> None:
+        if self._settings.dry_run:
+            return
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._state_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(self._written, indent=2, sort_keys=True), encoding="utf-8")
+            tmp.replace(self._state_path)
+        except OSError:
+            logger.warning("could not persist sync state", extra={"path": str(self._state_path)})
 
     def stop(self) -> None:
         self._stopping.set()
@@ -90,6 +116,7 @@ class ObsidianSyncWorker:
                 for edit in edits:
                     # Accept the new on-disk hash so the edit is pushed once.
                     self._written[str(edit["vault_path"])] = str(edit["sha256"])
+                self._save_state()
                 logger.info(
                     "pushed vault edits",
                     extra={"count": len(edits), "applied": len(result.get("applied", []))},
@@ -141,6 +168,7 @@ class ObsidianSyncWorker:
 
         if outcome.sha256:
             self._written[vault_path] = outcome.sha256
+            self._save_state()
         await self._client.ack(job_id, status="done", sha256=outcome.sha256)
         logger.info("wrote vault file", extra={"vault_path": vault_path})
 

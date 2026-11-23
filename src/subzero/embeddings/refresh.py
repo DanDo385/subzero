@@ -88,11 +88,97 @@ async def refresh_once(
     pairs = [(r["id"], vector_literal(v)) for r, v in zip(todo, vectors, strict=True) if v]
     result.failed = len(todo) - len(pairs)
     if pairs:
-        async with db.acquire() as conn:
-            await conn.executemany(
-                "UPDATE messages SET embedding = $2::text::vector WHERE id = $1", pairs
-            )
+        ids = [pair[0] for pair in pairs]
+        vecs = [pair[1] for pair in pairs]
+        await db.execute(
+            """
+            UPDATE messages AS m
+            SET embedding = u.vec::vector
+            FROM unnest($1::uuid[], $2::text[]) AS u(id, vec)
+            WHERE m.id = u.id
+            """,
+            ids,
+            vecs,
+        )
         result.embedded = len(pairs)
+    return result
+
+
+async def refresh_layer_two_once(
+    db: Database, embeddings: EmbeddingService, *, batch_size: int
+) -> RefreshResult:
+    """Backfill missing embeddings on session_summaries, memories and notes."""
+    result = RefreshResult()
+    if not embeddings.enabled:
+        return result
+    queries = (
+        (
+            """
+            SELECT id, coalesce(title, '') || E'\n\n' || summary AS text,
+                   sensitivity::text AS sensitivity
+            FROM session_summaries
+            WHERE embedding IS NULL AND length(btrim(summary)) >= $2
+            ORDER BY updated_at DESC LIMIT $1
+            """,
+            """
+            UPDATE session_summaries AS t
+            SET embedding = u.vec::vector
+            FROM unnest($1::uuid[], $2::text[]) AS u(id, vec)
+            WHERE t.id = u.id
+            """,
+        ),
+        (
+            """
+            SELECT id, content AS text, sensitivity::text AS sensitivity
+            FROM memories
+            WHERE embedding IS NULL AND status = 'active' AND length(btrim(content)) >= $2
+            ORDER BY updated_at DESC LIMIT $1
+            """,
+            """
+            UPDATE memories AS t
+            SET embedding = u.vec::vector
+            FROM unnest($1::uuid[], $2::text[]) AS u(id, vec)
+            WHERE t.id = u.id
+            """,
+        ),
+        (
+            """
+            SELECT id, coalesce(title, '') || E'\n\n' || content AS text,
+                   sensitivity::text AS sensitivity
+            FROM notes
+            WHERE embedding IS NULL AND length(btrim(content)) >= $2
+            ORDER BY updated_at DESC LIMIT $1
+            """,
+            """
+            UPDATE notes AS t
+            SET embedding = u.vec::vector
+            FROM unnest($1::uuid[], $2::text[]) AS u(id, vec)
+            WHERE t.id = u.id
+            """,
+        ),
+    )
+    remaining = batch_size
+    for select_sql, update_sql in queries:
+        if remaining <= 0:
+            break
+        rows = [
+            dict(r)
+            for r in await db.fetch(select_sql, remaining, MIN_CHARS)
+            if embeddings.allowed(r["sensitivity"])
+        ]
+        if not rows:
+            continue
+        vectors = await embeddings.embed([r["text"][:MAX_CHARS] for r in rows])
+        pairs = [(r["id"], vector_literal(v)) for r, v in zip(rows, vectors, strict=True) if v]
+        result.failed += len(rows) - len(pairs)
+        if pairs:
+            await db.execute(
+                update_sql,
+                [p[0] for p in pairs],
+                [p[1] for p in pairs],
+            )
+            result.embedded += len(pairs)
+            remaining -= len(pairs)
     return result
 
 
@@ -103,6 +189,8 @@ async def refresh_backlog(
     total = RefreshResult()
     for _ in range(max_batches):
         step = await refresh_once(db, embeddings, batch_size=batch_size)
+        if step.touched == 0 and not step.failed:
+            step = await refresh_layer_two_once(db, embeddings, batch_size=batch_size)
         total.embedded += step.embedded
         total.skipped += step.skipped
         total.failed += step.failed

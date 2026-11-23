@@ -317,3 +317,22 @@ def test_vault_must_exist(tmp_path: Path) -> None:
 def test_resolve_refuses_absolute_paths(vault: Vault) -> None:
     with pytest.raises(PathSecurityError):
         vault.resolve("/etc/passwd")
+
+
+def test_worker_persists_written_hashes_across_restarts(vault_dir: Path) -> None:
+    from obsidian_sync.config import WorkerSettings
+    from obsidian_sync.worker import ObsidianSyncWorker
+
+    settings = WorkerSettings(
+        vault_path=str(vault_dir),
+        vault_roots=ROOTS,
+        api_url="http://127.0.0.1:9",
+        api_key="test-key",
+        dry_run=False,
+    )
+    first = ObsidianSyncWorker(settings)
+    first._written["00-Inbox/n.md"] = "sha-123"
+    first._save_state()
+
+    second = ObsidianSyncWorker(settings)
+    assert second._written == {"00-Inbox/n.md": "sha-123"}

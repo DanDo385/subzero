@@ -36,7 +36,9 @@ class ProjectService:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    async def resolve(self, reference: str | None) -> UUID | None:
+    async def resolve(
+        self, reference: str | None, *, conn: asyncpg.Connection | None = None
+    ) -> UUID | None:
         """Resolve a slug, name, or UUID string to a project id.
 
         Returns None for an unknown project rather than creating one: a typo
@@ -48,7 +50,8 @@ class ProjectService:
         if not reference:
             return None
 
-        row = await self._db.fetchrow(
+        executor = conn or self._db
+        row = await executor.fetchrow(
             """
             SELECT id FROM projects
             WHERE slug = $1
@@ -63,8 +66,8 @@ class ProjectService:
         )
         return row["id"] if row else None
 
-    async def require(self, reference: str) -> UUID:
-        project_id = await self.resolve(reference)
+    async def require(self, reference: str, *, conn: asyncpg.Connection | None = None) -> UUID:
+        project_id = await self.resolve(reference, conn=conn)
         if project_id is None:
             raise NotFoundError(
                 f"No project matches {reference!r}. Call project_list to see the "
@@ -174,7 +177,7 @@ class ProjectService:
         description: str | None = None,
         conn: asyncpg.Connection | None = None,
     ) -> dict[str, Any]:
-        project_id = await self.require(reference)
+        project_id = await self.require(reference, conn=conn)
         executor = conn or self._db
         before = await executor.fetchrow(
             "SELECT status, goals, description FROM projects WHERE id = $1", project_id

@@ -55,8 +55,54 @@ async def test_same_external_id_is_one_session(services) -> None:
     b = await _session(services, ext="claude:abc")
     assert a["id"] == b["id"]
     assert a["name"] == "claude-code@mbp:subzero"
-    kinds = [r["kind"] for r in await services.db.fetch("SELECT kind FROM agent_events")]
-    assert kinds == ["spawn"]
+    assert [r["kind"] for r in await services.db.fetch("SELECT kind FROM agent_events")] == [
+        "spawn"
+    ]
+    # Starting an agent session immediately creates a canonical conversations row on turn 1.
+    assert a.get("conversation_id")
+    assert a["conversation_id"] == b["conversation_id"]
+    conv = await services.db.fetchrow(
+        "SELECT provider, provider_conversation_id FROM conversations WHERE id = $1",
+        UUID(a["conversation_id"]),
+    )
+    assert (conv["provider"], conv["provider_conversation_id"]) == ("claude-code", "claude:abc")
+
+
+async def test_prompt_beat_and_end_record_messages_and_summary(services) -> None:
+    s = await _session(services, ext="claude:turn1")
+    sid = UUID(s["id"])
+    conv_id = UUID(s["conversation_id"])
+    await services.agents.beat(sid, status="working", prompt="Audit the database transactions")
+    await services.agents.end(sid, summary="Completed the transaction isolation audit.")
+
+    msgs = await services.db.fetch(
+        "SELECT role, content, sequence FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        conv_id,
+    )
+    assert [(m["role"], m["content"], m["sequence"]) for m in msgs] == [
+        ("user", "Audit the database transactions", 0)
+    ]
+    summary = await services.db.fetchval(
+        "SELECT summary FROM session_summaries WHERE conversation_id = $1", conv_id
+    )
+    assert summary == "Completed the transaction isolation audit."
+
+
+async def test_claim_reaps_jobs_stranded_by_stale_sessions(services) -> None:
+    dead = await _session(services, ext="claude:dead")
+    alive = await _session(services, ext="claude:alive")
+    job = await services.agents.dispatch("fix the migration lock >claude")
+    claimed = await services.agents.claim(UUID(dead["id"]), targets=["claude"])
+    assert claimed["id"] == job["id"]
+
+    # Simulate the first session crashing without calling end() and ageing past STALE_AFTER.
+    await services.db.execute(
+        "UPDATE agent_sessions SET last_seen_at = now() - interval '2 hours' WHERE id = $1",
+        UUID(dead["id"]),
+    )
+    reclaimed = await services.agents.claim(UUID(alive["id"]), targets=["claude"])
+    assert reclaimed is not None
+    assert reclaimed["id"] == job["id"]
 
 
 async def test_beat_moves_and_reports_status(services) -> None:

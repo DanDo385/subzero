@@ -17,6 +17,7 @@ from subzero.models import (
     CheckpointDecision,
     CheckpointFact,
     CheckpointListUpdate,
+    CheckpointMessage,
     CheckpointProjectUpdate,
     CheckpointResult,
     CheckpointTask,
@@ -183,6 +184,16 @@ def register(mcp: FastMCP) -> None:
                 description="Which app or harness you are: chatgpt, claude, gemini, grok or codex."
             ),
         ],
+        conversation_id: Annotated[
+            UUID | None,
+            Field(
+                description=(
+                    "The canonical Postgres conversation_id returned by context_bootstrap or an "
+                    "earlier session_checkpoint in this session. Pass it to update the exact same "
+                    "conversation row even when your platform hides its native conversation id."
+                )
+            ),
+        ] = None,
         provider_conversation_id: Annotated[
             str | None,
             Field(
@@ -259,6 +270,15 @@ def register(mcp: FastMCP) -> None:
                 description="Other context a future session needs that fits none of the fields above."
             ),
         ] = [],
+        messages: Annotated[
+            list[CheckpointMessage],
+            Field(
+                description=(
+                    "Optional raw transcript turns (user/assistant messages) to append directly to "
+                    "this conversation's messages table."
+                )
+            ),
+        ] = [],
         model: Annotated[str | None, Field(description="Your model name, for provenance.")] = None,
         sensitivity: Annotated[
             str, Field(description="normal, private or highly_sensitive.")
@@ -299,6 +319,7 @@ def register(mcp: FastMCP) -> None:
         return await services.sessions.checkpoint(
             provider=provider,
             principal=current_principal(),
+            conversation_id=conversation_id,
             provider_conversation_id=provider_conversation_id,
             title=title,
             summary=summary,
@@ -312,6 +333,7 @@ def register(mcp: FastMCP) -> None:
             resolved_questions=resolved_questions,
             artifacts=artifacts,
             important_context=important_context,
+            messages=messages,
             model=model,
             sensitivity=sensitivity,
             home=home,

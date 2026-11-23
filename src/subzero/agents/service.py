@@ -26,7 +26,9 @@ from subzero.classifier.base import Classifier
 from subzero.classifier.questions import DISPATCH_ROUTE_AUTO, DISPATCH_TARGETS
 from subzero.db.pool import Database
 from subzero.errors import NotFoundError, ValidationError
+from subzero.homes import home_metadata
 from subzero.logging_setup import get_logger
+from subzero.util import sha256_text, truncate_for_budget
 
 logger = get_logger(__name__)
 
@@ -158,7 +160,10 @@ class AgentService:
                 await self._event(
                     conn, "spawn", row["id"], detail={"name": label, "home": row["home"]}
                 )
-        return _row(row)
+            conv_id = await self._ensure_session_conversation(conn, row)
+        result = _row(row)
+        result["conversation_id"] = str(conv_id)
+        return result
 
     async def beat(
         self,
@@ -167,9 +172,10 @@ class AgentService:
         status: str | None = None,
         task: str | None = None,
         home: str | None = None,
+        prompt: str | None = None,
         deliver: bool = False,
     ) -> dict[str, Any]:
-        """Heartbeat; optionally change status, task or home.
+        """Heartbeat; optionally change status, task or home, or log a user prompt.
 
         With ``deliver`` it returns new messages and marks them read, so only
         a caller that shows them to the agent (the prompt hook) should ask.
@@ -211,6 +217,15 @@ class AgentService:
                     session_id,
                     detail={"status": row["status"], "task": row["task"]},
                 )
+            if prompt and prompt.strip():
+                conv_id = await self._ensure_session_conversation(conn, row)
+                await self._append_session_message(
+                    conn,
+                    conv_id=conv_id,
+                    provider=row["harness"],
+                    role="user",
+                    content=prompt.strip(),
+                )
             messages = await self._take_messages(conn, row) if deliver else []
         return {"session": _row(row), "messages": messages}
 
@@ -227,6 +242,37 @@ class AgentService:
             if row is None:
                 raise NotFoundError("No such agent session.")
             await self._event(conn, "end", session_id, detail={"summary": _clean(summary, 500)})
+            if summary and summary.strip():
+                conv_id = await self._ensure_session_conversation(conn, row)
+                clean_summary = summary.strip()
+                await conn.execute(
+                    """
+                    INSERT INTO session_summaries (
+                        conversation_id, provider, title, summary, summary_sha256,
+                        classification_status, metadata
+                    ) VALUES ($1, $2, $3, $4, $5, 'classified', $6::jsonb)
+                    ON CONFLICT (conversation_id) DO UPDATE SET
+                        summary = CASE
+                            WHEN session_summaries.summary_sha256 = EXCLUDED.summary_sha256
+                                THEN session_summaries.summary
+                            ELSE session_summaries.summary || E'\n\n' || EXCLUDED.summary END,
+                        summary_sha256 = EXCLUDED.summary_sha256,
+                        title = coalesce(EXCLUDED.title, session_summaries.title),
+                        version = session_summaries.version + 1,
+                        updated_at = now()
+                    """,
+                    conv_id,
+                    row["harness"],
+                    row["task"] or row["name"],
+                    clean_summary,
+                    sha256_text(clean_summary),
+                    self._safe_home_metadata(row["home"]),
+                )
+                await conn.execute(
+                    "UPDATE conversations SET summary = $2, updated_at = now() WHERE id = $1",
+                    conv_id,
+                    truncate_for_budget(clean_summary, 400),
+                )
             if row["job_id"]:
                 # Ending is not finishing: `subzero done` finishes a job. A
                 # session that stops first leaves it failed, visibly.
@@ -462,6 +508,25 @@ class AgentService:
                     f"This session already holds job {str(holder['job_id'])[:8]}; "
                     "finish it with `subzero done` first."
                 )
+            # Reap jobs stranded by sessions that crashed or vanished past STALE_AFTER
+            # without calling end(), so a dead worker never wedges a dispatch job forever.
+            stale_jobs = await conn.fetch(
+                """
+                UPDATE dispatch_jobs j
+                   SET status = 'queued', claimed_by = NULL, updated_at = now()
+                  FROM agent_sessions s
+                 WHERE j.status = 'claimed'
+                   AND j.claimed_by = s.id
+                   AND (s.ended_at IS NOT NULL OR s.last_seen_at < now() - $1::interval)
+                RETURNING j.id, s.id AS stale_session_id
+                """,
+                STALE_AFTER,
+            )
+            if stale_jobs:
+                await conn.execute(
+                    "UPDATE agent_sessions SET job_id = NULL WHERE id = ANY($1::uuid[])",
+                    [r["stale_session_id"] for r in stale_jobs],
+                )
             job = await conn.fetchrow(
                 """
                 SELECT * FROM dispatch_jobs
@@ -578,6 +643,95 @@ class AgentService:
         }
 
     # ----------------------------------------------------------- internals
+
+    @staticmethod
+    def _safe_home_metadata(home: str | None) -> dict[str, Any]:
+        slug = home.removeprefix("projects/") if home and home.startswith("projects/") else None
+        try:
+            return home_metadata(home, slug)
+        except ValidationError:
+            return home_metadata(None, None)
+
+    @classmethod
+    async def _ensure_session_conversation(cls, conn: Any, session_row: Any) -> UUID:
+        harness = session_row["harness"] or "unknown"
+        await conn.execute(
+            "INSERT INTO providers (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
+            harness,
+            harness,
+        )
+        ext_id = session_row["external_id"] or f"agent:{session_row['id']}"
+        title = session_row["task"] or session_row["name"]
+        meta = {
+            **cls._safe_home_metadata(session_row["home"]),
+            "agent_session_id": str(session_row["id"]),
+            "machine": session_row["machine"],
+            "cwd": session_row["cwd"],
+            "branch": session_row["branch"],
+        }
+        conv_id = await conn.fetchval(
+            """
+            INSERT INTO conversations (
+                provider, provider_conversation_id, title, started_at, import_key, metadata
+            ) VALUES ($1, $2, $3, coalesce($4, now()), $5, $6::jsonb)
+            ON CONFLICT (provider, provider_conversation_id)
+                WHERE provider_conversation_id IS NOT NULL
+            DO UPDATE SET
+                title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
+                metadata = conversations.metadata || EXCLUDED.metadata,
+                updated_at = now()
+            RETURNING id
+            """,
+            harness,
+            ext_id,
+            title,
+            session_row["started_at"],
+            f"{harness}:{ext_id}",
+            meta,
+        )
+        return UUID(str(conv_id))
+
+    @staticmethod
+    async def _append_session_message(
+        conn: Any,
+        *,
+        conv_id: UUID,
+        provider: str,
+        role: str,
+        content: str,
+    ) -> None:
+        digest = sha256_text(content)
+        await conn.execute(
+            """
+            WITH conv_lock AS (
+                SELECT id FROM conversations WHERE id = $1 FOR UPDATE
+            ),
+            next_free AS (
+                SELECT coalesce(max(m.sequence), -1) + 1 AS n
+                FROM conv_lock
+                LEFT JOIN messages m ON m.conversation_id = conv_lock.id
+            )
+            INSERT INTO messages (
+                conversation_id, provider, role, content, content_sha256,
+                provenance, sequence
+            )
+            SELECT $1, $2, $3, $4, $5, 'user_statement'::pc_provenance, next_free.n
+            FROM next_free
+            WHERE NOT EXISTS (
+                SELECT 1 FROM messages e
+                WHERE e.conversation_id = $1
+                  AND e.role = $3
+                  AND e.content_sha256 = $5
+                  AND e.sequence = next_free.n - 1
+            )
+            ON CONFLICT DO NOTHING
+            """,
+            conv_id,
+            provider,
+            role,
+            content,
+            digest,
+        )
 
     @staticmethod
     async def _event(

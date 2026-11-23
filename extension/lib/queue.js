@@ -1,4 +1,4 @@
-// Subzero — durable capture queue.
+// Subzero - durable capture queue.
 //
 // Captures wait in chrome.storage.local until the paired server confirms them,
 // so nothing is lost if the browser closes or the server is asleep.
@@ -104,6 +104,8 @@ function enqueue(payload) {
     if (at >= 0) {
       const older = await readBody(entry._key);
       entry.messages = mergeMessages(older?.messages, entry.messages);
+      const mergedAttachments = mergeAttachments(older?.attachments, entry.attachments);
+      if (mergedAttachments.length) entry.attachments = mergedAttachments;
       if (!String(entry.title || '').trim()) entry.title = index[at].title;
       index[at] = headerOf(entry);
     } else {
@@ -124,6 +126,23 @@ function mergeMessages(older = [], newer = []) {
   const newerIds = new Set(newer.map(id).filter(Boolean));
   const missing = older.filter((m) => id(m) && !newerIds.has(id(m)));
   return missing.length ? [...missing, ...newer] : newer;
+}
+
+/**
+ * Union of attachment references across an older unsent capture and a newer one.
+ */
+function mergeAttachments(older = [], newer = []) {
+  const merged = [];
+  const seen = new Set();
+  for (const item of [...(older || []), ...(newer || [])]) {
+    if (!item || typeof item !== 'object') continue;
+    const key = String(item.provider_attachment_id || `${item.file_name}:${item.file_size}`);
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 const inFlight = new Set();
@@ -262,8 +281,11 @@ function drain() {
       const worker = async () => {
         while (!blocked) {
           const outcome = await processOne();
-          if (outcome === 'blocked') blocked = true;
-          if (outcome !== 'sent') return;
+          if (outcome === 'blocked') {
+            blocked = true;
+            return;
+          }
+          if (outcome === 'idle') return;
         }
       };
       await Promise.all(Array.from({ length: DELIVERY_CONCURRENCY }, worker));

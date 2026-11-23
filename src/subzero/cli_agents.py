@@ -135,10 +135,13 @@ def hook_prompt(payload: dict[str, Any], harness: str) -> str | None:
     cached = client.session_for_external(external)
     if cached is None:
         cached, _ = _start_session(payload, harness)
+    raw_prompt = str(payload.get("prompt") or "")
     body: dict[str, Any] = {"status": "working", "deliver": True}
+    if raw_prompt.strip():
+        body["prompt"] = raw_prompt
     # Only a prompt that opens with a home sigil ("^cfa2 next topic") moves the
     # session; a sigil further into the text is just being talked about.
-    words = str(payload.get("prompt") or "").split(maxsplit=1)
+    words = raw_prompt.split(maxsplit=1)
     opening = sigils.parse(words[0]) if words else sigils.parse("")
     if opening.home:
         body["home"] = opening.home

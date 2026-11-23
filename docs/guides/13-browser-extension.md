@@ -1,18 +1,22 @@
 # 13. The browser extension
 
-The extension is the piece that lives in your browser. It does three jobs:
+Conversations are normally registered directly in Postgres on turn 1 through the MCP tools
+(`context_bootstrap` and `session_checkpoint`) and coding-agent hooks (`subzero hook`), so there is
+no daily background catching up to do. The browser extension is kept as an **on-demand emergency
+rescue and manual import tool** when an app could not use MCP (or if you closed a tab before
+checkpointing). It does three jobs on demand:
 
-1. **Live capture** — while you chat in Claude, ChatGPT, Gemini, Grok or Muse, it saves the
-   conversation into Subzero as you go, so nothing is lost when you close the tab.
-2. **Import** — Claude and ChatGPT import your whole history through the same internal
-   interface their own web pages use. Gemini, Grok and Muse can only save the conversation that
-   is open on screen (see Step 4).
-3. **Session bridge** — it shows a live coding session from your terminal (any CLI harness that
+1. **Manual rescue (Save Now)** - save the conversation currently open in Claude, ChatGPT,
+   Gemini, Grok or Muse into Subzero when you click **Save Now**.
+2. **History import** - Claude and ChatGPT can import your older history on demand through the
+   same internal interface their own web pages use. Gemini, Grok and Muse save the conversation
+   that is open on screen (see Step 4).
+3. **Session bridge** - it shows a live coding session from your terminal (any CLI harness that
    checkpoints to Subzero) in a side panel, and lets you type replies back from the browser.
 
-**Nothing here changes or deletes anything in the apps themselves.** The extension only reads
-what your browser already shows you, and sending the same conversation twice never creates
-duplicates.
+**Nothing here changes or deletes anything in the apps themselves.** The extension does not run a
+background DOM observer or poll open tabs automatically; it only reads what your browser shows when
+you click a button in the popup, and sending the same conversation twice never creates duplicates.
 
 ## Supported browsers
 
@@ -22,7 +26,7 @@ in this version.
 ## Step 1: Load the extension
 
 The extension ships inside this project, in the `extension/` folder. It is loaded "unpacked",
-straight from that folder — there is nothing to build and nothing to install from a store.
+straight from that folder - there is nothing to build and nothing to install from a store.
 
 1. Open your browser's extensions page: `brave://extensions/` (or `chrome://extensions/`).
 2. Turn on **Developer mode** (the toggle in the top-right corner).
@@ -69,17 +73,19 @@ The code expires after five minutes; if it does, run the command again.
 **Success looks like:** the popup shows *Saving to https://your-…* at the top and your five
 providers below it.
 
-## Step 3: Live capture
+## Step 3: Manual rescue (Save Now)
 
-Open any of the five apps and chat as usual. The extension notices when a reply finishes and
-saves the conversation by itself. You do not have to do anything per message.
+When you use Subzero through MCP or coding-agent hooks, conversations are written directly to
+Postgres from turn 1. If you ever have a web chat where MCP was unavailable or a tab was closed
+before the model checkpointed, open that chat, click the Subzero toolbar icon, and press
+**Save Now**.
 
 Each provider row in the popup shows the last conversation **the server confirmed**: its title,
 how many messages it has, how many were new, and the time. That line only appears after the
 server answers, so it is proof the conversation reached your database. Under the list:
 
-- **Save Now** — save the conversation in the tab you are looking at, right now.
-- **Pause / Resume** — stop or restart automatic capture everywhere.
+- **Save Now** - save the conversation in the tab you are looking at, right now.
+- **Pause / Resume** - pause or resume queue delivery to the server.
 
 Conversations travel through a small queue inside the browser and are sent straight away,
 up to three at a time. If
@@ -88,10 +94,9 @@ a minute, up to an hour). The popup shows how many are waiting, and the error th
 Anything the server refuses outright, or that keeps failing, is kept under *could not be sent*
 with a **Retry** button: nothing is thrown away.
 
-## Step 4: Import your history, then stay in sync
+## Step 4: Manual history import
 
-Import brings in the conversations from before the extension was installed. After that,
-the extension keeps your database current by itself.
+Import brings in older conversations from before MCP or Subzero was connected.
 
 1. In the popup, click **Open All Tabs**. One background tab opens per provider. Sign in to any
    you are not signed in to.
@@ -106,13 +111,6 @@ How it decides what to fetch: before starting, the extension asks your server wh
 conversations it already has and when each was last updated. It walks your history newest
 first and fetches only what is new or changed, so a second import is quick.
 
-**Staying in sync:** every two minutes, each open Claude or ChatGPT tab checks for
-conversations that changed since the server last saw them, newest first, and stops at the
-first one that is already up to date. When nothing changed, that is a single small request.
-The row then shows *Sync at 14:07: 3 checked, 1 saved, 2 already up to date*. Keep one
-Claude and one ChatGPT tab open (pinned tabs are handy) and new chats reach your database
-within a few minutes.
-
 Notes:
 
 - Import fetches a few conversations per second, and slows down by itself when the app asks
@@ -124,14 +122,14 @@ Notes:
   `highly_sensitive` is never sent to an outside service (embeddings, Jev).
 - If the server has `SUBZERO_AUTO_CLASSIFY_SECONDS` set, it also files new conversations under
   a project and decides which deserve a summary, a few at a time in the background.
-- **Claude and ChatGPT** import and sync every conversation in your account.
-- **Gemini, Grok and Muse** have no history import. **Import** (and **Save Now**) save only the
-  conversation open on screen, and an open tab is re-saved every two minutes if it changed.
+- **Claude and ChatGPT** import every conversation in your account on demand.
+- **Gemini, Grok and Muse** have no history import API. **Import** (and **Save Now**) save only
+  the conversation open on screen when clicked.
   These three are read from the page itself, so a redesign of their site can break them until
   the extension is updated.
 
-**If you'd rather stop everything at once:** press **Pause** in the popup (stops automatic
-saving and sending), or close or reload the provider tab (ends an import running in it).
+**If you'd rather stop everything at once:** press **Pause** in the popup (stops queue delivery),
+or close or reload the provider tab (ends an import running in it).
 
 ## Step 5: The session bridge
 
@@ -144,7 +142,7 @@ The side panel connects a browser tab to a live coding session.
 4. The conversation appears newest-last and refreshes every few seconds. Type in the box at the
    bottom and press **Send** to reply back into the session.
 
-The **Handoff** tab next to it shows your current project handoff text, with a copy button —
+The **Handoff** tab next to it shows your current project handoff text, with a copy button -
 the same text your coding sessions read when they start.
 
 ## What the extension can see

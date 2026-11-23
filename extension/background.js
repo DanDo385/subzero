@@ -1,6 +1,8 @@
-// Subzero — service worker.
-// Owns the capture queue and its delivery, the periodic alarms, and routing
-// popup requests to provider tabs.
+// Subzero - service worker (manual emergency rescue mode).
+// Owns the durable capture queue and its delivery, and routes on-demand popup
+// requests ("Save Now", "Import", "Sync Now") to provider tabs.
+// Automatic background tab polling is disabled because conversations are
+// registered directly in Postgres on turn 1 via MCP and agent hooks.
 
 import { enqueue, drain, retryFailed, getStatus } from './lib/queue.js';
 import { sendToProviderTab, PROVIDER_HOSTS } from './lib/tabs.js';
@@ -8,19 +10,16 @@ import { getSyncState, isPaired } from './lib/api.js';
 
 const PROCESS_ALARM = 'processQueue';
 const SYNC_ALARM = 'periodicSync';
-// Keep the database current: every 2 minutes, each open Claude/ChatGPT tab
-// fetches what changed since the server last saw it. When nothing changed
-// this is one small list request per tab plus one to the server.
-const SYNC_MINUTES = 2;
 // Providers whose whole history can be listed (the others save the open page).
 const HISTORY_PROVIDERS = new Set(['claude', 'chatgpt']);
 // How many of the server's most recently updated conversations a sync asks for.
 const SYNC_RECENT = 200;
 
 function ensureAlarms() {
-  // Delivery retries (the queue applies its own per-item backoff).
+  // Delivery retries for any manually queued items (the queue applies its own per-item backoff).
   chrome.alarms.create(PROCESS_ALARM, { periodInMinutes: 0.5 });
-  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_MINUTES });
+  // Remove any legacy background sync alarm so open tabs are never polled automatically.
+  chrome.alarms.clear(SYNC_ALARM);
 }
 
 chrome.runtime.onInstalled.addListener(() => {

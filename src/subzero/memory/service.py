@@ -77,6 +77,7 @@ class MemoryService:
         source_provider: str | None = None,
         source_conversation_id: UUID | None = None,
         confidence: float | None = None,
+        embedding: list[float] | None = None,
         conn: asyncpg.Connection | None = None,
     ) -> MemorySaveResult:
         content = content.strip()
@@ -107,6 +108,9 @@ class MemoryService:
                 reason="An identical memory already exists; its timestamp was refreshed.",
             )
 
+        if embedding is None:
+            embedding = await self._embeddings.embed_one(content, sensitivity=sensitivity)
+
         # 2/3. Near duplicate, by subject then by embedding.
         candidate = await self._find_near_duplicate(
             executor,
@@ -114,9 +118,8 @@ class MemoryService:
             subject=subject,
             dedup_hash=dedup_hash,
             sensitivity=sensitivity,
+            embedding=embedding,
         )
-
-        embedding = await self._embeddings.embed_one(content, sensitivity=sensitivity)
 
         if candidate is not None:
             return await self._supersede(
@@ -194,6 +197,7 @@ class MemoryService:
         subject: str | None,
         dedup_hash: str,
         sensitivity: str,
+        embedding: list[float] | None = None,
     ) -> asyncpg.Record | None:
         # Normalised-text match: same claim, different punctuation or case.
         if subject:
@@ -222,7 +226,7 @@ class MemoryService:
         # content is allowed to be embedded.
         if not self._embeddings.enabled or not self._embeddings.allowed(sensitivity):
             return None
-        vector = await self._embeddings.embed_one(content, sensitivity=sensitivity)
+        vector = embedding or await self._embeddings.embed_one(content, sensitivity=sensitivity)
         if not vector:
             return None
         return await executor.fetchrow(

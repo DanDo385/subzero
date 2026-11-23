@@ -72,14 +72,18 @@ Retrieve (context_bootstrap) only when the request depends on past work: a \
 project, earlier decisions, lists, "remember", "last time", a continuing task. \
 Never for standalone questions. Decide what to look for yourself, as with your \
 own memory search: pass a short query of key terms and names, plus the project \
-when you know it. Do not paste the user's message. One bootstrap call returns \
-the project's handoff (latest sessions, open questions, open tasks, active \
-decisions); use context_search only for something it did not cover.
+when you know it. Do not paste the user's message. Pass title, \
+provider_conversation_id or opening_message on turn 1 so the conversation row \
+is registered in Postgres right away; context_bootstrap returns conversation_id \
+in the package. One bootstrap call returns the project's handoff (latest \
+sessions, open questions, open tasks, active decisions); use context_search \
+only for something it did not cover.
 
 Checkpoint durable state (session_checkpoint) when something is settled: a \
 decision, a confirmed fact, a task, a list change, a project update, an \
-unresolved question. Name the project when there is one. Not conversational \
-noise.
+unresolved question. Pass conversation_id from context_bootstrap (or an earlier \
+checkpoint) so repeat checkpoints in the same chat update one record. Name the \
+project when there is one. Not conversational noise.
 
 Capture files through the artifact tools, and never describe an artifact as \
 saved unless the tool result reports capture_status "captured".

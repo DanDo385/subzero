@@ -416,6 +416,7 @@ class ImportRunner:
             model=conversation.model,
             imported=True,
             started_at=conversation.created_at,
+            provider_updated_at=conversation.updated_at or conversation.created_at,
         )
         report.conversations_imported += 1 if created else 0
         report.conversations_skipped += 0 if created else 1

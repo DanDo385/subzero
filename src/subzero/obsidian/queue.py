@@ -65,12 +65,18 @@ class SyncQueue:
         if expected_sha256 is None and object_type in _SYNCED_HASH_SQL:
             expected_sha256 = await executor.fetchval(_SYNCED_HASH_SQL[object_type], object_id)
 
-        # Supersede any open job for the same path: the newest content wins
-        # and the queue stays one-deep per file.
+        # Supersede any open job for the same path (including an in-flight
+        # leased one): the partial unique index sync_jobs_open_path_key covers
+        # ('queued', 'approved', 'leased'), so leaving a leased row open would
+        # cause INSERT ... ON CONFLICT DO NOTHING to drop the newer write.
         await executor.execute(
             """
-            UPDATE sync_jobs SET status = 'cancelled', completed_at = now()
-            WHERE vault_path = $1 AND status IN ('queued', 'approved')
+            UPDATE sync_jobs
+            SET status = 'cancelled',
+                lease_owner = NULL,
+                leased_until = NULL,
+                completed_at = now()
+            WHERE vault_path = $1 AND status IN ('queued', 'approved', 'leased')
             """,
             vault_path,
         )
@@ -136,9 +142,11 @@ class SyncQueue:
         job = await self._db.fetchrow(
             """
             UPDATE sync_jobs
-            SET status = 'done', completed_at = now(), last_error = NULL
-            WHERE id = $1 AND lease_owner = $2
-            RETURNING object_type, object_id
+            SET status = CASE WHEN status = 'cancelled' THEN 'cancelled' ELSE 'done' END,
+                completed_at = now(),
+                last_error = NULL
+            WHERE id = $1 AND (lease_owner = $2 OR status = 'cancelled')
+            RETURNING object_type, object_id, vault_path
             """,
             job_id,
             worker_id,
@@ -160,6 +168,18 @@ class SyncQueue:
                     job["object_id"],
                     written_sha256,
                 )
+            # If a newer job superseded this lease while the worker was writing
+            # to disk, refresh that queued job's expected_sha256 to match the
+            # hash just written so it does not trip a false conflict.
+            await self._db.execute(
+                """
+                UPDATE sync_jobs
+                SET expected_sha256 = $2
+                WHERE vault_path = $1 AND status IN ('queued', 'approved')
+                """,
+                job["vault_path"],
+                written_sha256,
+            )
         await self._event(
             job_id,
             direction="outbound",

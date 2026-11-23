@@ -215,6 +215,8 @@ class ContextPackage(Base):
     """Compact package returned by context_bootstrap / context_for_topic."""
 
     query: str
+    #: Canonical conversation id when context_bootstrap registered the session on turn 1.
+    conversation_id: UUID | None = None
     items: list[ContextItem] = Field(default_factory=list)
     token_budget: int
     estimated_tokens: int
@@ -429,12 +431,20 @@ class CheckpointArtifactRef(Base):
     relation: str = "related_to_conversation"
 
 
+class CheckpointMessage(Base):
+    role: Literal["user", "assistant", "system", "tool"] = "user"
+    content: str = Field(description="Verbatim message text for this turn.")
+    provider_message_id: str | None = None
+    model: str | None = None
+
+
 class CheckpointResult(Base):
     conversation_id: UUID
     session_summary_id: UUID | None
     created: dict[str, int]
     updated: dict[str, int]
     skipped: dict[str, int]
+    messages_inserted: int = 0
     classification: dict[str, Any] | None = None
     queued_vault_jobs: int = 0
     review_items: int = 0

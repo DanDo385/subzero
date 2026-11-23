@@ -15,9 +15,12 @@ from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
 from subzero.auth import scopes
+from subzero.auth.principal import current_principal
 from subzero.mcp.compact import dump
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
 from subzero.services import get_services
+
+_KNOWN_PROVIDERS = {"chatgpt", "claude", "gemini", "grok", "muse", "codex", "claude-code", "system"}
 
 
 def register(mcp: FastMCP) -> None:
@@ -25,7 +28,7 @@ def register(mcp: FastMCP) -> None:
         name="context_bootstrap",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={"readOnlyHint": False, "openWorldHint": False},
         output_schema=object_output_schema(),
     )
     async def context_bootstrap(
@@ -46,6 +49,32 @@ def register(mcp: FastMCP) -> None:
         token_budget: Annotated[
             int, Field(ge=200, le=4000, description="Approximate token ceiling for the result.")
         ] = 1200,
+        provider_conversation_id: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "This conversation's id in your platform, if known. Passing it (or title / "
+                    "opening_message) registers the conversation in Postgres on turn 1 and returns "
+                    "conversation_id in the package so later session_checkpoint calls update it."
+                )
+            ),
+        ] = None,
+        title: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Short title for this conversation to register it in Postgres immediately on turn 1."
+                )
+            ),
+        ] = None,
+        opening_message: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "The user's opening message to record in Postgres immediately on turn 1."
+                )
+            ),
+        ] = None,
         user_message: Annotated[
             str | None,
             Field(
@@ -62,6 +91,11 @@ def register(mcp: FastMCP) -> None:
         decisions, lists, "remember", "last time", a continuing task.
         Skip for trivial questions and anything self-contained.
 
+        When provider_conversation_id, title or opening_message is passed, this
+        also registers the conversation row in Postgres immediately on turn 1
+        and returns conversation_id in the package. Pass that conversation_id to
+        session_checkpoint on later turns so the whole chat updates one row.
+
         Returns the project's handoff first (latest session summaries with
         their open questions, open tasks, active decisions), then items
         matching query, then raw transcript excerpts only if nothing else
@@ -74,6 +108,29 @@ def register(mcp: FastMCP) -> None:
         package = await services.retrieval.bootstrap(
             query, user_message=user_message, token_budget=token_budget, project=project
         )
+        if provider_conversation_id or title or opening_message:
+            principal = current_principal()
+            provider = principal.provider if principal.provider in _KNOWN_PROVIDERS else "system"
+            await services.db.execute(
+                "INSERT INTO providers (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
+                provider,
+                provider,
+            )
+            project_slug = package.project.slug if package.project else project
+            project_id = await services.projects.resolve(project_slug) if project_slug else None
+            conv_id, _ = await services.sessions.ensure_conversation(
+                provider=provider,
+                provider_conversation_id=provider_conversation_id,
+                title=title or (opening_message or "").strip()[:120] or query,
+                project_id=project_id,
+            )
+            if opening_message and opening_message.strip():
+                await services.sessions.add_messages(
+                    conv_id,
+                    [{"role": "user", "content": opening_message.strip()}],
+                    provider=provider,
+                )
+            package.conversation_id = conv_id
         payload = dump(package)
         items = payload.get("items") or []
         count = len(items)

@@ -243,6 +243,23 @@ def build_ingest_routes(settings: Settings) -> list:
                 }
             )
 
+        # The deterministic sensitivity screen file imports run, here on
+        # every capture (local pattern matching, nothing leaves the
+        # process). It only ever raises the stored level, and it runs
+        # before anything (embeddings, Jev) could send the text out.
+        screen = (
+            screen_texts(
+                [title or "", *(m["content"] for m in normalized)],
+                default=settings.import_default_sensitivity,
+            )
+            if settings.import_sensitivity_screen
+            else None
+        )
+        sensitivity_level = screen.level if screen else settings.import_default_sensitivity
+        metadata_patch: dict[str, Any] = {}
+        if screen and screen.reasons:
+            metadata_patch["sensitivity_screen"] = screen.reasons
+
         # Use the shared conversation and message writers so browser imports
         # follow the same validation and deduplication rules as checkpoints.
         async with db.transaction() as conn:
@@ -253,6 +270,9 @@ def build_ingest_routes(settings: Settings) -> list:
                 model=model,
                 imported=True,
                 started_at=parse_timestamp(body.get("created_at")),
+                provider_updated_at=updated_at,
+                sensitivity=sensitivity_level,
+                metadata_patch=metadata_patch,
                 conn=conn,
             )
             inserted = await services.sessions.add_messages(
@@ -261,40 +281,17 @@ def build_ingest_routes(settings: Settings) -> list:
             skipped = len(normalized) - inserted
             # Attachment references accumulate: a later capture that shows
             # fewer of them must not drop the ones already recorded.
-            merged: list[Any] = []
             if attachments:
                 known = await conn.fetchval(
                     "SELECT metadata->'_attachments' FROM conversations WHERE id = $1", conv_id
                 )
                 merged = _merge_attachments(known if isinstance(known, list) else [], attachments)
-            # The deterministic sensitivity screen file imports run, here on
-            # every capture (local pattern matching, nothing leaves the
-            # process). It only ever raises the stored level, and it runs
-            # before anything (embeddings, Jev) could send the text out.
-            screen = (
-                screen_texts(
-                    [title or "", *(m["content"] for m in normalized)],
-                    default=settings.import_default_sensitivity,
-                )
-                if settings.import_sensitivity_screen
-                else None
-            )
-            metadata: dict[str, Any] = {"_attachments": merged} if merged else {}
-            if screen and screen.reasons:
-                metadata["sensitivity_screen"] = screen.reasons
-            await conn.execute(
-                """
-                UPDATE conversations
-                SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz),
-                    sensitivity = greatest(sensitivity, $4::pc_sensitivity),
-                    metadata = metadata || $3::jsonb
-                WHERE id = $1
-                """,
-                conv_id,
-                updated_at,
-                metadata,
-                screen.level if screen else settings.import_default_sensitivity,
-            )
+                if merged:
+                    await conn.execute(
+                        "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
+                        conv_id,
+                        {"_attachments": merged},
+                    )
 
         status = "created" if created else "updated"
         if created:
@@ -346,10 +343,11 @@ def build_ingest_routes(settings: Settings) -> list:
             return JSONResponse({"error": "recent must be a number"}, status_code=400)
         rows = await db.fetch(
             """
-            SELECT provider_conversation_id, provider_updated_at
+            SELECT provider_conversation_id,
+                   coalesce(provider_updated_at, started_at) AS provider_updated_at
             FROM conversations
             WHERE provider = $1 AND provider_conversation_id IS NOT NULL
-            ORDER BY provider_updated_at DESC NULLS LAST
+            ORDER BY coalesce(provider_updated_at, started_at) DESC NULLS LAST
             LIMIT $2
             """,
             provider,

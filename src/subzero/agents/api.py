@@ -116,6 +116,7 @@ async def beat(request: Request, device: dict[str, Any]) -> Any:
         status=_str(body, "status"),
         task=_str(body, "task"),
         home=_str(body, "home"),
+        prompt=_str(body, "prompt"),
         deliver=body.get("deliver") is True,
     )
 

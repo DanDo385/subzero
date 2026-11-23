@@ -168,6 +168,7 @@ Three rules that follow from this, and that the code enforces:
 
 ```
 subzero/
+├── extension/                # on-demand emergency browser rescue + session bridge
 ├── migrations/               # numbered SQL, applied once, hash-checked
 ├── instructions/             # per-provider setup + the shared instruction
 ├── skills/                   # portable workflows, including search/save/email/vault
@@ -175,20 +176,25 @@ subzero/
 ├── src/subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── email.py              # immutable previews, AgentMail adapter, durable receipts
+│   ├── ingest.py             # device-token pairing and /api/v1/ingest/* routes
 │   ├── server.py             # Starlette app, routes, lifespan
 │   ├── services.py           # explicit service wiring
 │   ├── models.py             # the shapes that cross the MCP boundary
+│   ├── agents/               # live coding-agent sessions, messages, dispatch queue
+│   ├── bridge/               # browser side-panel session bridge
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
 │   ├── db/                   # asyncpg pool + migration runner
 │   ├── memory/ sessions/ projects/ lists/ notes/
-│   ├── retrieval/            # hybrid search + context packages
+│   ├── retrieval/            # full-text + optional vector search + context packages
 │   ├── artifacts/            # keys, manifests, archive guards, service
 │   ├── classifier/           # base, questions, rules, jev, policy, service
+│   ├── extraction/           # pass-2 Claude deep extraction over Jev candidates
 │   ├── storage/              # object store: supabase | local
-│   ├── embeddings/           # provider abstraction + privacy gate
+│   ├── embeddings/           # provider abstraction, privacy gate, background refresh
 │   ├── obsidian/             # path validation, rendering, job queue
-│   ├── importers/            # per-provider adapters + pipeline
+│   ├── wiki/                 # note_edges, MOCs, graph rendering
+│   ├── importers/            # per-provider adapters, pipeline, background reclassify
 │   ├── review/ audit/
 │   └── worker_api.py         # the local worker's outbound surface
 ├── src/obsidian_sync/        # the local worker
@@ -250,15 +256,20 @@ flowchart TB
 
 ## Context retrieval
 
-Full-text search in Postgres, ranked in Python, packed to a token budget. No
-model, classifier or vault call happens on these paths; embeddings, when
-enabled, are used for writing and deduplication, not for reads.
+Full-text search in Postgres (plus optional pgvector semantic search in
+`retrieval/semantic.py` for `memory_deep_search` and bootstrap's semantic
+fallback layer), ranked in Python, packed to a token budget. No classifier or
+vault call happens on these paths. When `provider_conversation_id`, `title`, or
+`opening_message` is passed to `context_bootstrap`, the server also upserts the
+`conversations` row on turn 1 and returns `conversation_id` in the package so
+subsequent `session_checkpoint` calls update that exact conversation row.
 
 ```
-context_bootstrap(query=None, project=None, token_budget=1200, user_message=None)
+context_bootstrap(query=None, project=None, token_budget=1200, provider_conversation_id=None, title=None, opening_message=None, user_message=None)
 context_search(query, limit, project, provider, include_messages=False)
 context_for_topic(topic, token_budget, project)
 context_recent(limit, provider, project)
+memory_deep_search(query, limit=6, provider=None)
 ```
 
 **The calling model chooses the query.** Tool descriptions and the shared
@@ -1036,17 +1047,12 @@ until a real `SUBZERO_TYPESAFE_API_KEY` is configured.
 
 ## Roadmap
 
-Not built, deliberately:
+Future enhancements:
 
-1. **Browser extension** for capturing web conversation turns and artifact
-   bytes at source — the only way to close the attachment gap for Gemini.
-   Designed for, not built; the ingestion API it would target is the same one
-   the worker uses.
-2. **Application-level encryption** for `highly_sensitive` artifacts.
-3. **Embedding backfill worker** for content saved while embeddings were off.
-4. **Classification quality review** over `classification_events` — the data is
+1. **Application-level encryption** for `highly_sensitive` artifacts.
+2. **Classification quality review** over `classification_events` - the data is
    already being collected for exactly this.
-5. **Provider API ingestion** where official conversation APIs exist, to reduce
+3. **Provider API ingestion** where official conversation APIs exist, to reduce
    reliance on manual exports.
-6. **Multi-user support.** Single-user assumptions are isolated to the auth
+4. **Multi-user support.** Single-user assumptions are isolated to the auth
    layer and the allowlist; the schema already carries the provenance needed.

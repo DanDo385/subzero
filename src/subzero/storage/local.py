@@ -42,10 +42,11 @@ class LocalObjectStore:
         path = self._path(object_key, bucket)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+        written = path.read_bytes()
         return StoredObject(
             object_key=object_key,
-            byte_size=len(data),
-            sha256=sha256_bytes(data),
+            byte_size=len(written),
+            sha256=sha256_bytes(written),
             mime_type=mime_type,
         )
 

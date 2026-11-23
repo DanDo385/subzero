@@ -58,6 +58,39 @@ async def test_a_newer_job_supersedes_an_open_one_for_the_same_path(services) ->
     assert statuses[second] == "approved"
 
 
+async def test_a_newer_job_supersedes_a_currently_leased_one(services) -> None:
+    """When a worker holds an active lease on a vault_path and a newer write arrives,
+    enqueue must supersede the leased job rather than silently returning None."""
+    note_id, _, _ = await services.notes.upsert(title="Leased note", content="v1")
+    first = await services.sync_queue.enqueue(
+        job_type="write_note",
+        object_type="note",
+        object_id=note_id,
+        vault_path="00-Inbox/leased-note.md",
+        payload={"v": 1},
+    )
+    leased = await services.sync_queue.lease(worker_id="w1")
+    assert [j["id"] for j in leased] == [first]
+
+    second = await services.sync_queue.enqueue(
+        job_type="write_note",
+        object_type="note",
+        object_id=note_id,
+        vault_path="00-Inbox/leased-note.md",
+        payload={"v": 2},
+    )
+    assert second is not None
+    assert second != first
+
+    # When the worker finishes writing v1 and acks the superseded job, the
+    # queued v2 job's expected_sha256 is updated to match what v1 wrote to disk.
+    await services.sync_queue.complete(first, worker_id="w1", written_sha256="sha-v1")
+    expected = await services.db.fetchval(
+        "SELECT expected_sha256 FROM sync_jobs WHERE id = $1", second
+    )
+    assert expected == "sha-v1"
+
+
 async def test_lease_is_exclusive(services) -> None:
     note_id, _, _ = await services.notes.upsert(title="A note", content="body")
     await services.sync_queue.enqueue(
@@ -342,6 +375,20 @@ async def test_a_degraded_classification_queues_reclassification(services) -> No
             "SELECT count(*) FROM reclassification_queue WHERE object_type = 'checkpoint'"
         )
         == 1
+    )
+
+    # Once the classifier recovers, draining the reclassification queue
+    # reclassifies the live (non-imported) checkpoint and removes it from the queue.
+    from subzero.importers.reclassify import drain_reclassification_queue
+
+    services.classification._classifier = RulesClassifier(degraded=False)
+    done, total = await drain_reclassification_queue(services)
+    assert (done, total) == (1, 1)
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM reclassification_queue WHERE object_type = 'checkpoint'"
+        )
+        == 0
     )
 
 

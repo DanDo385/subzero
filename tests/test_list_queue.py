@@ -46,7 +46,9 @@ class Conn:
         if "INSERT INTO list_items" in sql:
             return {"id": ITEM_ID, "created": True}
         if "FROM lists" in sql:
-            return {"slug": "groceries", "vault_path": None, "project_slug": None}
+            return {"id": LIST_ID, "slug": "groceries", "vault_path": None, "project_slug": None}
+        if "FROM list_items" in sql:
+            return {"id": ITEM_ID}
         return None
 
     async def execute(self, sql: str, *args: Any) -> str:
@@ -125,3 +127,13 @@ async def test_queue_render_without_a_connection_uses_the_pool() -> None:
     assert db.calls == 1
     assert queue.jobs[0]["conn"] is None
     assert queue.jobs[0]["vault_path"] == "60-Resources/Lists/todo.md"
+
+
+async def test_resolve_and_resolve_item_use_the_callers_connection() -> None:
+    """Inside session_checkpoint's transaction, resolve and resolve_item must use
+    conn rather than falling through to the pool (preserving Read-Your-Own-Writes)."""
+    conn = Conn()
+    queue = Queue()
+    svc = _service(Pool(), queue)
+    assert await svc.resolve("groceries", conn=conn) == LIST_ID
+    assert await svc.resolve_item(LIST_ID, "oat milk", conn=conn) == ITEM_ID
