@@ -7,8 +7,8 @@ The extension is the piece that lives in your browser. It does three jobs:
 2. **Import** — Claude and ChatGPT import your whole history through the same internal
    interface their own web pages use. Gemini, Grok and Muse can only save the conversation that
    is open on screen (see Step 4).
-3. **Session bridge** — it shows a live coding session from your terminal (any CLI harness that
-   checkpoints to Subzero) in a side panel, and lets you type replies back from the browser.
+3. **Session bridge**: it shows messages a CLI harness publishes to a bridge session in a
+   side panel. A memory checkpoint and a published bridge message are separate actions.
 
 **Nothing here changes or deletes anything in the apps themselves.** The extension only reads
 what your browser already shows you, and sending the same conversation twice never creates
@@ -135,14 +135,27 @@ saving and sending), or close or reload the provider tab (ends an import running
 
 ## Step 5: The session bridge
 
-The side panel connects a browser tab to a live coding session.
+The side panel displays messages published to a bridge session. It does not automatically
+capture an arbitrary terminal session or connect a browser assistant to that terminal's context.
 
 1. Right-click the Subzero toolbar icon and choose **Open side panel** (or open it from the
    extensions page).
 2. Switch to the **Bridge** tab.
 3. Paste the session link or code your coding harness gave you, and press **Connect**.
-4. The conversation appears newest-last and refreshes every few seconds. Type in the box at the
-   bottom and press **Send** to reply back into the session.
+4. Published messages appear newest-last and refresh every few seconds.
+
+**Current limit:** the panel has a reply box, but the server requires the harness credential for
+bridge writes. A paired browser's device token can read the session and cannot use that box to
+send a reply. This also means the panel does not inject instructions into Codex or another CLI.
+Do not give the browser the harness credential to work around this limit.
+
+For shared context, save a `session_checkpoint` in the CLI and ask the connected browser assistant
+to load the project's handoff with `context_bootstrap`. For an agent message, use `agent_message`;
+delivery requires the receiving session's hook or client to poll. The current `subzero hooks install`
+command supplies Claude Code hooks. Other harnesses need their own adapter.
+
+See [the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md) for MCP setup
+and copyable browser/mobile instructions.
 
 The **Handoff** tab next to it shows your current project handoff text, with a copy button —
 the same text your coding sessions read when they start.
