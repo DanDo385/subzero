@@ -112,6 +112,11 @@ subzero claim --as claude --session "$id"     # prints the job as JSON, or nothi
 subzero done <job id> --result "PR #15"       # or --failed
 ```
 
+A job is never left hanging. If a session ends before `subzero done`, its job is marked
+**failed** with the reason. If a session stops reporting for a whole day (it crashed, or the
+machine went to sleep for good), its job is marked failed the same way, and you can dispatch it
+again.
+
 To feed firstmate, run a small loop on the Hetzner box that claims a job and passes its goal to
 the first mate's herdr pane with `herdr pane send-text <pane> "<goal>"`.
 

@@ -9,12 +9,15 @@ instances, at the cost of about seventy lines.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any, SupportsFloat
 
 from subzero.db.pool import Database
 
 _DEFAULT_COLLECTION = "default"
+#: Expired rows are already invisible to reads; this only bounds the table.
+_PURGE_EVERY_SECONDS = 3600.0
 
 
 class PostgresKeyValue:
@@ -30,6 +33,7 @@ class PostgresKeyValue:
     def __init__(self, db: Database | None = None, *, namespace: str = "fastmcp") -> None:
         self._explicit_db = db
         self._namespace = namespace
+        self._last_purge: float | None = None
 
     @property
     def _db(self) -> Database:
@@ -75,6 +79,14 @@ class PostgresKeyValue:
             dict(value),
             float(ttl) if ttl is not None else None,
         )
+        # Whatever writes expiring state also clears what has expired, at most
+        # once an hour per process, so the table cannot grow without bound.
+        now = time.monotonic()
+        if ttl is not None and (
+            self._last_purge is None or now - self._last_purge >= _PURGE_EVERY_SECONDS
+        ):
+            self._last_purge = now
+            await self.purge_expired()
 
     async def delete(self, key: str, *, collection: str | None = None) -> bool:
         result = await self._db.execute(
