@@ -70,7 +70,10 @@ class FakeClient:
 
 
 async def _import(services, tmp_path: Path, conversations: list[dict[str, Any]]) -> None:
-    _swap_classifier(services, CountingJev())  # answers deep_extraction = 0.9
+    service = _swap_classifier(services, CountingJev())  # answers deep_extraction = 0.9
+    # The extractor writes through session_checkpoint, which classifies via
+    # the sessions service; production wires both to one ClassificationService.
+    services.sessions._classification = service
     archive = _claude_zip(tmp_path / "e.zip", conversations)
     await ImportRunner(services).run(archive, provider="claude", store_archive=False)
 

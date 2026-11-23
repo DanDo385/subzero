@@ -112,7 +112,8 @@ See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#c
 ## Memory lab
 
 **`memory-lab recover` reports `sessions_seen: 0`.** No conversation has Jev answers
-under the current question set. Run `subzero reclassify-conversations --limit 10000`.
+under the current question set. Live checkpoints carry answers from the moment they
+are saved; for imported history run `subzero reclassify-conversations --limit 10000`.
 
 **Every session is `log` with reason `no_triage_answers`.** Same cause: the stored
 answers predate the triage questions.

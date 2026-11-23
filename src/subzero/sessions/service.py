@@ -386,6 +386,20 @@ class SessionService:
             )
             bump(created if conv_created else updated, "conversations")
 
+            # Classification ran before the conversation existed, so its
+            # event carries no object id. Link it inside this transaction:
+            # memory-lab recover only sees events bound to a conversation,
+            # and triage is what routes this session to the vault. The NULL
+            # guard keeps a re-checkpoint from repointing an event that an
+            # import or a reclassification already linked.
+            if event_id is not None:
+                await conn.execute(
+                    "UPDATE classification_events SET object_id = $2 "
+                    "WHERE id = $1 AND object_id IS NULL",
+                    event_id,
+                    conversation_id,
+                )
+
             # -- project updates (explicit beats inferred) ----------------
             for update in project_updates:
                 project_id = await self._projects.resolve(update.project, conn=conn)

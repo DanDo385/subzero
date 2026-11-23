@@ -6,8 +6,9 @@ turned on (`SUBZERO_CLASSIFIER=jev`).
 
 The memory lab does two things:
 
-1. **Recovers your old sessions.** Jev reads each imported conversation once and
-   answers nine typed questions about it. Subzero turns those answers into one of
+1. **Recovers your sessions.** Jev reads each conversation once, a live
+   session at its checkpoint and an imported one at import, and answers nine
+   typed questions about it. Subzero turns those answers into one of
    four outcomes: a note, a draft in your Inbox, a line in a log, or nothing.
 2. **Lets you compare memory layers.** For four to six weeks you capture
    sessions, run a short retrieval test, and do a weekly review. At the end you
@@ -52,8 +53,9 @@ and the weekly analysis prompt.
 
 ## Step 2 · Let Jev read your sessions
 
-Jev asks its questions while classifying. After an upgrade, every conversation
-is classified under the new question set the next time you run:
+Jev asks its questions while classifying: a live session answers them at its
+checkpoint, an imported one at import. After an upgrade, every imported
+conversation is classified under the new question set the next time you run:
 
 ```bash
 uv run subzero reclassify-conversations --dry-run      # how many
