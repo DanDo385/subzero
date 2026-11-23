@@ -19,8 +19,6 @@ from fastmcp.exceptions import ToolError
 from pydantic import SecretStr
 
 from conftest import requires_db
-from obsidian_sync.config import WorkerSettings
-from obsidian_sync.worker import ObsidianSyncWorker
 from subzero.db.migrate import apply_migrations, load_migrations
 from subzero.errors import NotFoundError, ValidationError
 
@@ -69,39 +67,18 @@ async def client(services, live_server):
         yield mcp
 
 
-@pytest.fixture
-async def worker(services, live_server, vault):
-    instance = ObsidianSyncWorker(
-        WorkerSettings(
-            api_url=str(live_server.base_url).rstrip("/"),
-            api_key=services.settings.worker_api_key,
-            vault_path=vault,
-            vault_roots=services.settings.obsidian_vault_roots,
-            worker_id="isolated-test-worker",
-        )
-    )
-    try:
-        yield instance
-    finally:
-        await instance._client.aclose()
-
-
 async def test_named_prompts_and_tool_contracts(client):
     tools = {tool.name: tool for tool in await client.list_tools()}
-    assert {"context_search", "session_checkpoint", "email", "note_write"} <= tools.keys()
+    assert {"context_search", "session_checkpoint", "email"} <= tools.keys()
     assert {"home", "concepts", "queue_for_vault"} <= tools["session_checkpoint"].inputSchema[
         "properties"
     ].keys()
-    assert {"home", "concepts", "list_ref"} <= tools["note_write"].inputSchema["properties"].keys()
     assert tools["email"].inputSchema["properties"]["dry_run"]["default"] is True
-    assert {"search", "save", "email", "vault"} <= {
-        prompt.name for prompt in await client.list_prompts()
-    }
+    assert {"search", "save", "email"} <= {prompt.name for prompt in await client.list_prompts()}
     for action, tool in (
         ("search", "context_search"),
         ("save", "session_checkpoint"),
         ("email", "email"),
-        ("vault", "note_write"),
     ):
         prompt = await client.get_prompt(action)
         assert any(tool in message.content.text for message in prompt.messages)
@@ -147,124 +124,6 @@ async def test_project_home_resolves_existing_project(client, services):
         )
     ).data
     assert result.classification["home"] == "projects/shared-memory"
-    with pytest.raises(ToolError):
-        await client.call_tool(
-            "note_write",
-            {"title": "Missing project", "content": "body", "home": "projects/not-a-project"},
-        )
-
-
-async def test_note_idempotency_and_temporary_vault_round_trip(client, services, worker, vault):
-    args = {
-        "title": "Editor setup",
-        "content": "Use LSP completion.",
-        "home": "setup/neovim",
-        "concepts": ["LSP"],
-        "note_class": "resource",
-    }
-    first = (await client.call_tool("note_write", args)).data
-    second = (await client.call_tool("note_write", args)).data
-    assert first["note_id"] == second["note_id"]
-    assert first["vault_status"] == second["vault_status"] == "queued"
-    assert await services.db.fetchval("SELECT count(*) FROM notes") == 1
-    assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 1
-    await worker._tick()
-    path = vault / first["vault_path"]
-    assert path.relative_to(vault).as_posix() == "60-Resources/Setup/neovim/editor-setup.md"
-    text = path.read_text()
-    assert "home: setup/neovim" in text and "concept/lsp" in text
-    assert "Use LSP completion." in text
-    third = (await client.call_tool("note_write", args)).data
-    assert third["vault_status"] == "written"
-    assert "Already written" in third["vault_note"]
-    assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 1
-
-
-async def test_ticking_temporary_vault_list_completes_same_database_item(
-    client, services, worker, vault
-):
-    list_id, _ = await services.lists.create(name="Editor tasks", list_type="task")
-    item_id, _ = await services.lists.add_item(list_id=list_id, text="Configure Neovim")
-    result = (
-        await client.call_tool(
-            "note_write",
-            {
-                "title": "Editor tasks",
-                "list_ref": str(list_id),
-                "home": "setup/neovim",
-                "concepts": ["editors"],
-            },
-        )
-    ).data
-    await worker._tick()
-    path = vault / result["vault_path"]
-    body = path.read_text()
-    assert f"pc:id={item_id}" in body and "concept/editors" in body
-    path.write_text(body.replace("- [ ] Configure Neovim", "- [x] Configure Neovim"))
-    await worker._tick()
-    done = await services.lists.items(str(list_id), status="done")
-    assert [item.id for item in done] == [item_id]
-    assert await services.db.fetchval("SELECT count(*) FROM notes") == 0
-
-
-async def test_note_privacy_and_invalid_home_never_queue(client, services):
-    response = (
-        await client.call_tool(
-            "note_write",
-            {
-                "title": "Private setup",
-                "content": "Private note",
-                "home": "setup/neovim",
-                "sensitivity": "highly_sensitive",
-                "note_class": "resource",
-            },
-        )
-    ).data
-    assert response["vault_status"] == "not_queued"
-    assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 0
-    with pytest.raises(ToolError):
-        await client.call_tool(
-            "note_write", {"title": "Bad", "content": "Body", "home": "setup/../../etc"}
-        )
-
-
-async def test_repeated_append_and_concurrent_note_requests_are_idempotent(client, services):
-    args = {"title": "Append test", "content": "First", "home": "other", "note_class": "inbox"}
-    first, second = await asyncio.gather(
-        client.call_tool("note_write", args), client.call_tool("note_write", args)
-    )
-    assert first.data["note_id"] == second.data["note_id"]
-    args.update(content="Second", append=True)
-    await client.call_tool("note_write", args)
-    await client.call_tool("note_write", args)
-    note = await services.notes.get(first.data["note_id"])
-    assert note.content.count("Second") == 1
-    assert note.version == 2
-    assert (
-        await services.db.fetchval("SELECT count(*) FROM sync_jobs WHERE status = 'approved'") == 1
-    )
-
-
-async def test_sensitive_update_cancels_unwritten_job_and_cannot_lower_privacy(client, services):
-    args = {"title": "Sensitive update", "content": "Body", "home": "other", "note_class": "inbox"}
-    result = (await client.call_tool("note_write", args)).data
-    assert result["vault_status"] == "queued"
-    args.update(sensitivity="highly_sensitive")
-    assert (await client.call_tool("note_write", args)).data["vault_status"] == "not_queued"
-    args.update(sensitivity="normal")
-    assert (await client.call_tool("note_write", args)).data["vault_status"] == "not_queued"
-    assert (
-        await services.db.fetchval(
-            "SELECT sensitivity FROM notes WHERE id = $1", UUID(result["note_id"])
-        )
-        == "highly_sensitive"
-    )
-    assert (
-        await services.db.fetchval(
-            "SELECT count(*) FROM sync_jobs WHERE status IN ('approved','queued')"
-        )
-        == 0
-    )
 
 
 async def test_email_dry_run_through_mcp_never_calls_agentmail(client, services, monkeypatch):

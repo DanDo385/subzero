@@ -1,9 +1,8 @@
-"""list_get and context_bootstrap send one line of text and keep the object structured."""
+"""context_bootstrap sends one line of text and keeps the object structured."""
 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -12,36 +11,15 @@ from fastmcp import FastMCP
 from fastmcp.server.mixins.mcp_operations import _normalize_call_tool_result
 from mcp.types import TextContent
 
-from subzero.mcp import tools_context, tools_lists
+from subzero.mcp import tools_context
 from subzero.mcp.result import text_and_structured
 from subzero.models import (
     ContextItem,
     ContextPackage,
-    ListItemRecord,
-    ListRecord,
     Provenance_,
 )
 
-NOW = datetime(2026, 1, 2, tzinfo=UTC)
-LIST_ID = UUID("00000000-0000-4000-8000-000000000010")
-ITEM_ID = UUID("00000000-0000-4000-8000-000000000011")
 NOTE_ID = UUID("00000000-0000-4000-8000-000000000012")
-ITEM_TEXT = "Buy oat milk from the shop on the corner"
-ITEM_NOTES = "the long note that must stay out of the text block"
-
-
-class _Lists:
-    def __init__(self, record: ListRecord, items: list[ListItemRecord]) -> None:
-        self.record = record
-        self._items = items
-
-    async def get(self, _reference: str) -> ListRecord:
-        return self.record
-
-    async def items(
-        self, _reference: str, status: str | None = None, limit: int = 40
-    ) -> list[ListItemRecord]:
-        return self._items[:limit]
 
 
 class _Retrieval:
@@ -60,35 +38,8 @@ class _Retrieval:
 
 
 class _Services:
-    def __init__(self, lists: _Lists | None = None, retrieval: _Retrieval | None = None) -> None:
-        self.lists = lists
+    def __init__(self, retrieval: _Retrieval | None = None) -> None:
         self.retrieval = retrieval
-
-
-def _item() -> ListItemRecord:
-    return ListItemRecord(
-        id=ITEM_ID,
-        list_id=LIST_ID,
-        list_slug="groceries",
-        text=ITEM_TEXT,
-        status="open",
-        priority=0,
-        position=0,
-        notes=ITEM_NOTES,
-        created_at=NOW,
-    )
-
-
-def _record(open_items: int) -> ListRecord:
-    return ListRecord(
-        id=LIST_ID,
-        slug="groceries",
-        name="Groceries",
-        list_type="shopping",
-        status="active",
-        open_items=open_items,
-        total_items=open_items,
-    )
 
 
 def _package(*, truncated: bool, tokens: int, contents: list[str]) -> ContextPackage:
@@ -114,10 +65,8 @@ def _package(*, truncated: bool, tokens: int, contents: list[str]) -> ContextPac
 @pytest.fixture
 def mcp(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
     holder: dict[str, Any] = {}
-    monkeypatch.setattr(tools_lists, "get_services", lambda: holder["services"])
     monkeypatch.setattr(tools_context, "get_services", lambda: holder["services"])
     server = FastMCP("token-cut-test")
-    tools_lists.register(server)
     tools_context.register(server)
     server._holder = holder  # type: ignore[attr-defined]
     return server
@@ -146,34 +95,6 @@ def _wire(result: Any) -> tuple[str, dict[str, Any]]:
     assert text != json.dumps(structured)
     assert json.dumps(structured) not in text
     return text, structured
-
-
-async def test_list_get_text_is_one_line_and_items_stay_structured(mcp: FastMCP) -> None:
-    mcp._holder["services"] = _Services(lists=_Lists(_record(5), [_item()]))  # type: ignore[attr-defined]
-    tool = await _tool(mcp, "list_get")
-    assert tool.output_schema == {"type": "object", "additionalProperties": True}
-
-    text, structured = _wire(await tool.run({"list": "groceries"}))
-
-    assert text == "Groceries: 1 of 5 open"
-    assert ITEM_TEXT not in text
-    assert ITEM_NOTES not in text
-    assert structured["list"] == "groceries"
-    assert structured["shown"] == 1
-    assert structured["open"] == 5
-    assert structured["truncated"] is True
-    assert structured["items"] == [{"id": str(ITEM_ID), "text": ITEM_TEXT, "notes": ITEM_NOTES}]
-
-
-async def test_list_get_line_when_the_open_items_all_fit(mcp: FastMCP) -> None:
-    mcp._holder["services"] = _Services(lists=_Lists(_record(1), [_item()]))  # type: ignore[attr-defined]
-    tool = await _tool(mcp, "list_get")
-
-    text, structured = _wire(await tool.run({"list": "groceries"}))
-
-    assert text == "Groceries: 1 shown, 1 open"
-    assert structured["truncated"] is False
-    assert "status" not in structured["items"][0]
 
 
 async def test_context_bootstrap_text_omits_the_package(mcp: FastMCP) -> None:

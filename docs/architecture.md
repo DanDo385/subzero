@@ -195,10 +195,9 @@ subzero/
 └── tests/
 ```
 
-The named `search`, `save`, `email` and `vault` prompts load the same workflow
+The named `search`, `save` and `email` prompts load the same workflow
 text as the app skills. Search reuses `context_search`; save reuses
-`session_checkpoint`; vault reuses `note_write` through `notes/write.py`,
-including canonical list views rather than copies of list text.
+`session_checkpoint`.
 
 Homes and `concept/*` tags live in object metadata. `homes.py` validates one
 logical home, and `VaultPaths.home_note` maps it onto configured numbered
@@ -401,15 +400,9 @@ back.
 
 Lists are rows, not Markdown files.
 
-```
-list_search()   list_get()      list_create()
-list_add_item() list_update_item() list_complete_item()
-list_move_item() list_archive_item()
-list_recent()   list_find_item()
-```
-
-`list_get` answers with one line of text: the list name, how many items are
-shown, and how many are open. The items are the structured result.
+The chat tools for lists were removed in the context cutover: lists are no
+longer a feature an app can drive. The rows, the service and the Obsidian
+rendering below remain, driven by the sync worker and by `session_checkpoint`.
 
 Postgres is canonical. Obsidian renders a view, with each item carrying its
 UUID so a checkbox ticked by hand flows back:
@@ -718,7 +711,7 @@ artifacts:read  artifacts:write review:write
 
 No `execute_sql`, no `shell`, no `arbitrary_http_request`, no
 `write_file(any_path)`, no generic delete. Tools are narrow and typed. The
-closest thing to a delete is `list_archive_item`, which keeps the row.
+closest thing to a delete is an archive status, which keeps the row.
 
 ### Also implemented
 
@@ -978,12 +971,13 @@ real HTTP server, and a real filesystem vault - not mocked.
 The full vertical slice, end to end over HTTP:
 
 ```
- [ 1] connected + authenticated; 53 tools advertised
+ [ 1] connected + authenticated; 53 tools advertised (before the cutover
+      removed the note and list tools; the surface is now 40)
  [ 2] memory_save -> created
  [ 3] memory_search -> 1 hit
  [ 4] project_create -> personal-ai
- [ 5] list_create -> personal-ai-tasks
- [ 6] list_add_item -> 'Test Gemini connector on iPhone'
+ [ 5] a task list was created, through a list tool removed in the cutover
+ [ 6] an item was added to it, through a list tool removed in the cutover
  [ 7] session_checkpoint -> created={conversations:1, session_summaries:1,
                                      decisions:1, memories:2, tasks:1}
  [ 8] checkpoint is idempotent -> second call skipped={decisions:1, memories:1, tasks:1}
@@ -995,9 +989,11 @@ The full vertical slice, end to end over HTTP:
  [14] hashes verified against the real bytes
  [15] reference artifact -> pending_import (not claimed as saved)
  [16] artifact_queue_for_vault -> 5 jobs
- [17] note_write -> 30-Research/mcp-oauth-across-providers.md queued
+ [17] a research note was queued for the vault, through the note tool removed
+      in the cutover
  [18] sync_status -> {approved: 6}
- [19] list_complete_item by stable id
+ [19] an item was completed by stable id, through a list tool removed in the
+      cutover
  [20] final bootstrap across active project state
 ```
 

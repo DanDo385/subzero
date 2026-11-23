@@ -65,7 +65,7 @@ Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
 named personal-context-mcp is also present, do not use it.
 
 Retrieve (context_bootstrap) only when the request depends on past work: a \
-project, earlier decisions, lists, "remember", "last time", a continuing task. \
+project, earlier decisions, "remember", "last time", a continuing task. \
 Never for standalone questions. Decide what to look for yourself, as with your \
 own memory search: pass a short query of key terms and names, plus the project \
 when you know it. Do not paste the user's message. One bootstrap call returns \
@@ -73,9 +73,14 @@ the project's handoff (latest sessions, open questions, open tasks, active \
 decisions); use context_search only for something it did not cover.
 
 Checkpoint durable state (session_checkpoint) when something is settled: a \
-decision, a confirmed fact, a task, a list change, a project update, an \
-unresolved question. Name the project when there is one. Not conversational \
-noise.
+decision, a confirmed fact, a task, a project update, an unresolved question. \
+Name the project when there is one. Not conversational noise.
+
+The user keeps notes and daily todo lists in their own apps, reached through \
+those apps' own connectors. Do not create notes or lists here. Subzero holds \
+context: decisions, facts, sessions, projects, artifacts and coding agents. \
+Content that cannot be placed with confidence belongs in the Inbox for \
+triage, never in a guessed project or folder.
 
 Capture files through the artifact tools, and never describe an artifact as \
 saved unless the tool result reports capture_status "captured".

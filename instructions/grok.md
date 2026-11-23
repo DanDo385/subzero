@@ -35,7 +35,7 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 | --- | --- |
 | Transport | Streamable HTTP |
 | Auth | OAuth (your server handles sign-in automatically) |
-| Tools | all 53 |
+| Tools | all 40 |
 | Tier | paid tiers only |
 
 **Three separate products.** You only need the Grok web app connector (grok.com). The API and developer tools are separate and not covered here. xAI has more than one surface that connects to MCP servers: the Grok web app's Connectors, and the xAI API's remote MCP

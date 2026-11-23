@@ -71,7 +71,7 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 | --- | --- |
 | Transport | Streamable HTTP |
 | Auth | OAuth with DCR; manual credentials available as a fallback |
-| Tools | all 53 |
+| Tools | all 40 |
 | Prompts / resources | availability varies; tool descriptions carry the load |
 | Write approval | **Gemini requires manual confirmation for every write action** |
 | Mobile | available after desktop setup |

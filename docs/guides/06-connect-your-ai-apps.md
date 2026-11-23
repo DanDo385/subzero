@@ -111,9 +111,9 @@ learned it, another one knew it.
   instructions. Upload each folder under [skills/](../../skills/) in the app's skills settings. The
   apps work without them.
 
-For the four named actions, upload the `search`, `save`, `email` and `vault` skill
+For the named actions, upload the `search`, `save` and `email` skill
 folders. The same names appear in the server's MCP prompt list; clients that show
-prompts as slash commands can invoke `/search`, `/save`, `/email` and `/vault`.
+prompts as slash commands can invoke `/search`, `/save` and `/email`.
 You can always use the ordinary phrases in [daily use](12-daily-use.md).
 Real email needs the optional AgentMail setup in that guide and the `email:send`
 client scope. Enabling other saving tools does not grant that scope automatically,
@@ -127,7 +127,7 @@ unless your policy already grants `*` (all scopes).
 | Sign-in works, then *access denied* / *not allowed* | You chose a Google account that isn't in `SUBZERO_ALLOWED_SUBJECTS`. |
 | ChatGPT has no *Apps & Connectors*, only *Plugins* | That's the newer layout. Turn on **Settings → Security and login → Developer mode**, then add the server under **Settings → Plugins → +**. |
 | The connector was added but no tools appear | Run the check in [Check the server first](#check-the-server-first-1-minute). If it passes, remove the connector and add it again, or reload the page. ChatGPT especially sometimes needs this. |
-| One app is missing some tools the others have (for example Gemini has no `note_write` or `review_list`) | `SUBZERO_CLIENT_SCOPE_POLICY` gives that app fewer permissions. An app that matches no entry gets read-only tools. Use `{"*":["*"]}` to give every app everything, push the settings, redeploy, then remove and re-add the connector. |
+| One app is missing some tools the others have (for example Gemini has no `session_checkpoint` or `review_list`) | `SUBZERO_CLIENT_SCOPE_POLICY` gives that app fewer permissions. An app that matches no entry gets read-only tools. Use `{"*":["*"]}` to give every app everything, push the settings, redeploy, then remove and re-add the connector. |
 | Grok won't accept the address | Grok needs a paid plan; also make sure the address ends in `/mcp`. |
 | Gemini has no *Custom apps for Spark* section | Custom apps need **Google AI Pro or Ultra**; Plus and free don't include them. Use [guide 11](11-gemini-without-custom-apps.md) instead. Also a personal (not work or school) Google account, Keep Activity on, a US English account, and a computer browser. |
 | The app never uses it on its own | Check the custom instruction is saved, or just ask explicitly: "check subzero". |

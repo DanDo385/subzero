@@ -126,7 +126,7 @@ or without it. Keep that test honest when adding routes.
 boot on one (`auth_mode=none|static` in prod, plain HTTP in prod, OAuth without an allowlist).
 
 **Sigils are parsed by code, before Jev** (`sigils.py`): `%project`, `^lesson`, `&setup`, `#concept`,
-`@person`, `>agent`. Read in `session_checkpoint`, `note_write` and `context_bootstrap`; a `%project`
+`@person`, `>agent`. Read in `session_checkpoint` and `context_bootstrap`; a `%project`
 only names an existing project and never creates one.
 
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
@@ -171,8 +171,8 @@ to their 1Password Environment (`project-env`).
 The machines on the tailnet share one Subzero server. Name them in
 `~/.config/subzero/MACHINES.md` (mbp, imac, ubuntu, and any machine added
 later). Postgres is the conversation history. Obsidian is the rendered copy of
-the same notes. Chat with the vault through `context_bootstrap` and
-`note_write`. Do not keep a second history in a scratch file.
+the same notes. Chat with the vault through `context_bootstrap`. Do not keep a
+second history in a scratch file.
 
 **Temp files.** `scratch-run` is the only place for temp files. A run lives at
 `~/Code/.scratch/{project}/{run-id}/` with `tmp/`, `logs/`, `artifacts/`,
@@ -183,14 +183,15 @@ are old enough. Active, pinned, and unknown runs stay.
 
 **Where a note goes.**
 
-- A note a person should read goes to the vault with `note_write`.
+- A note a person should read goes to the vault: record it in the session
+  checkpoint and the pipeline files it.
 - A job or a message for another agent goes to the dispatch board
   (`subzero dispatch`, `subzero msg`, `subzero board` on 127.0.0.1). See
   `docs/guides/15-agents-messages-and-the-board.md`. The board never receives
   the device token. Hooks must never fail the harness.
 - A list is not Subzero state. Do not add list tools, list tables, or list
-  instructions. The list tools still registered are frozen until they are
-  removed. A separate list app connects and manages lists.
+  instructions. The list tools are removed. A separate list app connects and
+  manages lists.
 
 **Herdr and the browser.** Herdr commands run in the terminal. The browser
 extension captures chats and can open a bridge session with a CLI

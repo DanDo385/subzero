@@ -18,8 +18,7 @@ Retrieve when **any** of these hold:
 - the request continues work on a project
 - the answer depends on a preference, a decision, or a person you would only
   know from earlier conversations
-- the user asks what is outstanding, or what was decided. A list question
-  goes to the list app, not to Subzero
+- the user asks what is outstanding, or what was decided
 - you are about to say "I don't have access to previous conversations" - you do
 
 Do **not** retrieve for a self-contained question ("what's 12% of 340",
@@ -49,8 +48,7 @@ Do **not** retrieve for a self-contained question ("what's 12% of 340",
    words - summaries and memories carry the same content at a fraction of the
    size.
 
-3. **Go specific.** For "where is project Y" call `project_get`. For a list,
-   stop and say a list app manages lists. Do not call the list tools.
+3. **Go specific.** For "where is project Y" call `project_get`.
 
 4. **Read the provenance on every item.**
    - `user_statement` - the user said this. Treat it as fact.
@@ -92,7 +90,3 @@ decision and note which assistant it was made in.
 
 `context_bootstrap(project="harbor-notes")` with no query → the handoff alone:
 latest sessions, open questions, open tasks, active decisions.
-
-> "Add this to my reading list."
-
-Do not call Subzero. Say that a list app manages lists.

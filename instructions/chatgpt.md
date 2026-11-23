@@ -13,7 +13,7 @@ from time to time; if neither matches, search Settings for "Developer mode".)
 **Settings → Plugins → +** (the plus button), then supply:
 
 - **Name:** Subzero
-- **Description:** My shared memory, projects, lists and artifacts
+- **Description:** My shared memory, projects and artifacts
 - **Connection:** the MCP server URL, `https://<your-host>/mcp` (the `/mcp` path is required)
 - **Authentication:** OAuth, if asked
 
@@ -50,8 +50,8 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 ## 4. Skills / plugin packaging
 
 If your account has account-level Skills, upload the directories under
-`skills/`: at minimum `recall-context`, `checkpoint-session`, `manage-lists`,
-`capture-artifacts`, `project-artifacts` and `research-to-obsidian`.
+`skills/`: at minimum `recall-context`, `checkpoint-session`,
+`capture-artifacts` and `project-artifacts`.
 To check: go to Settings. If you see a "Skills" section, upload the folders
 listed above. If you don't see it, skip this section: your custom instruction
 covers the same ground.
@@ -62,7 +62,7 @@ covers the same ground.
 | --- | --- |
 | Transport | standard web (works automatically) |
 | Auth | OAuth (DCR supported) |
-| Tools | all 53 |
+| Tools | all 40 |
 | Write approval | ChatGPT confirms write actions |
 | Mobile (iOS) | connectors configured on web are available in the app |
 

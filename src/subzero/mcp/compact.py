@@ -2,8 +2,7 @@
 
 Host models pay for every byte of a tool result, and some hosts also echo the
 structured payload as text. Default responses therefore keep only the fields a
-caller needs to answer or to take the next action. Pass detail="full" for the
-complete record.
+caller needs to answer or to take the next action.
 """
 
 from __future__ import annotations
@@ -11,8 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel
-
-from subzero.models import ListItemRecord, ListRecord
 
 
 def dump(value: Any) -> Any:
@@ -30,35 +27,3 @@ def dump(value: Any) -> Any:
             out[key] = projected
         return out
     return value
-
-
-def list_summary(record: ListRecord) -> dict[str, Any]:
-    out: dict[str, Any] = {
-        "slug": record.slug,
-        "name": record.name,
-        "open": record.open_items,
-    }
-    if record.description:
-        out["description"] = record.description
-    if record.list_type != "general":
-        out["type"] = record.list_type
-    if record.project:
-        out["project"] = record.project
-    if record.status != "active":
-        out["status"] = record.status
-    return out
-
-
-def list_item(item: ListItemRecord, *, detail: str = "compact") -> dict[str, Any]:
-    if detail == "full":
-        return dump(item)
-    out: dict[str, Any] = {"id": str(item.id), "text": item.text}
-    if item.status != "open":
-        out["status"] = item.status
-    if item.priority:
-        out["priority"] = item.priority
-    if item.due_date is not None:
-        out["due_date"] = item.due_date.isoformat()
-    if item.notes:
-        out["notes"] = item.notes
-    return out

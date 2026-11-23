@@ -9,7 +9,7 @@ together.
 
 subzero fixes that. It's a small server **you** own, and all four apps connect to it:
 
-- **Tell one app, and all of them know.** Decisions, preferences, projects, to-do lists and files are
+- **Tell one app, and all of them know.** Decisions, preferences, projects and files are
   saved in one place that every app reads from and writes to.
 - **Your old chats become useful.** Import your chat history from all four apps, and it's sorted into
   projects and topics automatically. The important parts are pulled out properly.
@@ -124,20 +124,18 @@ request needs them, and you can also ask for them directly.
 | --- | --- |
 | "Remember that I'm vegetarian." | Saved as a preference every app will see. |
 | "What did we decide about the database last month?" | Searches decisions and past conversations from **all** apps. |
-| "Add oat milk to my shopping list." | Updates your real list, visible everywhere and in Obsidian. |
 | "Save this chart to my research project." | Stores the file itself, not just its name, in your storage. |
 | "Where did we leave the website redesign?" | Pulls the project's status, decisions and open tasks. |
 | "Search my memory for Neovim." | Searches with a short query chosen from the topic. |
 | "Save this." | Saves the session with one home and concept tags. |
 | "Email this to reader@example.com." | Shows a draft, then sends only after you confirm. Optional AgentMail setup required for real mail. |
-| "Send this to my vault." | Queues a note, summary or two-way list and reports whether the worker has written it. |
 | *(at the end of a useful chat)* | The app saves what was decided, in one step, without duplicates. |
 
 The same abilities are packaged as [skills](skills/) for apps that support them, and a
 [short custom instruction](instructions/shared.md) teaches every app when to use them.
-The named actions are `search`, `save`, `email` and `vault`, also available as MCP prompts
+The named actions are `search`, `save` and `email`, also available as MCP prompts
 for clients that show slash commands. See [daily use](docs/guides/12-daily-use.md) for
-email setup, draft confirmation and vault folder mapping.
+email setup and draft confirmation.
 
 ---
 

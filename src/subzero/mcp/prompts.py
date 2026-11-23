@@ -49,18 +49,13 @@ def register(mcp: FastMCP) -> None:
         """Draft an email, show it, and send only after confirmation."""
         return action_guide("email")
 
-    @mcp.prompt(name="vault")
-    def vault() -> str:
-        """Queue a note, summary or two-way list for Obsidian."""
-        return action_guide("vault")
-
     @mcp.prompt(name="recall_context")
     def recall_context(topic: str = "") -> str:
         """How to retrieve shared context before answering."""
         return (
             "Before answering, decide whether the request could depend on earlier "
             "work: a previous conversation, a project, a decision, a preference, "
-            "research, a list, a person, or an unfinished task.\n\n"
+            "research, a person, or an unfinished task.\n\n"
             "If it could:\n"
             "1. Call context_bootstrap once with a short query of key terms you "
             "choose (names, projects, topics"
@@ -90,12 +85,10 @@ def register(mcp: FastMCP) -> None:
             "- facts: durable, self-contained statements, with accurate provenance\n"
             "- tasks: concrete unfinished actions\n"
             "- project_updates: status or goal changes\n"
-            "- do not send list_updates: a list app manages lists\n"
             "- open_questions: what is still unresolved\n"
             "- resolved_questions: earlier open questions this conversation answered\n\n"
             "- home: one of projects/{existing-project-slug}, lesson/{category}, setup/{tool}, other\n"
-            "- concepts: covered concept names, stored as concept/{name} tags\n"
-            "- queue_for_vault=false for shared-memory saving; note_write handles explicit vault requests\n\n"
+            "- concepts: covered concept names, stored as concept/{name} tags\n\n"
             "Do not checkpoint small talk, a resolved lookup, or anything you "
             "already checkpointed in this conversation. Repeats are deduplicated, "
             "but the call still costs a round trip."
@@ -126,17 +119,6 @@ def register(mcp: FastMCP) -> None:
             "is worse than recording a reference."
         )
 
-    @mcp.prompt(name="manage_lists")
-    def manage_lists() -> str:
-        """Lists are leaving Subzero. An external list app manages them."""
-        return (
-            "Subzero is not the list keeper. Do not create lists, add items, "
-            "or complete items here. A separate list app connects and manages "
-            "lists. If the user asks for a list, say that, and do not invent "
-            "one from memory.\n\n"
-            "The old list tools may still be registered. Do not call them."
-        )
-
     @mcp.resource("subzero://guide/{name}", mime_type="text/markdown")
     def skill_guide(name: str) -> str:
         """Full text of a workflow guide, for clients without Skills support."""
@@ -164,8 +146,6 @@ def register(mcp: FastMCP) -> None:
               (SELECT count(*) FROM conversations) AS conversations,
               (SELECT count(*) FROM session_summaries) AS summaries,
               (SELECT count(*) FROM projects WHERE status = 'active') AS active_projects,
-              (SELECT count(*) FROM lists WHERE status = 'active') AS lists,
-              (SELECT count(*) FROM list_items WHERE status = 'open') AS open_items,
               (SELECT count(*) FROM notes) AS notes,
               (SELECT count(*) FROM artifacts) AS artifacts,
               (SELECT count(*) FROM artifacts WHERE storage_status = 'captured')

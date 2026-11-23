@@ -93,18 +93,3 @@ async def test_bootstrap_continues_a_lesson_from_its_sigil(services) -> None:
     assert handoff[0].open_questions
     assert any(r.name == "handoff" and r.status == "ran" for r in package.layers)
     assert any("Sigils read: ^cfa2" in n for n in package.notes)
-
-
-async def test_note_write_reads_sigils(services) -> None:
-    result = await services.note_writer.write(
-        principal=ME,
-        title="Duration cheat sheet",
-        content="^cfa2/fixed-income #duration notes in my own words.",
-        note_class="concept",
-        queue_for_vault=False,
-    )
-    metadata = await services.db.fetchval(
-        "SELECT metadata FROM notes WHERE id = $1", result["note_id"]
-    )
-    assert metadata["home"] == "lesson/cfa2"
-    assert "concept/duration" in metadata["tags"]

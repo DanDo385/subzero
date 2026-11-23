@@ -45,9 +45,9 @@ How to write the file:
 
 - **Agent with the vault on disk** (Claude Code, Codex on the vault's machine):
   write the file directly.
-- **Chat app connected to Subzero:** call `note_write` with `note_class` `inbox`,
-  the title `Session log YYYY-MM-DD <slug>` and the filled template as the
-  content. It lands in `00-Inbox/`; the weekly analysis moves it.
+- **Chat app connected to Subzero:** you cannot write the file from here.
+  Record the filled template in the session checkpoint as an open question and
+  say it needs triage into `Experiments/Memory-Logs/`.
 
 ## 3 · Tell Honcho (optional)
 
@@ -57,9 +57,10 @@ message from the person's side. Never send anything sensitive.
 ## 4 · Park what is uncertain
 
 Anything you are not sure how to file (an idea with no clear home, a fact that
-may contradict an existing note) goes to `00-Inbox/` through `note_write` with
-`note_class` `inbox`, one note per item, with a line saying why it is uncertain.
-Never file it elsewhere "for now".
+may contradict an existing note) is parked in the Inbox for triage, one item
+per entry, with a line saying why it is uncertain. Where you cannot write to
+the Inbox from here, record the item in the session checkpoint as an open
+question and say it needs triage. Never file it elsewhere "for now".
 
 ## Do not
 

@@ -42,7 +42,7 @@ You don't need special commands. But these phrases help when you want to be expl
 
 You can also just talk normally. The apps figure out when to use their tools from context.
 
-## Four named actions
+## Three named actions
 
 - **search**: "search my memory for Neovim" uses `context_search`. The app chooses
   a few search terms instead of sending your whole prompt.
@@ -56,10 +56,6 @@ You can also just talk normally. The apps figure out when to use their tools fro
 - **email**: "email this to reader@example.com" prepares exactly the requested
   content and shows the sender, recipients, subject, body and requested send time.
   It sends or schedules only after your next confirmation.
-- **vault**: "send this to my vault" uses `note_write`. It can queue a note,
-  session summary or existing list. "Queued" means waiting for your helper;
-  "already written" means the helper acknowledged that version. See
-  [guide 8](08-obsidian.md#send-a-note-or-list-from-any-chat) for folders and two-way lists.
 
 The home is `projects/{project}`, `lesson/{category}`, `setup/{tool}` or `other`.
 A note about Neovim can live in `setup/neovim` and have `concept/lua` and

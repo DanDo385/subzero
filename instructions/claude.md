@@ -28,7 +28,7 @@ memory from inference.
 ```
 
 Claude applies the field to every conversation. Anthropic publishes no character
-limit for it; the two blocks are about 2,700 characters together. On a Team or
+limit for it; the two blocks are about 2,500 characters together. On a Team or
 Enterprise plan, organization instructions (3,000 characters, set by an admin)
 take precedence where they conflict.
 
@@ -52,7 +52,7 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 | --- | --- |
 | Transport | Streamable HTTP |
 | Auth | OAuth 2.1 + PKCE, Dynamic Client Registration |
-| Tools | all 53 |
+| Tools | all 40 |
 | Prompts | supported, surfaced as slash-style commands |
 | Resources | supported |
 | Write approval | Claude asks before the first call to each write tool |

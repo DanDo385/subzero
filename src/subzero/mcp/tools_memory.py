@@ -278,7 +278,7 @@ def register(mcp: FastMCP) -> None:
         queue_for_vault: Annotated[
             bool,
             Field(
-                description="Allow classifier-approved vault promotion. Set false to save shared memory only; use note_write for an explicitly requested vault summary."
+                description="Allow classifier-approved vault promotion. Set false to save shared memory only."
             ),
         ] = True,
     ) -> CheckpointResult:

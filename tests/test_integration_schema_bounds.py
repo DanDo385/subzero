@@ -31,12 +31,6 @@ REQUIRED: dict[str, dict[str, Any]] = {
     "session_recent": {},
     "project_list": {},
     "project_search": {"query": "anything"},
-    "note_search": {"query": "anything"},
-    "list_search": {},
-    "list_get": {"list": "bounds"},
-    "list_add_item": {"list": "bounds", "text": "an item"},
-    "list_recent": {},
-    "list_find_item": {"query": "item"},
     "artifact_begin_upload": {"title": "t", "filename": "t.txt", "mime_type": "text/plain"},
     "artifact_search": {},
     "review_list": {},
@@ -62,7 +56,6 @@ async def client(unthrottled, services, live_server):
             url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
         )
     ) as c:
-        await c.call_tool("list_create", {"name": "bounds"})
         yield c
 
 
@@ -92,4 +85,4 @@ async def test_every_advertised_bound_is_the_enforced_bound(client) -> None:
                 with pytest.raises(ToolError) as refused:
                     await client.call_tool(tool.name, {**base, name: spec["maximum"] + step})
                 assert name in str(refused.value)
-    assert len(checked) >= 30, checked
+    assert len(checked) >= 20, checked

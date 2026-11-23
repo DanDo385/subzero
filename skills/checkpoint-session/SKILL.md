@@ -42,8 +42,7 @@ before referring to it)
 ## Procedure
 
 1. **Look up the project name first.** Call `project_search` so you use the
-   name that exists rather than creating a near-duplicate. Do not send list
-   updates. A list app manages lists.
+   name that exists rather than creating a near-duplicate.
 
 2. **Call `session_checkpoint` ONCE** with everything:
 
@@ -70,8 +69,7 @@ before referring to it)
    - `home` - exactly one of `projects/{existing-project-slug}`,
      `lesson/{category}`, `setup/{tool}` or `other`
    - `concepts` - concept names covered; these become `concept/{name}` tags
-   - `queue_for_vault=false` - save shared memory only; an explicit vault
-     request uses `note_write`
+   - `queue_for_vault=false` - save shared memory only
 
 3. **Read the result.** It reports exactly what was created, updated and
    skipped, plus how the content was classified. If `notes` is non-empty, it is

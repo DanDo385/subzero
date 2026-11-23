@@ -83,14 +83,15 @@ systemctl --user enable --now obsidian-sync.timer
 The timer runs the helper every 5 minutes. To stop: `systemctl --user disable --now obsidian-sync.timer`.
 Logs: `journalctl --user -u obsidian-sync -f`.
 
-## Send a note or list from any chat
+## How notes and lists reach the vault
 
-Say "send this to my vault". The app calls `note_write` and tells you whether
-the note is **queued** or **already written**. Queued means this helper still
-needs to pick it up. Saving to shared memory with "save this" alone can leave
-the vault untouched.
+Chat apps no longer write vault notes directly: the note tools were removed in
+the cutover. The vault fills from what the server queues: a checkpoint the
+classifier promotes, an artifact queued with `artifact_queue_for_vault`, and
+the lists this helper renders. "Queued" means the helper still needs to pick
+the job up; "written" means it landed.
 
-Each new note has one home. Existing numbered folders stay in use:
+Each queued note has one home. Existing numbered folders stay in use:
 
 | Logical home | Default vault folder |
 | --- | --- |
@@ -104,8 +105,7 @@ Custom root settings replace the numbered root names in this mapping.
 Existing files are not moved by this update. If a file already has a different
 tracked path, the server refuses a second copy and asks you to relocate it first.
 
-For a list, the app finds your existing list and asks `note_write` for its vault
-view. It appears under `Lists/` inside its home. Tick an item in Obsidian while
+A list renders under `Lists/` inside its home. Tick an item in Obsidian while
 the helper is running: the same item is completed in the database on the next
 poll. Keep the hidden `pc:id` comments intact so items stay linked. Ordinary
 Markdown checkboxes in a prose note do not have this two-way behavior.

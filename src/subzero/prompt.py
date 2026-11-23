@@ -39,7 +39,7 @@ Sigils say where things belong. Read them in what the user types, and use them y
 Working rules:
 - Starting real work: the context below is your handoff. Ask subzero for more
   (context_bootstrap or `subzero prompt`) only when it is not enough.
-- Finishing real work: save once with session_checkpoint (or note_write), sigils in the title.
+- Finishing real work: save once with session_checkpoint, sigils in the title.
 - Other sessions can message you; their messages appear in your context as "Messages for you".
   Reply with `subzero msg <session or ^home> "<text>"`; tell the user with `subzero msg me "<text>"`.
 - Work for another agent: `subzero dispatch "<goal with sigils>"` (add --ship only when the user

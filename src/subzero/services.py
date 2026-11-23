@@ -25,7 +25,6 @@ from subzero.embeddings.service import EmbeddingService, build_embedding_provide
 from subzero.lists.service import ListService
 from subzero.memory.service import MemoryService
 from subzero.notes.service import NoteService
-from subzero.notes.write import NoteWriter
 from subzero.obsidian.paths import VaultPaths
 from subzero.obsidian.queue import SyncQueue
 from subzero.projects.service import ProjectService
@@ -57,7 +56,6 @@ class Services:
     vault_paths: VaultPaths
     oauth_kv: PostgresKeyValue
     email: EmailService
-    note_writer: NoteWriter
     agents: AgentService
     bridge: BridgeService
 
@@ -124,17 +122,6 @@ async def build_services(settings: Settings, db: Database) -> Services:
         vault_paths=vault_paths,
         oauth_kv=PostgresKeyValue(db),
         email=EmailService(db, settings),
-        note_writer=NoteWriter(
-            db=db,
-            settings=settings,
-            notes=notes,
-            projects=projects,
-            classification=classification,
-            lists=lists,
-            queue=sync_queue,
-            paths=vault_paths,
-            audit=audit,
-        ),
         agents=AgentService(db, classifier),
         bridge=bridge,
     )

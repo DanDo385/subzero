@@ -118,7 +118,7 @@ A browser tab opens. Set **Transport** to *Streamable HTTP* and **URL** to
 `http://localhost:8080/mcp`. Under **Authentication**, add the header `Authorization` with the value
 `Bearer YOUR-TOKEN`. Click **Connect**, then **List Tools**.
 
-✅ You'll see 53 tools. Try `memory_save` and then `memory_search`.
+✅ You'll see 40 tools. Try `memory_save` and then `memory_search`.
 
 ## What to do next
 
