@@ -169,6 +169,16 @@ async def route_conversation(
     }
     if transcript:
         state["transcript"] = transcript
+    # What is already known, so relation_to_existing has something to compare
+    # against. Titles only: cheap, local, and enough to spot a duplicate.
+    if title:
+        # A memory-lab note made from this very session is not "existing".
+        own = f"{title.strip()} ("
+        state["existing_similar_notes"] = [
+            n
+            for n in await services.notes.similar_titles(title, limit=6)
+            if not str(n.get("title", "")).startswith(own)
+        ][:5]
     result, routing, event_id = await services.classification.classify_checkpoint(
         state, object_id=conversation_id, historical_import=True, use_cache=use_cache
     )

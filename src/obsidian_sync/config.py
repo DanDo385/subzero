@@ -51,6 +51,9 @@ class WorkerSettings(BaseSettings):
         "profile": "85-Profiles",
         "system": "90-System",
         "archive": "99-Archive",
+        "area": "25-Areas",
+        "permanent": "Permanent",
+        "experiments": "Experiments",
     }
 
     max_file_bytes: int = 32 * 1024 * 1024

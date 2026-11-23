@@ -109,6 +109,18 @@ are stored through the same canonical writers as imported conversations.
 
 See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#common-problems).
 
+## Memory lab
+
+**`memory-lab recover` reports `sessions_seen: 0`.** No conversation has Jev answers
+under the current question set. Run `subzero reclassify-conversations --limit 10000`.
+
+**Every session is `log` with reason `no_triage_answers`.** Same cause: the stored
+answers predate the triage questions.
+
+**Recovered notes never reach Obsidian.** The Obsidian helper rejects folders it does
+not know. Update it to this version and restart it, so it accepts `25-Areas`,
+`Permanent` and `Experiments` ([guide 16](guides/16-memory-lab.md)).
+
 ## Importing
 
 | You see | What it means | Fix |

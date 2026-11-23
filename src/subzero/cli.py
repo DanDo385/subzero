@@ -1120,3 +1120,83 @@ register_agent_commands(main)
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
+
+# ----------------------------------------------------------------- memory lab
+
+
+@main.group(name="memory-lab")
+def memory_lab() -> None:
+    """Jev triage of sessions into PARA notes, Inbox drafts and logs (guide 16)."""
+
+
+@memory_lab.command(name="recover")
+@click.option(
+    "--apply", "apply_", is_flag=True, help="Write notes and decisions (default: dry run)."
+)
+@click.option("--limit", type=int, default=None, help="Stop after this many sessions.")
+@click.option("--redo", is_flag=True, help="Decide again even when nothing changed.")
+def memory_lab_recover(apply_: bool, limit: int | None, redo: bool) -> None:
+    """Apply the triage policy to classified sessions and print the recovery report.
+
+    Run `subzero reclassify-conversations` first so sessions have answers under
+    the current question set. Without --apply nothing is written.
+    """
+    from subzero.memorylab.recover import recover
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> dict:
+        services = await _with_services(settings)
+        try:
+            report = await recover(services, dry_run=not apply_, limit=limit, redo=redo)
+            return report.as_dict()
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(json.dumps(asyncio.run(run()), indent=2))
+
+
+@memory_lab.command(name="structured")
+def memory_lab_structured() -> None:
+    """Regenerate the structured-memories note (facts, instructions, events, tasks)."""
+    from subzero.memorylab.recover import write_structured
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> int:
+        services = await _with_services(settings)
+        try:
+            return await write_structured(services)
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(f"Structured memories: {asyncio.run(run())} items queued for the vault.")
+
+
+@memory_lab.command(name="report")
+def memory_lab_report() -> None:
+    """Counts of stored triage decisions, by outcome and reason."""
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> list:
+        services = await _with_services(settings)
+        try:
+            return await services.db.fetch(
+                "SELECT outcome, reason, count(*) AS n FROM memory_triage "
+                "GROUP BY 1, 2 ORDER BY 1, 3 DESC"
+            )
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    rows = asyncio.run(run())
+    if not rows:
+        click.echo("No triage decisions yet. Run `subzero memory-lab recover --apply`.")
+    for row in rows:
+        click.echo(f"{row['outcome']:8} {row['reason']:24} {row['n']}")

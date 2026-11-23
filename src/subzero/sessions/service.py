@@ -31,6 +31,7 @@ from subzero.homes import home_metadata
 from subzero.lists.service import ListService
 from subzero.logging_setup import get_logger
 from subzero.memory.service import MemoryService
+from subzero.memorylab.triage import has_triage, triage
 from subzero.models import (
     CheckpointArtifactRef,
     CheckpointDecision,
@@ -754,6 +755,7 @@ class SessionService:
                 "degraded": result.degraded,
                 **routing.as_json(),
                 **metadata,
+                **_triage_json(result),
             },
             queued_vault_jobs=queued,
             review_items=review_items,
@@ -1034,3 +1036,20 @@ def _merge_texts(existing: list[Any] | None, new: list[str]) -> list[str]:
             seen.add(key)
             out.append(value)
     return out
+
+
+def _triage_json(result: Any) -> dict[str, Any]:
+    """The memory-lab triage outcome for this checkpoint, when Jev answered it."""
+    if not has_triage(result):
+        return {}
+    decision = triage(result)
+    return {
+        "triage": {
+            "outcome": decision.outcome,
+            "reason": decision.reason,
+            "bucket": decision.bucket,
+            "gate": decision.gate,
+            "candidates": decision.candidates,
+            "scores": decision.scores,
+        }
+    }
