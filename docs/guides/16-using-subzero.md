@@ -156,13 +156,13 @@ server match it.
 
 ## Skills, prompts, and tools
 
-Three different things share names. They are not 53 skills.
+Skills, prompts and tools are different surfaces for the same workflow.
 
 | Thing | How many | What it is |
 | --- | --- | --- |
-| Skill | 13 folders in [skills/](../../skills/) | Instructions an app loads when the job matches. Install `use-subzero` first. The others are optional. |
+| Skill | Folders in [skills/](../../skills/) | Instructions an app loads when the job matches. Install `use-subzero` first. The others are optional. |
 | Prompt | 9 | The same kind of instructions, asked for by name inside the connector. |
-| Tool | 53 | A named action. The app calls these. You rarely type the name. |
+| Tool | The server lists the current set | A named action. The app calls these. You rarely type the name. |
 | Resource | one per skill | `subzero://guide/<skill-name>` returns that skill's file. |
 
 Skill folder names use hyphens (`use-subzero`). Prompt names use underscores
@@ -173,7 +173,7 @@ A prompt exists for `search`, `save`, `email`, `vault`, `use_subzero`,
 `manage_lists`. The other skills are files and resources only:
 `project-artifacts`, `research-to-obsidian`, `update-project`, `daily-review`.
 
-### The 13 skills
+### The workflow skills
 
 | Skill | Use it when |
 | --- | --- |
@@ -184,6 +184,7 @@ A prompt exists for `search`, `save`, `email`, `vault`, `use_subzero`,
 | `email` | Draft a message. Send only after you confirm. |
 | `recall-context` | The full retrieval steps before answering from past work. |
 | `checkpoint-session` | What belongs in one checkpoint, and what to leave out. |
+| `session-capture` | Save a useful session summary and decisions rather than inventing a full transcript. |
 | `capture-artifacts` | Store a file, and tell the truth about whether the bytes were captured. |
 | `project-artifacts` | Several files that belong together as one versioned artifact. |
 | `research-to-obsidian` | Research worth rereading becomes a vault note, with sources. |
@@ -194,7 +195,7 @@ A prompt exists for `search`, `save`, `email`, `vault`, `use_subzero`,
 `use-subzero` is the map. Install that one. Add another only when you want
 the app to follow that job's longer procedure.
 
-## The 53 tools
+## The registered tools
 
 Grouped the way the server registers them. Read-only tools do not change
 your data. A write asks the app for permission the first time. See
