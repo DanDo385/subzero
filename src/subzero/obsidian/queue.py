@@ -24,6 +24,19 @@ logger = get_logger(__name__)
 
 LEASE_SECONDS = 300
 
+#: What the worker should wait before asking again, in seconds. The cloud has
+#: no route into the laptop, so polling is the only channel that can tell it a
+#: note is waiting: the cadence is a straight trade between latency and
+#: requests. A fixed 20 s split that badly in both directions, 4,320 requests a
+#: day against a queue that is empty almost always, and still 20 s of latency
+#: when work really was arriving. So: come straight back while draining, stay
+#: quick while work is arriving, and fall quiet when nothing has happened.
+BACKLOG_POLL_SECONDS = 0.5
+ACTIVE_POLL_SECONDS = 5.0
+IDLE_POLL_SECONDS = 120.0
+#: How recent an enqueue has to be for the queue to count as active.
+ACTIVE_WINDOW_SECONDS = 600.0
+
 
 #: Where the hash of the file last written for an object is kept.
 _SYNCED_HASH_SQL: dict[str, str] = {
@@ -45,6 +58,25 @@ class SyncQueue:
     def __init__(self, db: Database, allowed_roots: dict[str, str]) -> None:
         self._db = db
         self._roots = allowed_roots
+
+    async def poll_hint(self, *, backlog: bool) -> float:
+        """How long the worker should wait before its next lease.
+
+        The server answers this rather than the worker deciding, because only
+        the server knows whether work is still arriving.
+        """
+        if backlog:
+            return BACKLOG_POLL_SECONDS
+        recent = await self._db.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM sync_jobs
+                WHERE created_at > now() - make_interval(secs => $1)
+            )
+            """,
+            ACTIVE_WINDOW_SECONDS,
+        )
+        return ACTIVE_POLL_SECONDS if recent else IDLE_POLL_SECONDS
 
     async def enqueue(
         self,

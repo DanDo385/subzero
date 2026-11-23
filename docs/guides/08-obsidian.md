@@ -5,8 +5,9 @@
 lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
-your server "anything new to write?" every 30 seconds. Nothing on the internet can reach into your
-computer: the helper only ever calls out.
+your server "anything new to write?" and follows the server's suggested delay: quickly while work
+is arriving, less often when the vault is idle. Nothing on the internet can reach into your
+computer: the helper only ever calls out. Older servers use the helper's configured poll interval.
 
 ## Step 1: Choose where the vault lives
 
@@ -54,6 +55,9 @@ uv run obsidian-sync run --once
 not, nothing is written yet, and that's fine.
 
 To see what it *would* write without writing anything: `uv run obsidian-sync run --once --dry-run`.
+
+To verify the vault location and server credential without leasing any queued work:
+`uv run obsidian-sync check`. It reports `server: reachable and credential accepted` on success.
 
 ## Step 3: Keep it running in the background
 
