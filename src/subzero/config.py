@@ -271,6 +271,15 @@ class Settings(BaseSettings):
     agentmail_api_key: SecretStr = SecretStr("")
     agentmail_inbox_id: str = ""
 
+    # ---------------------------------------------------------------- honcho
+    #: Memory lab Honcho layer (subzero memory-lab honcho-sync). Empty
+    #: workspace turns it off. Use the same workspace and peer as any agent
+    #: that already talks to Honcho, so both feed one model of the person.
+    honcho_api_key: SecretStr = SecretStr("")
+    honcho_workspace: str = ""
+    honcho_peer: str = ""
+    honcho_base_url: str = ""
+
     # -------------------------------------------------------------- obsidian
     obsidian_enabled: bool = True
     obsidian_mirror_max_mb: float = 5.0

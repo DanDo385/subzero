@@ -255,6 +255,9 @@ TRIAGE_CANDIDATE_MIN = 0.80
 #: confidence_gate is read as an expected level (0..2). At or above HIGH a
 #: clear bucket becomes a note; at or above MEDIUM it becomes an inbox draft.
 TRIAGE_GATE_HIGH = 1.5
+#: A vault note or an inbox draft needs worth_processing at least this. Below
+#: it a session can still feed the structured, Honcho and hot layers.
+TRIAGE_NOTE_WORTH = 0.80
 #: A direct note needs para_bucket confidence at least this; below it the
 #: bucket is only a suggestion on an inbox draft.
 TRIAGE_BUCKET_MIN = 0.70

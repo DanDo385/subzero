@@ -22,7 +22,8 @@ pytestmark = requires_db
 #: Conversation name -> (worth, gate, bucket, relation, preference)
 PLAN: dict[str, tuple[float, float, str, str, float]] = {
     "Deploy runbook": (0.95, 2.0, "resource", "new", 0.1),
-    "Maybe a project": (0.85, 1.0, "project", "new", 0.9),
+    "Which project is this": (0.85, 1.0, "project", "unclear", 0.9),
+    "Editor habits": (0.7, 1.2, "area", "new", 0.9),
     "Small talk": (0.2, 1.0, "discard", "new", 0.1),
 }
 
@@ -77,49 +78,99 @@ def _zip(path: Path) -> Path:
     return path
 
 
+class FakeHoncho:
+    """Records what would reach Honcho."""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, list[Any]] = {}
+
+    def peer(self, name: str) -> Any:
+        outer = self
+
+        class Peer:
+            def message(self, text: str, *, created_at: Any = None) -> dict[str, Any]:
+                return {"peer": name, "content": text, "created_at": created_at}
+
+        outer._peer = Peer()
+        return outer._peer
+
+    def session(self, sid: str, **_: Any) -> Any:
+        store = self.sessions.setdefault(sid, [])
+
+        class Session:
+            def add_messages(self, batch: list[Any]) -> None:
+                store.extend(batch)
+
+        return Session()
+
+
 @pytest.mark.asyncio
-async def test_recover_writes_notes_drafts_and_logs(services, tmp_path: Path) -> None:
+async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Path) -> None:
+    from subzero.extraction.deep import NO_NOTE
+    from subzero.memorylab.layers import extraction_targets, honcho_sync
+
     services.classification = ClassificationService(services.db, TriageJev(), services.settings)
     await ImportRunner(services).run(
         _zip(tmp_path / "export.zip"), provider="claude", store_archive=False
     )
 
     preview = await recover(services, dry_run=True)
-    assert preview.as_dict()["notes_created_directly"] == 1
+    assert preview.as_dict()["vault_notes_planned"] == 1
     assert await services.db.fetchval("SELECT count(*) FROM memory_triage") == 0
 
     report = (await recover(services, dry_run=False)).as_dict()
-    assert report["sessions_seen"] == 3
-    assert report["notes_created_directly"] == 1
+    assert report["sessions_seen"] == 4
+    assert report["vault_notes_planned"] == 1
     assert report["parked_in_inbox"] == 1
-    assert report["logged_only"] == 1
-    assert report["memory_candidates"] == {"procedure": 2, "preference": 1}
+    assert report["inbox_drafts_written"] == 1
+    assert report["layers"] == {
+        "vault": 1,
+        "inbox": 1,
+        "structured": 3,
+        "honcho": 2,
+        "hot": 3,
+    }
 
-    paths = {
-        r["outcome"]: r["vault_path"]
+    rows = {
+        r["title"]: r
         for r in await services.db.fetch(
-            "SELECT t.outcome, n.vault_path FROM memory_triage t "
+            "SELECT c.title, t.outcome, t.layers, n.vault_path FROM memory_triage t "
+            "JOIN conversations c ON c.id = t.conversation_id "
             "LEFT JOIN notes n ON n.id = t.note_id"
         )
     }
-    assert paths["note"].startswith("60-Resources/deploy-runbook")
-    assert paths["inbox"].startswith("00-Inbox/maybe-a-project")
-    assert paths["log"] is None
+    # The vault note is Claude's to write; only the Inbox draft exists now.
+    assert rows["Deploy runbook"]["vault_path"] is None
+    assert rows["Which project is this"]["vault_path"].startswith("00-Inbox/")
+    assert rows["Small talk"]["layers"] == []
+
+    targets = {t.title: t.destination for t in await extraction_targets(services, limit=10)}
+    assert targets == {
+        "Deploy runbook": "resource",
+        "Which project is this": NO_NOTE,
+        "Editor habits": NO_NOTE,
+    }
+    assert next(iter(targets)) == "Deploy runbook"  # vault sessions first
+
+    dry = (await honcho_sync(services, dry_run=True)).as_dict()
+    assert dry["sessions"] == 2 and dry["messages"] == 2
+    services.settings.honcho_peer = "dan"
+    fake = FakeHoncho()
+    sent = (await honcho_sync(services, dry_run=False, client=fake)).as_dict()
+    assert sent["sessions"] == 2 and sent["errors"] == []
+    contents = [m["content"] for batch in fake.sessions.values() for m in batch]
+    assert all(m.endswith("tell me the steps.") for m in contents)  # user turns only
+    assert (await honcho_sync(services, dry_run=True)).sessions == 0  # not sent twice
 
     jobs = {r["vault_path"] for r in await services.db.fetch("SELECT vault_path FROM sync_jobs")}
-    assert paths["note"] in jobs and paths["inbox"] in jobs
-    assert any(p.startswith("Experiments/Analysis/recovery-report") for p in jobs)
+    assert "Experiments/Analysis/hot-memory-candidates.md" in jobs
     assert any(p.startswith("Experiments/Memory-Logs/recovery-log") for p in jobs)
-    assert "Experiments/Analysis/memory-candidates.md" in jobs
+    candidates = await services.db.fetchval(
+        "SELECT content FROM notes WHERE vault_path = 'Experiments/Analysis/hot-memory-candidates.md'"
+    )
+    assert "Editor habits" in candidates.split("## USER.md")[1]
 
-    # Idempotent: nothing changed, nothing decided again.
     again = await recover(services, dry_run=False)
-    assert again.seen == 0 and again.skipped_unchanged == 3
+    assert again.seen == 0 and again.skipped_unchanged == 4
 
     assert await write_structured(services) >= 0
-    assert (
-        await services.db.fetchval(
-            "SELECT count(*) FROM sync_jobs WHERE vault_path LIKE 'Experiments/Structured/%'"
-        )
-        == 1
-    )

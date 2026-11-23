@@ -6,15 +6,20 @@ conversation under the current QUESTIONS_VERSION. It never calls Jev itself;
 conversation whose decision already matches its newest event is skipped, and
 notes are upserted by title.
 
-Outcomes (subzero/memorylab/triage.py):
+What it writes (routing in subzero/memorylab/triage.py):
 
-* ``note``: a note in the PARA bucket (or Permanent) with the Jev scores.
-* ``inbox``: a draft in 00-Inbox with the scores and an excerpt.
-* ``log``: a row in the run's memory log, no note.
-* ``discard``: counted only.
+* ``inbox`` sessions: a draft in 00-Inbox with the scores and an excerpt.
+* ``note`` sessions: nothing yet. Claude writes the real note from the full
+  transcript in ``memory-lab extract``, into the bucket recorded here.
+* every session: one ``memory_triage`` row with its outcome and layers, which
+  ``memory-lab extract`` (structured, vault) and ``memory-lab honcho-sync``
+  (honcho) work from.
+* per run: a recovery report, a memory log, and the hot-layer candidates.
 
-Sensitive conversations (anything not ``normal``) never get a vault note; they
-are recorded as ``log`` with reason ``sensitive_withheld``.
+Sensitive conversations (anything not ``normal``) never reach the vault,
+Honcho or a candidate list; they are recorded as ``log`` with reason
+``sensitive_withheld`` and still feed the structured layer, which stays inside
+Subzero.
 """
 
 from __future__ import annotations
@@ -39,7 +44,7 @@ _EVENTS_SQL = """
 SELECT DISTINCT ON (e.object_id)
        e.id AS event_id, e.object_id AS conversation_id, e.answers,
        c.provider, c.title, c.started_at, c.sensitivity::text AS sensitivity,
-       p.id AS project_id, p.slug AS project_slug,
+       p.id AS project_id, p.slug AS project_slug, p.name AS project_name,
        s.summary, s.sensitivity::text AS summary_sensitivity,
        t.classification_event_id AS decided_event
 FROM classification_events e
@@ -62,6 +67,7 @@ class RecoveryReport:
     reasons: Counter[str] = field(default_factory=Counter)
     buckets: Counter[str] = field(default_factory=Counter)
     candidates: Counter[str] = field(default_factory=Counter)
+    layers: Counter[str] = field(default_factory=Counter)
     notes_written: int = 0
     dry_run: bool = True
 
@@ -71,14 +77,15 @@ class RecoveryReport:
             "questions_version": QUESTIONS_VERSION,
             "sessions_seen": self.seen,
             "skipped_unchanged": self.skipped_unchanged,
-            "notes_created_directly": self.outcomes["note"],
+            "vault_notes_planned": self.outcomes["note"],
             "parked_in_inbox": self.outcomes["inbox"],
             "logged_only": self.outcomes["log"],
             "discarded": self.outcomes["discard"],
             "note_buckets": dict(self.buckets),
             "reasons": dict(self.reasons),
             "memory_candidates": dict(self.candidates),
-            "notes_written": self.notes_written,
+            "layers": dict(self.layers),
+            "inbox_drafts_written": self.notes_written,
         }
 
 
@@ -185,7 +192,7 @@ async def _unique_title(services: Services, title: str, conversation_id: UUID) -
 
 
 async def _apply(services: Services, row: Any, decision: Triage) -> UUID | None:
-    if decision.outcome not in ("note", "inbox"):
+    if decision.outcome != "inbox":
         return None
     title = await _unique_title(services, _title(row), row["conversation_id"])
     note_class = decision.note_class
@@ -227,19 +234,10 @@ def decide(row: Any) -> Triage:
     sensitive = (row["sensitivity"] or "normal") != "normal" or (
         row["summary_sensitivity"] or "normal"
     ) != "normal"
-    if sensitive and decision.outcome in ("note", "inbox"):
+    if sensitive:
+        layers = [layer for layer in decision.layers if layer == "structured"]
         return Triage(
-            "log", decision.bucket, "sensitive_withheld", decision.gate, [], decision.scores
-        )
-    if decision.outcome == "note" and decision.bucket == "project" and not row["project_slug"]:
-        # Subzero never creates a project from a guess: park it with the hint.
-        return Triage(
-            "inbox",
-            "project",
-            "no_matching_project",
-            decision.gate,
-            decision.candidates,
-            decision.scores,
+            "log", decision.bucket, "sensitive_withheld", decision.gate, [], decision.scores, layers
         )
     return decision
 
@@ -249,8 +247,7 @@ async def recover(
 ) -> RecoveryReport:
     report = RecoveryReport(dry_run=dry_run)
     rows = await services.db.fetch(_EVENTS_SQL, QUESTIONS_VERSION)
-    logged: list[tuple[Any, Triage]] = []
-    candidates: list[tuple[Any, Triage]] = []
+    decided: list[tuple[Any, Triage]] = []
     for row in rows:
         if limit is not None and report.seen >= limit:
             break
@@ -270,10 +267,9 @@ async def recover(
             report.buckets[decision.bucket] += 1
         for kind in decision.candidates:
             report.candidates[kind] += 1
-        if decision.outcome == "log" and decision.reason != "sensitive_withheld":
-            logged.append((row, decision))
-        if decision.candidates and decision.reason != "sensitive_withheld":
-            candidates.append((row, decision))
+        for layer in decision.layers:
+            report.layers[layer] += 1
+        decided.append((row, decision))
         if dry_run:
             continue
         note_id = await _apply(services, row, decision)
@@ -283,8 +279,8 @@ async def recover(
             """
             INSERT INTO memory_triage (
                 conversation_id, classification_event_id, questions_version, outcome,
-                bucket, reason, gate, candidates, scores, note_id, decided_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10, now())
+                bucket, reason, gate, candidates, scores, note_id, layers, decided_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11, now())
             ON CONFLICT (conversation_id) DO UPDATE SET
                 classification_event_id = EXCLUDED.classification_event_id,
                 questions_version = EXCLUDED.questions_version,
@@ -292,6 +288,7 @@ async def recover(
                 reason = EXCLUDED.reason, gate = EXCLUDED.gate,
                 candidates = EXCLUDED.candidates, scores = EXCLUDED.scores,
                 note_id = coalesce(EXCLUDED.note_id, memory_triage.note_id),
+                layers = EXCLUDED.layers,
                 decided_at = now()
             """,
             row["conversation_id"],
@@ -304,9 +301,10 @@ async def recover(
             decision.candidates,
             json.dumps(decision.scores),
             note_id,
+            decision.layers,
         )
     if not dry_run and report.seen:
-        await write_run_notes(services, report, logged, candidates)
+        await write_run_notes(services, report, decided)
     return report
 
 
@@ -318,7 +316,8 @@ def _row_line(row: Any, decision: Triage) -> str:
     worth = decision.scores.get("worth_processing", "")
     return (
         f"| {_date(row['started_at'])} | {row['provider']} | {truncate_for_budget(title, 70)} "
-        f"| {decision.reason.replace('_', ' ')} | {worth} | {decision.gate} |"
+        f"| {decision.reason.replace('_', ' ')} | {worth} | {decision.gate} "
+        f"| {', '.join(decision.layers) or '-'} |"
     )
 
 
@@ -330,12 +329,18 @@ def render_report(report: RecoveryReport, today: str) -> str:
         "| Result | Sessions |",
         "| --- | --- |",
         f"| Processed | {data['sessions_seen']} |",
-        f"| Notes created directly | {data['notes_created_directly']} |",
-        f"| Parked in 00-Inbox | {data['parked_in_inbox']} |",
+        f"| Vault notes (Claude writes them in `memory-lab extract`) | {data['vault_notes_planned']} |",
+        f"| Parked in 00-Inbox (need a person) | {data['parked_in_inbox']} |",
         f"| Logged only | {data['logged_only']} |",
         f"| Discarded | {data['discarded']} |",
         "",
-        "## Direct notes by bucket",
+        "## Layers fed",
+        "",
+        "A session can feed several layers.",
+        "",
+        *[f"- {k}: {v}" for k, v in sorted(data["layers"].items())],
+        "",
+        "## Vault notes by bucket",
         "",
         *[f"- {k}: {v}" for k, v in sorted(data["note_buckets"].items())],
         "",
@@ -343,24 +348,84 @@ def render_report(report: RecoveryReport, today: str) -> str:
         "",
         *[f"- {k.replace('_', ' ')}: {v}" for k, v in sorted(data["reasons"].items())],
         "",
-        "## Hot-memory candidates",
+        "See [[hot-memory-candidates]] and the run's memory log.",
+    ]
+    return "\n".join(lines)
+
+
+def _when(row: Any) -> datetime:
+    return row["started_at"] or datetime.min.replace(tzinfo=UTC)
+
+
+def _entry(row: Any, decision: Triage) -> str:
+    title = truncate_for_budget((row["title"] or "Untitled").strip(), 90)
+    project = f" · {row['project_name']}" if row["project_name"] else ""
+    worth = decision.scores.get("worth_processing", "")
+    return (
+        f"- {_date(row['started_at'])} · {row['provider']}{project} · {title} "
+        f"(worth {worth}, `{str(row['conversation_id'])[:8]}`)"
+    )
+
+
+def render_candidates(decided: list[tuple[Any, Triage]], today: str) -> str:
+    """The hot layer's inputs: what might earn a line in MEMORY.md, USER.md or a skill.
+
+    Hot memory is for what is used often, so frequency decides as much as
+    quality: projects ranked by how many recent sessions they had, and
+    procedures and preferences ranked by worth, newest first among equals.
+    """
+    usable = [(r, d) for r, d in decided if d.candidates]
+    recent = [r for r, d in decided if d.outcome != "discard" and r["project_name"]]
+    cutoff = datetime.now(UTC).timestamp() - 90 * 86400
+    active = Counter(r["project_name"] for r in recent if _when(r).timestamp() >= cutoff)
+
+    def ranked(kind: str, limit: int) -> list[str]:
+        rows = [(r, d) for r, d in usable if kind in d.candidates]
+        rows.sort(
+            key=lambda rd: (rd[1].scores.get("worth_processing", 0), _when(rd[0])), reverse=True
+        )
+        out = [_entry(r, d) for r, d in rows[:limit]]
+        if len(rows) > limit:
+            out.append(f"- … and {len(rows) - limit} more (`subzero memory-lab report`).")
+        return out or ["- none yet"]
+
+    lines = [
+        f"Generated {today} by `subzero memory-lab recover`. Nothing here is promoted",
+        "automatically: the weekly analysis (or you) moves a line into MEMORY.md,",
+        "USER.md or a skill. MEMORY.md stays under 2,200 characters.",
         "",
-        *[f"- {k}: {v}" for k, v in sorted(data["memory_candidates"].items())],
+        "## MEMORY.md · Current Projects (sessions in the last 90 days)",
         "",
-        "See [[memory-candidates]] and the run's memory log.",
+        *([f"- {name}: {n}" for name, n in active.most_common(15)] or ["- none yet"]),
+        "",
+        "## MEMORY.md · Decisions",
+        "",
+        *ranked("decision", 40),
+        "",
+        "## USER.md · Preferences and working patterns",
+        "",
+        "These sessions also go to Honcho (`memory-lab honcho-sync`), which tracks how",
+        "they change over time; promote only what has held across several sessions.",
+        "",
+        *ranked("preference", 40),
+        "",
+        "## Skills · Reusable procedures",
+        "",
+        "A procedure that shows up in several sessions is a skill; one that shows up",
+        "once is a Permanent note.",
+        "",
+        *ranked("procedure", 60),
     ]
     return "\n".join(lines)
 
 
 async def write_run_notes(
-    services: Services,
-    report: RecoveryReport,
-    logged: list[tuple[Any, Triage]],
-    candidates: list[tuple[Any, Triage]],
+    services: Services, report: RecoveryReport, decided: list[tuple[Any, Triage]]
 ) -> None:
     today = datetime.now(UTC).date().isoformat()
     paths = services.vault_paths
     meta = {"tags": ["memory-lab", "type/experiment"]}
+    listed = [(r, d) for r, d in decided if d.reason != "sensitive_withheld"]
 
     title = f"Recovery report {today}"
     await _write_note(
@@ -374,14 +439,15 @@ async def write_run_notes(
 
     title = f"Recovery log {today}"
     header = [
-        "Sessions Jev triage logged without a note: below the worth threshold, low",
-        "confidence, or a duplicate. Sensitive sessions are counted, never listed.",
+        "Sessions triage kept out of the vault: below the note threshold, low",
+        "confidence, or a duplicate. Many still feed the structured, Honcho or hot",
+        "layers (the layers column). Sensitive sessions are counted, never listed.",
         "",
-        "| Date | App | Session | Why | worth | gate |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Date | App | Session | Why | worth | gate | layers |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
-    logged.sort(
-        key=lambda item: item[0]["started_at"] or datetime.min.replace(tzinfo=UTC), reverse=True
+    logged = sorted(
+        ((r, d) for r, d in listed if d.outcome == "log"), key=lambda rd: _when(rd[0]), reverse=True
     )
     await _write_note(
         services,
@@ -392,29 +458,11 @@ async def write_run_notes(
         metadata=meta,
     )
 
-    title = "Memory candidates"
-    lines = [
-        "Sessions Jev marked as carrying a stable preference, a reusable procedure or",
-        "a decision. Promote by hand (or in the weekly analysis) into MEMORY.md,",
-        "USER.md, a skill or a Permanent note; Jev never edits those files.",
-        "",
-    ]
-    for kind in ("preference", "procedure", "decision"):
-        rows = [(r, d) for r, d in candidates if kind in d.candidates]
-        lines += [f"## {kind.title()} ({len(rows)})", ""]
-        lines += [
-            f"- {_date(r['started_at'])} · {r['provider']} · "
-            f"{truncate_for_budget((r['title'] or 'Untitled').strip(), 90)} "
-            f"(`{str(r['conversation_id'])[:8]}`)"
-            for r, _d in rows[:200]
-        ]
-        if len(rows) > 200:
-            lines.append(f"- … and {len(rows) - 200} more (query memory_triage).")
-        lines.append("")
+    title = "Hot memory candidates"
     await _write_note(
         services,
         title=title,
-        content="\n".join(lines),
+        content=render_candidates(listed, today),
         note_class="experiment",
         vault_path=paths.experiment("Analysis", title),
         metadata=meta,
@@ -425,14 +473,15 @@ async def write_structured(services: Services) -> int:
     """Cloudflare-style structured memory: facts, events, instructions, tasks.
 
     Rendered from rows Subzero already holds (memories, decisions, open list
-    items) for conversations triage kept. No model call.
+    items) for sessions on the structured layer. No model call; the content
+    comes from Claude in ``memory-lab extract``.
     """
     facts = await services.db.fetch(
         """
         SELECT m.kind, m.content, m.created_at FROM memories m
         WHERE m.status = 'active' AND m.sensitivity = 'normal'
           AND (m.source_conversation_id IS NULL OR m.source_conversation_id IN (
-                SELECT conversation_id FROM memory_triage WHERE outcome IN ('note','inbox')))
+                SELECT conversation_id FROM memory_triage WHERE 'structured' = ANY(layers)))
         ORDER BY m.importance DESC, m.created_at DESC LIMIT 400
         """
     )

@@ -1,4 +1,4 @@
-"""The memory-lab decision policy, from Jev answers to one outcome."""
+"""The memory-lab routing policy, from Jev answers to an outcome and layers."""
 
 from __future__ import annotations
 
@@ -92,16 +92,40 @@ def test_an_unsure_bucket_is_only_a_suggestion() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "reason"),
     [
-        ({"gate": 1.0}, "medium_confidence"),
         ({"relation": "unclear"}, "relation_unclear"),
+        ({"relation": "contradicts"}, "contradicts_existing"),
         ({"bucket": "inbox"}, "bucket_unclear"),
     ],
 )
-def test_medium_or_unclear_is_parked_in_the_inbox(kwargs: dict[str, Any], reason: str) -> None:
+def test_only_valuable_ambiguous_sessions_reach_the_inbox(
+    kwargs: dict[str, Any], reason: str
+) -> None:
     decision = triage(result(**kwargs))
-    assert decision.outcome == "inbox"
-    assert decision.reason == reason
-    assert decision.note_class == "inbox"
+    assert (decision.outcome, decision.reason, decision.note_class) == ("inbox", reason, "inbox")
+    assert "inbox" in decision.layers
+
+
+def test_a_medium_gate_with_a_clear_home_is_still_a_note() -> None:
+    # Claude reads the whole transcript before writing it, so Jev only has to
+    # be sure where it goes, not of every detail.
+    assert triage(result(gate=1.0)).outcome == "note"
+
+
+def test_middling_sessions_stay_out_of_the_vault_and_the_inbox() -> None:
+    decision = triage(result(worth=0.7, bucket="inbox", bucket_confidence=0.3))
+    assert (decision.outcome, decision.reason) == ("log", "below_note_threshold")
+    assert decision.layers == []
+    # ...unless they carry a decision: then the structured layer extracts it.
+    with_decision = triage(result(worth=0.7, decision=0.9))
+    assert with_decision.outcome == "log"
+    assert with_decision.layers == ["structured", "hot"]
+
+
+def test_each_layer_gets_what_it_is_for() -> None:
+    note = triage(result(preference=0.9))
+    assert note.layers == ["vault", "structured", "honcho", "hot"]
+    plain = triage(result())
+    assert plain.layers == ["vault", "structured"]
 
 
 def test_low_worth_is_logged_not_drafted() -> None:
@@ -122,7 +146,12 @@ def test_degraded_never_drafts() -> None:
 
 
 def test_duplicate_is_not_written_twice() -> None:
-    assert triage(result(relation="duplicates")).reason == "duplicates_existing"
+    decision = triage(result(relation="duplicates", preference=0.9))
+    assert (decision.outcome, decision.reason, decision.layers) == (
+        "log",
+        "duplicates_existing",
+        [],
+    )
 
 
 def test_preferences_and_procedures_become_candidates() -> None:
@@ -138,4 +167,5 @@ def test_checkpoint_result_carries_triage() -> None:
     payload = _triage_json(result(bucket="area"))
     assert payload["triage"]["outcome"] == "note"
     assert payload["triage"]["scores"]["para_bucket"] == "area"
+    assert payload["triage"]["layers"] == ["vault", "structured"]
     assert _triage_json(ClassificationResult(answers={}, classifier="rules")) == {}

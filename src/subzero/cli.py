@@ -1200,3 +1200,99 @@ def memory_lab_report() -> None:
         click.echo("No triage decisions yet. Run `subzero memory-lab recover --apply`.")
     for row in rows:
         click.echo(f"{row['outcome']:8} {row['reason']:24} {row['n']}")
+
+
+@memory_lab.command(name="extract")
+@click.option("--limit", type=int, default=25, show_default=True, help="Sessions per run.")
+@click.option("--apply", "apply_", is_flag=True, help="Call Claude (default: dry run with cost).")
+@click.option("--redo", is_flag=True, help="Also redo sessions already extracted.")
+@click.option(
+    "--concurrency", type=int, default=None, help="Default: SUBZERO_EXTRACTION_CONCURRENCY."
+)
+def memory_lab_extract(limit: int, apply_: bool, redo: bool, concurrency: int | None) -> None:
+    """Claude reads the sessions triage routed to the vault or structured layer.
+
+    Vault sessions get their note written in the PARA bucket Jev chose;
+    structured-only sessions get decisions, facts and tasks with no note. Costs
+    money: run without --apply first to see the estimate.
+    """
+    from subzero.memorylab.layers import extraction_targets, mark_extracted
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> None:
+        services = await _with_services(settings)
+        try:
+            targets = await extraction_targets(services, limit=limit, redo=redo)
+            click.echo(json.dumps(estimate_cost(targets, settings), indent=2))
+            if not apply_ or not targets:
+                for c in targets[:20]:
+                    click.echo(
+                        f"  {c.importance or 0:.2f}  {c.destination:<9} {c.chars:>8} chars  {c.title}"
+                    )
+                return
+            if settings.extraction_provider != "anthropic":
+                raise click.ClickException(
+                    "Set SUBZERO_EXTRACTION_PROVIDER=anthropic and SUBZERO_ANTHROPIC_API_KEY to run."
+                )
+            extractor = DeepExtractor(services)
+            try:
+                report = await extractor.run(
+                    [c.conversation_id for c in targets],
+                    concurrency=concurrency,
+                    destinations={c.conversation_id: c.destination for c in targets},
+                )
+            finally:
+                await extractor.aclose()
+            marked = await mark_extracted(services, [c.conversation_id for c in targets])
+            click.echo(json.dumps({**report.as_dict(), "marked_extracted": marked}, indent=2))
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    asyncio.run(run())
+
+
+@memory_lab.command(name="honcho-sync")
+@click.option("--limit", type=int, default=100, show_default=True, help="Sessions per run.")
+@click.option("--apply", "apply_", is_flag=True, help="Send to Honcho (default: dry run).")
+def memory_lab_honcho_sync(limit: int, apply_: bool) -> None:
+    """Send your own messages from preference-bearing sessions to Honcho, oldest first."""
+    from subzero.memorylab.layers import honcho_sync
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> dict:
+        services = await _with_services(settings)
+        try:
+            return (await honcho_sync(services, dry_run=not apply_, limit=limit)).as_dict()
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(json.dumps(asyncio.run(run()), indent=2))
+
+
+@memory_lab.command(name="honcho-snapshot")
+def memory_lab_honcho_snapshot() -> None:
+    """Copy Honcho's card and newest conclusions into Experiments/Analysis."""
+    from subzero.memorylab.layers import honcho_snapshot
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> str:
+        services = await _with_services(settings)
+        try:
+            return await honcho_snapshot(services)
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(f"Queued {asyncio.run(run())} for the vault.")

@@ -14,7 +14,7 @@ You are reviewing a four-layer memory experiment. Read, in this order:
 4. Honcho's conclusions about me, if you can reach Honcho (otherwise the newest
    `Experiments/Analysis/honcho-snapshot-*.md`).
 5. Everything in `00-Inbox/`, including each draft's `jev_*` and `triage_*` frontmatter.
-6. `Experiments/Analysis/memory-candidates.md` and `Experiments/Structured/structured-memories.md`.
+6. `Experiments/Analysis/hot-memory-candidates.md` and `Experiments/Structured/structured-memories.md`.
 7. `Permanent/` notes changed in the last 7 days.
 8. `Experiments/Scoring/` files from this week.
 

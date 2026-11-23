@@ -655,6 +655,20 @@ wheels = [
 ]
 
 [[package]]
+name = "honcho-ai"
+version = "2.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/83/c9/2c5b8bd4f44ee1013a7c9d58a33fe328e6b1ecf23cbb6cb16a626f129207/honcho_ai-2.9.0.tar.gz", hash = "sha256:4f211ad0ef15a23c231275fea23f98d36e9a12c779fc5a3af847ae3d995f67a7", size = 72287, upload-time = "2026-11-10T01:31:43.229Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/47/85eda5eb6a3386bfba2e68a5f0bc07ef54c60da847de8c7518e4a894aa04/honcho_ai-2.9.0-py3-none-any.whl", hash = "sha256:7c0f405e67c58ee049f35413422599e049eee0285b0ad990d3b52065fc0d4962", size = 83371, upload-time = "2026-11-10T01:31:42.226Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1762,6 +1776,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+honcho = [
+    { name = "honcho-ai" },
+]
 worker = [
     { name = "watchfiles" },
 ]
@@ -1782,6 +1799,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "click", specifier = ">=8.1" },
     { name = "fastmcp", specifier = ">=4.0.5" },
+    { name = "honcho-ai", marker = "extra == 'honcho'", specifier = ">=2.2,<3" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "mcp", specifier = ">=2.2.0" },
@@ -1793,7 +1811,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
     { name = "watchfiles", marker = "extra == 'worker'", specifier = ">=1.0" },
 ]
-provides-extras = ["worker"]
+provides-extras = ["worker", "honcho"]
 
 [package.metadata.requires-dev]
 dev = [

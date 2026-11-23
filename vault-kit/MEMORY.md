@@ -1,6 +1,6 @@
 # MEMORY
 
-<!-- Hot memory. 2,200 characters at most. Add only from memory-candidates or a weekly analysis. -->
+<!-- Hot memory. 2,200 characters at most. Add only from hot-memory-candidates or a weekly analysis. -->
 
 ## Current Projects
 

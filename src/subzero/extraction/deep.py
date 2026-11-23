@@ -141,7 +141,22 @@ does not support."""
 
 #: Vault folders a note can be written to (keys of DESTINATION_CRITERIA that
 #: are real notes; archive_only never reaches here).
-_NOTE_CLASSES = {"project", "research", "wiki", "concept", "resource", "daily", "inbox"}
+_NOTE_CLASSES = {
+    "project",
+    "research",
+    "wiki",
+    "concept",
+    "resource",
+    "daily",
+    "inbox",
+    "area",
+    "archive",
+    "permanent",
+}
+
+#: Destination meaning "extract structured memory only, write no vault note"
+#: (memory lab sessions routed to the structured layer but not the vault).
+NO_NOTE = "none"
 
 FOLLOWUP_LIST = "From past chats"
 
@@ -475,17 +490,19 @@ class DeepExtractor:
         report.memories += int(created.get("memories", 0))
         report.extracted += 1
 
-        note_id = await self._write_note(
-            conversation_id, conversation, payload, destination, sensitivity
-        )
-        report.notes += 1
+        note_id: UUID | None = None
+        if destination != NO_NOTE:
+            note_id = await self._write_note(
+                conversation_id, conversation, payload, destination, sensitivity
+            )
+            report.notes += 1
         report.followups += await self._add_followups(conversation_id, conversation, payload)
 
         record.update(
             status="extracted",
             project=payload.project,
             topics=payload.topics,
-            note_id=str(note_id),
+            note_id=str(note_id) if note_id else None,
             counts={
                 "decisions": len(payload.decisions),
                 "facts": len(payload.facts),

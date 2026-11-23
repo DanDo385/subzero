@@ -1050,6 +1050,7 @@ def _triage_json(result: Any) -> dict[str, Any]:
             "bucket": decision.bucket,
             "gate": decision.gate,
             "candidates": decision.candidates,
+            "layers": decision.layers,
             "scores": decision.scores,
         }
     }

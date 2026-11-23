@@ -1,23 +1,31 @@
-"""Turn Jev's triage answers into one outcome per session.
+"""Route one session to the memory layers that fit it, from Jev's answers.
 
-The decision policy, in order (first match wins):
+Four layers, each fed what it is good at (docs/guides/16-memory-lab.md):
 
-1. Degraded result (Jev was not reached): ``log``. Nothing is drafted from a
-   guess; the conversation is reclassified later.
-2. ``worth_processing`` below TRIAGE_WORTH_MIN, or ``para_bucket=discard``:
-   ``discard`` when the gate is high (Jev is sure it is worthless), ``log``
-   otherwise.
-3. Low ``confidence_gate``: ``log``.
-4. High gate, a clear bucket (not ``inbox``, Choice confidence at least
-   TRIAGE_BUCKET_MIN), relation not ``unclear`` and not ``duplicates``:
-   ``note`` in that bucket, or in ``permanent`` for a resource Jev rated ready
-   to stand alone with probability TRIAGE_PERMANENT_MIN or more. recover.py
-   sends a project note with no matching Subzero project to the inbox.
-5. Anything else that is worth processing: ``inbox`` (a draft in 00-Inbox).
+* ``vault``: a PARA note Claude writes from the full transcript (extraction),
+  in the bucket Jev chose. For valuable sessions with a clear home.
+* ``structured``: facts, events (decisions), instructions (preferences) and
+  tasks, extracted by Claude into Subzero's memories, decisions and lists.
+  For any worthwhile session that carries a decision, procedure or preference.
+* ``honcho``: the person's own messages from sessions that reveal a
+  preference or working pattern, with their original dates, so Honcho can
+  model how preferences drift.
+* ``hot``: candidates for MEMORY.md, USER.md and skills. Never written
+  automatically; the weekly analysis promotes.
 
-Independently, in a session worth processing, a confident preference, procedure or decision marks the
-session as a hot-memory candidate (MEMORY.md / USER.md). Being a candidate
-never promotes anything by itself; the weekly analysis does that.
+Exactly one vault outcome per session, first match wins:
+
+1. Jev not reached: ``log``.
+2. ``worth_processing`` under TRIAGE_WORTH_MIN, or bucket ``discard``:
+   ``discard`` when the gate is high, else ``log``.
+3. Low ``confidence_gate``, or a duplicate of something known: ``log``.
+4. Worth at least TRIAGE_NOTE_WORTH, a clear bucket (Choice confidence at
+   least TRIAGE_BUCKET_MIN), relation ``new`` or ``extends``: ``note``
+   (``permanent`` for a resource Jev is TRIAGE_PERMANENT_MIN sure stands alone).
+5. Worth at least TRIAGE_NOTE_WORTH but the bucket is unclear, or it
+   contradicts or relates unclearly to what is known: ``inbox``. Only these
+   need a person.
+6. Anything else worth processing: ``log`` (it may still feed other layers).
 
 Every threshold lives in classifier/questions.py.
 """
@@ -34,11 +42,13 @@ from subzero.classifier.questions import (
     TRIAGE_CANDIDATE_MIN,
     TRIAGE_GATE_HIGH,
     TRIAGE_GATE_MEDIUM,
+    TRIAGE_NOTE_WORTH,
     TRIAGE_PERMANENT_MIN,
     TRIAGE_WORTH_MIN,
 )
 
 OUTCOMES = ("note", "inbox", "log", "discard")
+LAYERS = ("vault", "inbox", "structured", "honcho", "hot")
 
 #: PARA bucket -> note class. Classes resolve to vault roots in VaultPaths.
 BUCKET_NOTE_CLASS: dict[str, str] = {
@@ -70,6 +80,7 @@ class Triage:
     gate: str
     candidates: list[str] = field(default_factory=list)
     scores: dict[str, Any] = field(default_factory=dict)
+    layers: list[str] = field(default_factory=list)
 
     @property
     def note_class(self) -> str:
@@ -119,21 +130,31 @@ def triage(result: ClassificationResult) -> Triage:
     ready_p = float(atomicity.probabilities.get(top_level, 0.0)) if atomicity else 0.0
     clear_bucket = bucket in BUCKET_NOTE_CLASS and bucket_confidence >= TRIAGE_BUCKET_MIN
 
-    candidates = [
-        kind
+    signals = {
+        kind: result.noul(key, 0.0) >= TRIAGE_CANDIDATE_MIN
         for kind, key in (
             ("preference", "has_preference"),
             ("procedure", "has_procedure"),
             ("decision", "has_decision"),
         )
-        if result.noul(key, 0.0) >= TRIAGE_CANDIDATE_MIN
-    ]
-
-    # Only something worth processing can be a hot-memory candidate.
-    keep_candidates = worth >= TRIAGE_WORTH_MIN and bucket != "discard" and not result.degraded
+    }
 
     def make(outcome: str, reason: str, chosen: str | None = None) -> Triage:
-        return Triage(outcome, chosen, reason, gate, candidates if keep_candidates else [], scores)
+        usable = outcome != "discard" and worth >= TRIAGE_WORTH_MIN and gate != "low"
+        usable = usable and reason not in ("duplicates_existing", "classifier_degraded")
+        candidates = [k for k, yes in signals.items() if yes] if usable else []
+        layers: list[str] = []
+        if outcome == "note":
+            layers.append("vault")
+        if outcome == "inbox":
+            layers.append("inbox")
+        if usable and (outcome == "note" or candidates):
+            layers.append("structured")
+        if usable and signals["preference"]:
+            layers.append("honcho")
+        if candidates:
+            layers.append("hot")
+        return Triage(outcome, chosen, reason, gate, candidates, scores, layers)
 
     if result.degraded or not has_triage(result):
         return make("log", "classifier_degraded" if result.degraded else "no_triage_answers")
@@ -142,16 +163,20 @@ def triage(result: ClassificationResult) -> Triage:
         return make("discard" if gate == "high" else "log", reason)
     if gate == "low":
         return make("log", "low_confidence")
-    if gate == "high" and clear_bucket and relation not in ("unclear", "duplicates"):
+    if relation == "duplicates":
+        return make("log", "duplicates_existing")
+    if worth >= TRIAGE_NOTE_WORTH and clear_bucket and relation in ("new", "extends"):
         # Permanent is for a standalone insight; project and area material
         # stays with its project or area however tidy it is.
         permanent = bucket == "resource" and ready_p >= TRIAGE_PERMANENT_MIN
-        return make("note", "high_confidence", "permanent" if permanent else bucket)
-    if relation == "duplicates" and gate == "high":
-        return make("log", "duplicates_existing")
-    reason = (
-        "relation_unclear"
-        if relation == "unclear"
-        else ("bucket_unclear" if bucket == "inbox" else "medium_confidence")
-    )
-    return make("inbox", reason, bucket if bucket in BUCKET_NOTE_CLASS else None)
+        return make("note", "clear_home", "permanent" if permanent else bucket)
+    if worth >= TRIAGE_NOTE_WORTH:
+        reason = (
+            "contradicts_existing"
+            if relation == "contradicts"
+            else "relation_unclear"
+            if relation == "unclear"
+            else "bucket_unclear"
+        )
+        return make("inbox", reason, bucket if bucket in BUCKET_NOTE_CLASS else None)
+    return make("log", "below_note_threshold")
