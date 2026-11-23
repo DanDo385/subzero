@@ -339,11 +339,13 @@ Every returned item carries provenance:
 | `tool_result` | Output of a tool. |
 | `imported_metadata` | Derived mechanically from an import. Weakest. |
 
-**Embeddings are optional.** Retrieval runs on full-text search alone, so
-nothing leaves the process on a read. `SUBZERO_EMBEDDING_PROVIDER=none` is the
-default, so the system is useful before you have picked an embedding vendor;
-when a provider is set, vectors are stored on write and the read path still
-makes no model call.
+**Embeddings are optional.** Retrieval runs on full-text search alone, so nothing leaves the process
+on a read. `SUBZERO_EMBEDDING_PROVIDER=none` is the default, so the system is useful before you have
+picked an embedding vendor. When a provider is set, a memory's and a session summary's vectors are
+computed when they are written, and a message's or a note's by the background refresh loop, because
+a vector is derived data and computing it inline would put a 30 s network call inside a database
+transaction. The read path still makes no model call except the query's own embedding in
+`memory_deep_search` and bootstrap's optional semantic layer.
 
 ---
 
@@ -365,13 +367,13 @@ sequenceDiagram
     Note over S: Policy engine maps answers to actions
     S->>D: BEGIN
     S->>D: conversation, summary, decisions, memories, tasks, lists, projects
-    S->>D: COMMIT
     opt promote_to_vault = yes AND not sensitive
         S->>Q: enqueue vault write
     end
     opt confidence in the review band
         S->>D: review_queue row
     end
+    S->>D: COMMIT
     S-->>M: created / updated / skipped, plus the routing that was applied
 ```
 
@@ -386,6 +388,12 @@ what it already sent:
 
 Calling `session_checkpoint` twice with the same content produces one of
 everything. The result reports what was skipped and why.
+
+The vault job and the review rows are inside that transaction, not after it. A checkpoint that
+commits always has its queued render with it, and one that rolls back leaves nothing behind, so
+there is no window where a session is stored and reported as stored but never rendered. The audit
+record is the exception and stays outside: failing to log a mutation must not roll the mutation
+back.
 
 ---
 
@@ -525,11 +533,17 @@ back onto the originating event.
 
 ### When Jev is down
 
-The database, memory, retrieval and every MCP tool keep working. Classification
-falls back to deterministic rules that are deliberately *unconfident*: they
-will save what you explicitly supplied, but they will not assign a project on a
-guess and they will not write to your vault. The object is queued for
-reclassification and the checkpoint result tells the model to say so.
+The database, memory, retrieval and every MCP tool keep working. Classification falls back to
+deterministic rules that are deliberately *unconfident*: they will save what you explicitly supplied,
+but they will not assign a project on a guess and they will not write to your vault. The object goes
+onto `reclassification_queue` with an exponential `next_attempt_at`, and the checkpoint result tells
+the model to say so.
+
+That queue is also how new captures reach the classifier: `ingest` enqueues a conversation in the
+same transaction that stores it, and the background loop claims rows from it with
+`FOR UPDATE SKIP LOCKED`. The loop used to rediscover the work by scanning every imported
+conversation on every tick, which cost the same whether or not anything was waiting, and which gave
+two running servers the same conversation to classify twice.
 
 ---
 
@@ -595,10 +609,14 @@ sequenceDiagram
 
 Properties that fall out of this:
 
-- **No inbound access to your Mac.** No port forwarding, no public SSH, no
-  Obsidian REST API, no exposed filesystem. The laptop dials out.
+- **No inbound access to your Mac.** No port forwarding, no public SSH, no Obsidian REST API, no
+  exposed filesystem. The laptop dials out.
 - **The server keeps working with the laptop off.** Only vault sync pauses.
-- **Human edits are never silently overwritten.** A mismatch is a conflict.
+- **Human edits are never silently overwritten.** A mismatch is a conflict. Notes, maps and list
+  views all carry the hash of what the worker last wrote, so all three are covered.
+- **One open job per path, and a write requested during a lease waits.** The unique index covers
+  `queued` and `approved` only, so a render asked for while the worker is mid-write queues behind it
+  instead of being dropped.
 - **Paths are validated twice.** The server builds and validates; the worker
   re-validates on arrival. The cloud service is the component most likely to be
   compromised and the worker is the one with filesystem access, so the worker

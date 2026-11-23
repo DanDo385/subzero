@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import time
 from typing import Any
 from uuid import UUID
 
 from subzero.classifier.questions import QUESTIONS_VERSION
+from subzero.db.lease import TTL_TICKS, hold_lease, release_lease
 from subzero.importers.base import (
     ImportReport,
     NormalizedConversation,
@@ -32,6 +32,11 @@ from subzero.logging_setup import get_logger
 from subzero.services import Services
 
 logger = get_logger(__name__)
+
+#: The lease this loop holds. The queue claim below is already safe to share,
+#: but two loops running at once would still ask Jev about the same
+#: conversation twice and record two events for it.
+LEASE_NAME = "auto-classify"
 
 
 async def stale_conversations(
@@ -181,51 +186,94 @@ def summarise(report: ImportReport) -> dict[str, Any]:
 # ------------------------------------------------------- background intake
 
 
-async def unclassified_conversations(services: Services, *, limit: int) -> list[UUID]:
-    """Imported conversations with messages and no usable classification
-    under any question set: what the browser extension saved since the last
-    run. Newest first."""
-    rows = await services.db.fetch(
+#: How long a claimed conversation stays reserved. A process that dies mid-run
+#: gives the row back after this instead of losing it: the same lease idea
+#: sync_jobs uses.
+CLAIM_MINUTES = 10
+
+
+async def due_conversations(services: Services, *, limit: int) -> list[UUID]:
+    """Claim queued conversations whose retry time has come.
+
+    One row goes to one caller. ``FOR UPDATE SKIP LOCKED`` is what lets the Mac
+    server and a serverless instance both run this loop without paying Jev
+    twice for the same conversation, and the claim pushes ``next_attempt_at``
+    forward so the work is reserved rather than merely read.
+    """
+    async with services.db.transaction() as conn:
+        rows = await conn.fetch(
+            """
+            WITH due AS (
+                SELECT id FROM reclassification_queue
+                WHERE object_type = 'checkpoint' AND next_attempt_at <= now()
+                ORDER BY next_attempt_at
+                LIMIT $1
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE reclassification_queue q
+            SET next_attempt_at = now() + make_interval(mins => $2)
+            FROM due
+            WHERE q.id = due.id
+            RETURNING q.object_id
+            """,
+            limit,
+            CLAIM_MINUTES,
+        )
+    return [row["object_id"] for row in rows]
+
+
+async def clear_classified(services: Services, conversation_ids: list[UUID]) -> None:
+    """Drop the queue rows that now have a usable classification.
+
+    Only a non-degraded event clears a row, so a conversation Jev could not
+    answer stays queued and the backoff ``queue_reclassification`` recorded
+    decides when it is asked again. That replaces the in-process retry map the
+    loop used to keep, which was lost on every restart and never engaged at all
+    for a degraded result, so an outage re-asked the same conversations each
+    tick and appended an event each time.
+    """
+    if not conversation_ids:
+        return
+    await services.db.execute(
         """
-        SELECT c.id
-        FROM conversations c
-        WHERE c.imported
-          AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
-          AND NOT EXISTS (
+        DELETE FROM reclassification_queue q
+        WHERE q.object_type = 'checkpoint'
+          AND q.object_id = ANY($1::uuid[])
+          AND EXISTS (
                 SELECT 1 FROM classification_events e
-                WHERE e.object_type = 'checkpoint' AND e.object_id = c.id AND NOT e.degraded)
-        ORDER BY c.updated_at DESC
-        LIMIT $1
+                WHERE e.object_type = 'checkpoint' AND e.object_id = q.object_id
+                  AND NOT e.degraded)
         """,
-        limit,
+        conversation_ids,
     )
-    return [row["id"] for row in rows]
-
-
-#: A conversation whose classification just failed waits this long before
-#: the next try, so one that always fails cannot starve the rest.
-RETRY_AFTER_S = 6 * 3600
 
 
 async def classify_forever(services: Services) -> None:
     """The server's background classification loop. Never raises."""
     settings = services.settings
-    failed_at: dict[UUID, float] = {}
     while True:
         try:
-            now = time.monotonic()
-            ids = [
-                cid
-                for cid in await unclassified_conversations(
-                    services, limit=settings.auto_classify_batch * 3
-                )
-                if now - failed_at.get(cid, -RETRY_AFTER_S) >= RETRY_AFTER_S
-            ][: settings.auto_classify_batch]
+            if not await hold_lease(
+                services.db,
+                LEASE_NAME,
+                ttl_seconds=settings.auto_classify_seconds * TTL_TICKS,
+            ):
+                await asyncio.sleep(settings.auto_classify_seconds)
+                continue
+            ids = await due_conversations(services, limit=settings.auto_classify_batch)
             if ids:
                 report = await reclassify_conversations(services, ids, concurrency=2)
+                # A hard error is re-queued with the durable exponential
+                # backoff, so one conversation that always fails cannot be
+                # retried every tick or starve the rest.
                 for error in report.errors:
                     with contextlib.suppress(ValueError):
-                        failed_at[UUID(error.split(":", 1)[0])] = time.monotonic()
+                        await services.classification.queue_reclassification(
+                            object_type="checkpoint",
+                            object_id=UUID(error.split(":", 1)[0]),
+                            reason=error[:200],
+                        )
+                await clear_classified(services, ids)
                 logger.info(
                     "conversations classified",
                     extra={
@@ -251,3 +299,5 @@ async def background_classify(services: Services):  # type: ignore[no-untyped-de
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        with contextlib.suppress(Exception):
+            await release_lease(services.db, LEASE_NAME)

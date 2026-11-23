@@ -23,6 +23,7 @@ htmlcov/
 
 # Local data
 .data/
+.tools/
 *.sqlite3
 
 # Provider exports — these are your entire conversation history in plaintext.

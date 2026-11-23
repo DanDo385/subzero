@@ -33,16 +33,48 @@ def _bearer_token(request: Request) -> str | None:
     return None
 
 
+#: How stale a device's recorded "last used" may be before the next request
+#: refreshes it. Nothing in the codebase reads the column, so touching the row
+#: on every request made the auth path a write for no consumer: 8,071 updates
+#: against 12 live tokens in two months of production traffic, and a hot row
+#: both app servers contend on.
+TOKEN_TOUCH_SECONDS = 60
+
+#: Ceiling on sync-state's ?recent=N. Without it a caller that omits the
+#: parameter gets every conversation for the provider on every poll, which is a
+#: full scan of the largest table by a client that only needs the newest few
+#: hundred.
+SYNC_STATE_MAX = 2000
+
+
 async def _validate_device_token(db, token: str) -> dict[str, Any] | None:
-    """The device a live token belongs to, or None. Records the use in the
-    same statement: one round trip, which matters against a remote database."""
+    """The device a live token belongs to, or None.
+
+    One round trip, which matters against a remote database, and a write only
+    when the recorded use has gone stale. The data-modifying CTE runs either
+    way and the outer select returns the token row regardless of whether it
+    updated anything.
+    """
     row = await db.fetchrow(
         """
-        UPDATE device_tokens SET last_used_at = now()
-        WHERE token = $1 AND revoked_at IS NULL
-        RETURNING id, device_id, device_name, scopes
+        WITH token AS (
+            SELECT id, device_id, device_name, scopes, last_used_at
+            FROM device_tokens
+            WHERE token = $1 AND revoked_at IS NULL
+        ), touched AS (
+            UPDATE device_tokens AS d
+            SET last_used_at = now()
+            FROM token
+            WHERE d.id = token.id
+              AND (token.last_used_at IS NULL
+                   OR token.last_used_at < now() - make_interval(secs => $2::int))
+            RETURNING d.id
+        )
+        SELECT token.id, token.device_id, token.device_name, token.scopes
+        FROM token LEFT JOIN touched ON touched.id = token.id
         """,
         token,
+        TOKEN_TOUCH_SECONDS,
     )
     return dict(row) if row is not None else None
 
@@ -295,6 +327,17 @@ def build_ingest_routes(settings: Settings) -> list:
                 metadata,
                 screen.level if screen else settings.import_default_sensitivity,
             )
+            # A capture is classified later, by the background loop, which
+            # claims from this queue. Enqueueing inside the same transaction
+            # makes "saved" and "will be classified" one fact instead of two
+            # that can disagree: without it the loop had to rediscover the
+            # work by scanning every imported conversation on every tick.
+            await services.classification.queue_reclassification(
+                object_type="checkpoint",
+                object_id=conv_id,
+                reason="never_classified",
+                conn=conn,
+            )
 
         status = "created" if created else "updated"
         if created:
@@ -344,6 +387,7 @@ def build_ingest_routes(settings: Settings) -> list:
             recent = int(request.query_params.get("recent", "0"))
         except ValueError:
             return JSONResponse({"error": "recent must be a number"}, status_code=400)
+        limit = min(recent, SYNC_STATE_MAX) if recent > 0 else SYNC_STATE_MAX
         rows = await db.fetch(
             """
             SELECT provider_conversation_id, provider_updated_at
@@ -353,7 +397,7 @@ def build_ingest_routes(settings: Settings) -> list:
             LIMIT $2
             """,
             provider,
-            recent if recent > 0 else None,
+            limit,
         )
         conversations = {
             row["provider_conversation_id"]: (

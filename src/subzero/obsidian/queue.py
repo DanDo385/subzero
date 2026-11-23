@@ -29,6 +29,15 @@ LEASE_SECONDS = 300
 _SYNCED_HASH_SQL: dict[str, str] = {
     "note": "SELECT vault_synced_sha256 FROM notes WHERE id = $1",
     "moc": "SELECT rendered_sha256 FROM mocs WHERE id = $1",
+    "list": "SELECT vault_synced_sha256 FROM lists WHERE id = $1",
+}
+
+#: Where the hash of the file the worker just wrote is recorded, so the next
+#: write of that path can say what it expects to replace.
+_SYNCED_UPDATE_SQL: dict[str, str] = {
+    "note": "UPDATE notes SET vault_synced_sha256 = $2, vault_synced_at = now() WHERE id = $1",
+    "moc": "UPDATE mocs SET rendered_sha256 = $2 WHERE id = $1",
+    "list": "UPDATE lists SET vault_synced_sha256 = $2 WHERE id = $1",
 }
 
 
@@ -102,6 +111,14 @@ class SyncQueue:
                 "queued vault write",
                 extra={"job_type": job_type, "vault_path": vault_path},
             )
+        else:
+            # A concurrent enqueue for this path won the insert race, so its
+            # content is what the worker will write. Say so: a silent None here
+            # is how a render went missing with nothing left to show for it.
+            logger.warning(
+                "vault write not queued; another job for this path won the race",
+                extra={"job_type": job_type, "vault_path": vault_path},
+            )
         return job_id
 
     async def lease(self, *, worker_id: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -133,40 +150,33 @@ class SyncQueue:
         return [dict(r) for r in rows]
 
     async def complete(self, job_id: UUID, *, worker_id: str, written_sha256: str | None) -> None:
-        job = await self._db.fetchrow(
-            """
-            UPDATE sync_jobs
-            SET status = 'done', completed_at = now(), last_error = NULL
-            WHERE id = $1 AND lease_owner = $2
-            RETURNING object_type, object_id
-            """,
-            job_id,
-            worker_id,
-        )
-        if job is not None and written_sha256:
-            # Remember exactly what is on disk, so the next write of this file
-            # can say what it expects to replace and a human edit made in
-            # between comes back as a conflict instead of being overwritten.
-            if job["object_type"] == "note":
-                await self._db.execute(
-                    "UPDATE notes SET vault_synced_sha256 = $2, vault_synced_at = now() "
-                    "WHERE id = $1",
-                    job["object_id"],
-                    written_sha256,
-                )
-            elif job["object_type"] == "moc":
-                await self._db.execute(
-                    "UPDATE mocs SET rendered_sha256 = $2 WHERE id = $1",
-                    job["object_id"],
-                    written_sha256,
-                )
-        await self._event(
-            job_id,
-            direction="outbound",
-            event_type="acked",
-            sha256=written_sha256,
-            worker_id=worker_id,
-        )
+        # One transaction for both writes. A job marked done without recording
+        # what is now on disk leaves the next write of that path with no
+        # expected hash, and the worker then overwrites a human edit instead of
+        # reporting a conflict.
+        async with self._db.transaction() as conn:
+            job = await conn.fetchrow(
+                """
+                UPDATE sync_jobs
+                SET status = 'done', completed_at = now(), last_error = NULL
+                WHERE id = $1 AND lease_owner = $2
+                RETURNING object_type, object_id
+                """,
+                job_id,
+                worker_id,
+            )
+            if job is not None and written_sha256:
+                update = _SYNCED_UPDATE_SQL.get(job["object_type"])
+                if update is not None:
+                    await conn.execute(update, job["object_id"], written_sha256)
+            await self._event(
+                job_id,
+                direction="outbound",
+                event_type="acked",
+                sha256=written_sha256,
+                worker_id=worker_id,
+                conn=conn,
+            )
 
     async def fail(
         self, job_id: UUID, *, worker_id: str, error: str, conflict: bool = False
@@ -208,8 +218,10 @@ class SyncQueue:
         sha256: str | None = None,
         worker_id: str | None = None,
         detail: str | None = None,
+        conn: asyncpg.Connection | None = None,
     ) -> None:
-        await self._db.execute(
+        executor = conn or self._db
+        await executor.execute(
             """
             INSERT INTO sync_events (sync_job_id, direction, event_type, vault_path,
                                      sha256, worker_id, detail)
