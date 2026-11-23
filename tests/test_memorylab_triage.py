@@ -116,3 +116,12 @@ def test_preferences_and_procedures_become_candidates() -> None:
     assert decision.candidates == ["preference", "procedure"]
     # Below the worth line nothing is a candidate.
     assert triage(result(worth=0.1, preference=0.95)).candidates == []
+
+
+def test_checkpoint_result_carries_triage() -> None:
+    from subzero.sessions.service import _triage_json
+
+    payload = _triage_json(result(bucket="area"))
+    assert payload["triage"]["outcome"] == "note"
+    assert payload["triage"]["scores"]["para_bucket"] == "area"
+    assert _triage_json(ClassificationResult(answers={}, classifier="rules")) == {}
