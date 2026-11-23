@@ -221,9 +221,9 @@ def pair_device(device_name: str, agents: bool) -> None:
     settings = get_settings()
     _configure_cli_logging(settings)
 
-    import secrets as _secrets
+    from subzero.auth.pairing import make_pairing_code
 
-    code = "".join(_secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
+    code = make_pairing_code()
 
     async def run() -> None:
         db = await Database.connect(settings)

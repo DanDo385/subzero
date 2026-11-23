@@ -11,7 +11,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Provenance = Literal[
     "user_statement",
@@ -67,39 +67,209 @@ class Base(BaseModel):
 
 
 BridgeRole = Literal["user", "assistant", "system", "tool"]
+#: What a harness can publish. There is deliberately no kind for model
+#: reasoning: hidden reasoning is never captured.
+BridgeEventKind = Literal["message", "tool_call", "patch", "test_result", "approval"]
+BridgeCompleteness = Literal["complete", "partial"]
+
+#: Hard ceilings. Anything longer is refused outright; shorter text above the
+#: display limits in bridge/capture.py is kept but truncated, and the event
+#: says so in its omissions.
+_BRIDGE_TEXT_MAX = 200_000
+_BRIDGE_DIFF_MAX = 2_000_000
+_BRIDGE_SHORT_MAX = 2_000
+_BRIDGE_KEY_MAX = 200
 
 
 class BridgeSessionCreate(Base):
     provider: str = "firstmate"
     title: str | None = None
     model: str | None = None
+    capture: list[BridgeEventKind] = Field(
+        default_factory=lambda: ["message"],
+        min_length=1,
+        max_length=5,
+        description=(
+            "Every event kind this session will publish completely: message, tool_call, "
+            "patch, test_result, approval. A reader treats an undeclared kind as not "
+            "captured, so declare only what you will really send."
+        ),
+    )
 
 
-class BridgeMessageCreate(Base):
-    text: str
+class BridgeToolCall(Base):
+    """One tool call the harness made, as the terminal user would see it."""
+
+    tool: str = Field(
+        min_length=1, max_length=_BRIDGE_SHORT_MAX, description="Tool name, e.g. 'bash'."
+    )
+    call_id: str | None = Field(
+        default=None,
+        max_length=_BRIDGE_KEY_MAX,
+        description="The harness's id for this call, so an approval can point at it.",
+    )
+    status: Literal["started", "succeeded", "failed", "denied"] = "succeeded"
+    input_summary: str | None = Field(
+        default=None,
+        max_length=_BRIDGE_TEXT_MAX,
+        description="The command or arguments, without secrets.",
+    )
+    exit_code: int | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    output_excerpt: str | None = Field(
+        default=None,
+        max_length=_BRIDGE_TEXT_MAX,
+        description="The visible output, or the part of it that matters.",
+    )
+
+
+class BridgePatchFile(Base):
+    path: str = Field(min_length=1, max_length=_BRIDGE_SHORT_MAX)
+    change: Literal["added", "modified", "deleted", "renamed"] = "modified"
+    additions: int = Field(default=0, ge=0)
+    deletions: int = Field(default=0, ge=0)
+
+
+class BridgePatch(Base):
+    """A change the harness made or proposed to files."""
+
+    files: list[BridgePatchFile] = Field(default_factory=list, max_length=5_000)
+    diff: str | None = Field(
+        default=None, max_length=_BRIDGE_DIFF_MAX, description="Unified diff text."
+    )
+    base_ref: str | None = Field(default=None, max_length=_BRIDGE_KEY_MAX)
+    applied: bool = Field(
+        default=True, description="False when the patch was only proposed, not written."
+    )
+
+
+class BridgeTestResult(Base):
+    """Evidence from one test or check run."""
+
+    command: str = Field(min_length=1, max_length=_BRIDGE_SHORT_MAX)
+    passed: int = Field(default=0, ge=0)
+    failed: int = Field(default=0, ge=0)
+    skipped: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    exit_code: int | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    output_excerpt: str | None = Field(default=None, max_length=_BRIDGE_TEXT_MAX)
+
+
+class BridgeApproval(Base):
+    """Who allowed or refused an action in the terminal, and on what basis.
+
+    This records an approval that already happened in the harness. A browser
+    reading the session cannot approve anything.
+    """
+
+    action: str = Field(
+        min_length=1, max_length=_BRIDGE_SHORT_MAX, description="What was approved or refused."
+    )
+    decision: Literal["approved", "denied"]
+    decided_by: Literal["user", "policy", "harness"] = Field(
+        description="user: a person answered in the terminal; policy: an allow or deny rule; "
+        "harness: the harness's own default."
+    )
+    approver: str | None = Field(
+        default=None, max_length=_BRIDGE_KEY_MAX, description="Who, when decided_by is user."
+    )
+    rule: str | None = Field(
+        default=None, max_length=_BRIDGE_SHORT_MAX, description="The rule, when decided_by is policy."
+    )
+    call_id: str | None = Field(default=None, max_length=_BRIDGE_KEY_MAX)
+    decided_at: datetime | None = None
+
+
+class BridgeEventCreate(Base):
+    """One event published by a harness. Never include secrets or hidden reasoning."""
+
+    kind: BridgeEventKind = Field(
+        default="message",
+        description="message, tool_call, patch, test_result or approval. Fill the field "
+        "of the same name with its details; a message has none.",
+    )
+    text: str = Field(
+        min_length=1,
+        max_length=_BRIDGE_TEXT_MAX,
+        description="What the terminal user saw, as one readable line or block: the message "
+        "itself, or a one-line summary of the tool call, patch, test run or approval. "
+        "Public output only: never the model's private reasoning.",
+    )
     role: BridgeRole = "assistant"
-    model: str | None = None
+    model: str | None = Field(default=None, max_length=_BRIDGE_KEY_MAX)
+    event_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=_BRIDGE_KEY_MAX,
+        description="Your own stable id for this event. Resending the same key is safe and "
+        "returns the original event; reusing it for different content is refused. Without "
+        "a key, identical content counts as the same event.",
+    )
+    tool_call: BridgeToolCall | None = None
+    patch: BridgePatch | None = None
+    test_result: BridgeTestResult | None = None
+    approval: BridgeApproval | None = None
+    omissions: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Anything you left out on purpose, e.g. 'binary output', "
+        "'output truncated by harness'. The event is then marked partial.",
+    )
+
+    def details(self) -> BaseModel | None:
+        """The structured part that matches ``kind`` (None for a message)."""
+        return {
+            "message": None,
+            "tool_call": self.tool_call,
+            "patch": self.patch,
+            "test_result": self.test_result,
+            "approval": self.approval,
+        }[self.kind]
+
+    @model_validator(mode="after")
+    def _details_match_kind(self) -> BridgeEventCreate:
+        for kind in ("tool_call", "patch", "test_result", "approval"):
+            present = getattr(self, kind) is not None
+            if kind == self.kind and not present:
+                raise ValueError(f"a {kind} event needs its {kind} details")
+            if kind != self.kind and present:
+                raise ValueError(f"{kind} details belong only on a {kind} event")
+        return self
+
+
+#: The legacy single-message body, kept so existing CLI callers work unchanged.
+BridgeMessageCreate = BridgeEventCreate
 
 
 class BridgeMessage(Base):
-    """One message shown by the browser session bridge."""
+    """One event shown by the browser session bridge."""
 
     id: UUID
+    kind: BridgeEventKind = "message"
     role: BridgeRole
     content: str
     model: str | None = None
     sequence: int
     created_at: datetime
+    event_key: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    completeness: BridgeCompleteness = "complete"
+    omissions: list[str] = Field(default_factory=list)
 
 
 class BridgeSession(Base):
-    """The browser-visible metadata and ordered messages for a bridge."""
+    """The browser-visible metadata and one ordered page of events."""
 
     session_id: UUID
     provider: str
     title: str | None = None
     model: str | None = None
+    capture: list[BridgeEventKind] = Field(default_factory=lambda: ["message"])
     messages: list[BridgeMessage] = Field(default_factory=list)
+    #: Pass as ``after`` to read the next page; equals the last sequence seen.
+    next_after: int = -1
+    has_more: bool = False
 
 
 class BridgeSessionCreated(Base):
@@ -107,6 +277,7 @@ class BridgeSessionCreated(Base):
     provider: str
     title: str | None = None
     model: str | None = None
+    capture: list[BridgeEventKind] = Field(default_factory=lambda: ["message"])
     link: str
 
 
@@ -115,6 +286,42 @@ class BridgeMessageCreated(Base):
     session_id: UUID
     status: Literal["created", "duplicate"]
     sequence: int
+    event_key: str
+    completeness: BridgeCompleteness = "complete"
+    omissions: list[str] = Field(default_factory=list)
+
+
+class BridgePairingChallenge(Base):
+    """Issued to a browser. Show ``code`` to the user; the publisher approves it."""
+
+    pairing_id: UUID
+    session_id: UUID
+    device_id: str
+    code: str
+    expires_at: datetime
+
+
+class BridgeGrant(Base):
+    session_id: UUID
+    device_id: str
+    device_name: str | None = None
+    capability: Literal["read"] = "read"
+    granted_at: datetime
+    revoked_at: datetime | None = None
+
+
+class BridgePendingPairing(Base):
+    pairing_id: UUID
+    device_id: str
+    device_name: str | None = None
+    created_at: datetime
+    expires_at: datetime
+
+
+class BridgePairings(Base):
+    session_id: UUID
+    grants: list[BridgeGrant] = Field(default_factory=list)
+    pending: list[BridgePendingPairing] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------ results
