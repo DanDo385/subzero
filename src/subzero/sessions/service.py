@@ -25,7 +25,7 @@ from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
 from subzero.classifier.service import ClassificationService
 from subzero.config import Settings
-from subzero.db.pool import Database
+from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.homes import home_metadata
 from subzero.lists.service import ListService
@@ -252,6 +252,21 @@ class SessionService:
 
     # -------------------------------------------------------- checkpoint
 
+    async def _memory_vectors(
+        self, items: list[tuple[str, str]]
+    ) -> dict[tuple[str, str], list[float] | None]:
+        """One vector per distinct ``(text, sensitivity)``, a batch per level."""
+        by_level: dict[str, list[str]] = {}
+        for text, level in dict.fromkeys(items):
+            by_level.setdefault(level, []).append(text)
+        vectors: dict[tuple[str, str], list[float] | None] = {}
+        for level, texts in by_level.items():
+            for text, vector in zip(
+                texts, await self._embeddings.embed(texts, sensitivity=level), strict=True
+            ):
+                vectors[(text, level)] = vector
+        return vectors
+
     async def checkpoint(
         self,
         *,
@@ -355,6 +370,12 @@ class SessionService:
             )
             if summary_text
             else None
+        )
+        # Every memory this checkpoint may write, vectorised the same way and
+        # for the same reason: memories.save would otherwise embed inside it.
+        memory_vectors = await self._memory_vectors(
+            [(d.statement.strip(), sensitivity) for d in decisions]
+            + [(f.content.strip(), f.sensitivity) for f in facts]
         )
 
         # ---- 2. everything else in one transaction ----------------------
@@ -541,6 +562,7 @@ class SessionService:
                         source_provider=provider,
                         source_conversation_id=conversation_id,
                         conn=conn,
+                        embedding=memory_vectors.get((decision.statement.strip(), sensitivity)),
                     )
                     bump(created if memory_saved.outcome == "created" else updated, "memories")
 
@@ -566,6 +588,7 @@ class SessionService:
                         source_conversation_id=conversation_id,
                         confidence=routing.confidence or None,
                         conn=conn,
+                        embedding=memory_vectors.get((fact.content.strip(), fact.sensitivity)),
                     )
                     bump(
                         created
@@ -828,7 +851,7 @@ class SessionService:
                 open_questions, important_context, sensitivity,
                 classification_status, embedding, metadata
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::pc_sensitivity,
-                      $10::pc_classification_status,$11,
+                      $10::pc_classification_status,$11::text::vector,
                       jsonb_build_object('resolved_questions', $12::jsonb))
             ON CONFLICT (conversation_id) DO UPDATE SET
                 -- A later checkpoint in the same session extends the record
@@ -860,7 +883,7 @@ class SessionService:
             important_context,
             sensitivity,
             "needs_review" if needs_review else "classified",
-            embedding,
+            vector_literal(embedding),
             resolved_questions or [],
         )
         await conn.execute(
