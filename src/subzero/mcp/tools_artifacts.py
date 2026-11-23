@@ -312,42 +312,11 @@ def register(mcp: FastMCP) -> None:
         If it does not, the status is left unchanged and this says so.
         """
         services = get_services()
-        row = await services.db.fetchrow(
-            "SELECT object_key FROM artifact_files WHERE artifact_id = $1 AND relative_path = $2",
-            artifact_id,
-            sanitize_relative_path(relative_path),
+        reason = await services.artifacts.complete_upload(
+            artifact_id, sanitize_relative_path(relative_path), sha256
         )
-        if row is None or not row["object_key"]:
-            return {"captured": False, "reason": "No pending upload matches that path."}
-
-        if not await services.store.exists(row["object_key"]):
-            return {
-                "captured": False,
-                "reason": (
-                    "Nothing was found at the upload location. The artifact remains "
-                    "pending_import - do not tell the user it was saved."
-                ),
-            }
-
-        await services.db.execute(
-            """
-            UPDATE artifact_files SET sha256 = $3, storage_status = 'captured'
-            WHERE artifact_id = $1 AND relative_path = $2
-            """,
-            artifact_id,
-            sanitize_relative_path(relative_path),
-            sha256.lower(),
-        )
-        await services.db.execute(
-            """
-            UPDATE artifacts SET storage_status = 'captured'
-            WHERE id = $1 AND NOT EXISTS (
-                SELECT 1 FROM artifact_files f
-                WHERE f.artifact_id = $1 AND f.storage_status <> 'captured'
-            )
-            """,
-            artifact_id,
-        )
+        if reason is not None:
+            return {"captured": False, "reason": reason}
         record = await services.artifacts.get(artifact_id)
         assert record is not None
         classification = await classify_and_file(services, record, stated_project=None)
