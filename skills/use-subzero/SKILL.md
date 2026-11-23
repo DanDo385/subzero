@@ -1,0 +1,116 @@
+---
+name: use-subzero
+description: >
+  How to use the Subzero connector. Use for past history, preferences,
+  projects, decisions, workflows, the vault, or a job for another agent.
+  Also use it when you would otherwise say you have no memory of earlier chats.
+---
+
+# Use Subzero
+
+Subzero is the memory shared by ChatGPT, Claude, Gemini, Grok, Muse, and the
+coding agents. This app's own memory is supplemental. A connector named
+personal-context-mcp is retired. Do not use it.
+
+## When to call it
+
+Use Subzero before you answer when the request depends on any of these:
+
+- past history, "remember", "last time", "we decided", "continue"
+- a preference, a person, or a way of working you would only know from before
+- a project, a lesson, or an existing workflow
+- a note that should land in the vault
+- work that another agent should do
+
+Skip it for a question that stands on its own (a calculation, a rewrite of text
+in the message, a definition that needs no personal context).
+
+## Start with one call
+
+Call `context_bootstrap` once.
+
+- `query`: a few key terms you choose (names, projects, topics, sigils). Never
+  the whole message.
+- `project`: the slug or name, when you know it. Otherwise leave it empty and
+  read which project the server picked, and why.
+
+The package is, in order: the project's handoff (recent summaries, open
+questions, open tasks, active decisions), then items that match the query,
+then raw transcript lines only if nothing else matched. `layers` says which
+of those ran.
+
+If that package does not answer the question, call `context_search` with a
+sharper query. Use `project_get` when you only need one project's record.
+Use `memory_search` for a saved fact. Leave message text out unless you need
+someone's exact words.
+
+Say what you found, including which assistant it came from. If nothing is
+recorded, say so and answer from this conversation. If the tool errors, say
+Subzero is unreachable and continue. Do not retry in a loop, and do not invent
+a memory.
+
+## Sigils
+
+A sigil at the start of a word says where something belongs. Code parses it.
+You do not guess.
+
+| Sigil | Means | Example |
+| --- | --- | --- |
+| `%project` | an existing project | `%portfolio-site` |
+| `^lesson` | a lesson | `^cfa2/fixed-income` |
+| `&setup` | a tool or setup | `&neovim` |
+| `#concept` | a concept tag | `#comptime` |
+| `@person` | a person | `@morgan` |
+| `>agent` | who should do the work | `>claude` |
+
+`%`, `^`, and `&` name a home. `#` and `@` are extra tags. A `%project` only
+names a project that already exists. It does not create one.
+
+## Where the result goes
+
+| The user wants | Do this |
+| --- | --- |
+| An answer from past work | Read the bootstrap package. Do not save. |
+| This chat remembered later | `session_checkpoint` once: summary, decisions, facts, tasks, open questions, sigils or the project. |
+| A note to reread in Obsidian | `note_write` with one home (`projects/{slug}`, `lesson/{category}`, `setup/{tool}`, or `other`) and the concepts. Say "queued" until the worker reports it written. |
+| Another agent to do the work | `dispatch` with their words and sigils. Say it is queued, not started. `agents_status` when they ask who is working or waiting. |
+| A file kept | Store the bytes with the artifact tools. `artifact_register_reference` records that a file existed. Say "archived" only when the result says the bytes were captured. |
+| A list | Stop. A list app manages lists. Do not call the list tools, and do not write a markdown list and call it saved. |
+| Scratch, `/tmp`, or a local note | Not memory. Do not treat it as saved. |
+
+Checkpoint when the thing is settled, not at the end of a long chat. Skip
+small talk, a lookup that is finished in this message, and anything you
+already checkpointed.
+
+## Provenance
+
+- `user_statement`: the user said it. Treat it as fact.
+- `assistant_generated`: a model concluded it. Call it a hypothesis.
+- `external_source`: research. Cite it as such.
+- `imported_metadata`: filled in by an import. Weakest.
+
+If two items conflict, show both with their dates. A decision marked
+`superseded` has been replaced.
+
+## Named guides
+
+When the task is one of these, read that guide. The resource
+`subzero://guide/<name>` serves every skill. A prompt exists for `search`,
+`save`, `email`, `vault`, `use_subzero`, `recall_context`,
+`checkpoint_session`, `capture_artifacts`, and `manage_lists` (underscores).
+Skill names use hyphens.
+
+| Guide | Task |
+| --- | --- |
+| `search` | "search my memory for X" |
+| `save` | "save this" / "remember this session" |
+| `vault` | "put this in Obsidian" |
+| `email` | draft a message and send only after they confirm |
+| `recall-context` | the retrieval steps in full |
+| `checkpoint-session` | what belongs in one checkpoint |
+| `capture-artifacts` | how to store a file honestly |
+| `project-artifacts` | several files as one versioned artifact |
+| `research-to-obsidian` | research worth rereading becomes a vault note |
+| `update-project` | status, goals, decisions, and the activity log |
+| `daily-review` | open tasks, unresolved questions, vault sync |
+| `manage-lists` | say a list app manages lists; do not call the old list tools |

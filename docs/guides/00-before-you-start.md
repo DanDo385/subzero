@@ -9,15 +9,16 @@ use, and the choices you'll make along the way. Nothing here asks you to type an
  Your phone and browser                      The internet                        Your computer
  ──────────────────────                      ────────────                        ─────────────
  ChatGPT ─┐
- Claude  ─┼──► https://your-address ──► your server ──► your database          Obsidian notebook
- Gemini  ─┤         (sign in once)          │                                      ▲
- Grok    ─┘                                 └──── notes to write ──► helper ───────┘
+ Claude  ─┤
+ Gemini  ─┼──► https://your-address ──► your server ──► your database          Obsidian notebook
+ Grok    ─┤         (sign in once)          │                                      ▲
+ Muse    ─┘                                 └──── notes to write ──► helper ───────┘
 ```
 
 - **Your server** is a small program running on a free hosting service (the guides use Vercel). It's
   the only thing the AI apps talk to.
-- **Your database** (Supabase, free) holds everything: memories, decisions, projects, lists, your
-  imported chat history, and files.
+- **Your database** (Supabase, free) holds everything: memories, decisions, projects, your
+  imported chat history, and files. Lists stay in your list app.
 - **The helper** is an optional program on your own computer. It copies notes from the database into
   your Obsidian folder, and sends your edits back. It only ever *calls out* to your server; nothing on
   the internet can reach into your computer.
@@ -32,7 +33,7 @@ You don't need to understand these deeply; the guides tell you exactly what to d
 
 | Word | Plain meaning |
 | --- | --- |
-| **MCP** | A standard way for AI apps to use outside tools. It's why ChatGPT, Claude, Gemini and Grok can all connect to the same server. |
+| **MCP** | A standard way for AI apps to use outside tools. It's why ChatGPT, Claude, Gemini, Grok and Muse can all connect to the same server. |
 | **Connector** | What the AI apps call an MCP server you add to them ("custom connector", "custom app"). |
 | **Terminal** | The text window where you type commands. On a Mac: press ⌘-Space, type *Terminal*, press Enter. |
 | **Repository / repo** | This project's folder of code, downloaded to your computer with `git clone`. |
@@ -56,7 +57,7 @@ You don't need to understand these deeply; the guides tell you exactly what to d
 
 ## A promise about safety
 
-- Nothing in these guides can delete your chats from ChatGPT, Claude, Gemini or Grok. Importing only
+- Nothing in these guides can delete your chats from ChatGPT, Claude, Gemini, Grok or Muse. Importing only
   *reads* the export files you download.
 - Running any import or setup step twice is safe; nothing is duplicated.
 - Your secrets never need to be pasted into a chat, an issue, or anywhere public. If a guide ever seems

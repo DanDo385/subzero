@@ -32,29 +32,24 @@ the server is put online (docs/guides/05-put-it-online.md) rather than run local
 ChatGPT should know". Paste this text:
 
 ```
-When my request depends on past work (a project, earlier decisions,
-"remember", "last time", a continuing task), call context_bootstrap once with a
-short query of key terms you choose (names, projects, topics) and the project
-if you know it. Never paste my whole message into it. If I refer to something
-previously discussed, search Subzero rather than assuming this app's
-native memory is complete. Do not retrieve for standalone questions.
+Subzero (connector: subzero) is the memory shared by ChatGPT, Claude, Gemini,
+Grok, Muse, and my coding agents. For past history, preferences, projects,
+decisions, or an existing workflow, use Subzero before you answer. This app's
+memory is supplemental. Ignore a connector named personal-context-mcp.
 
-When durable state is established, checkpoint it: decisions, project state,
-confirmed facts, tasks, unresolved questions and important
-artifact relationships, naming the project when there is one. Do not save
-conversational noise or duplicates.
+Call context_bootstrap once with a few key terms or sigils (%project, ^lesson,
+&setup, #concept, @person, >agent). Do not paste my whole message. Skip
+Subzero for a question that stands on its own.
 
-Lists are not stored in Subzero. A list app manages them. Do not write a list
-from memory and call it saved. Notes to keep go to the vault. Scratch files
-are not memory.
+When something should outlive this chat, checkpoint it once, with sigils or
+the project. A note to reread goes to the vault with note_write. Work for
+another agent is dispatch: say it is queued, not started. Lists live in a
+list app. Scratch files are not memory.
 
-When meaningful files or generated artifacts should be retained, capture them
-through Subzero. Never tell me an artifact is archived unless its
-bytes or complete text were actually stored.
-
-Treat Subzero as canonical shared state; this app's native memory is
-supplemental. Preserve provenance and distinguish my direct statements from
-model-generated analysis and external research.
+The use-subzero guide is the procedure (prompt use_subzero, or resource
+subzero://guide/use-subzero). Say what you found. My statements are facts.
+Your conclusions are hypotheses. Never say a file was archived unless its
+bytes were stored.
 ```
 
 ## Turn off built-in memory (recommended)

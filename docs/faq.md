@@ -10,6 +10,14 @@ of them can see, and the custom instruction tells each app to treat it as the ma
 Yes. You connect each app once on a computer, and the connection then works in that app on your phone.
 Obsidian notes reach your phone if your vault is in iCloud (iPhone/iPad) or synced another way.
 
+**How do I use it after the apps are connected?**
+Talk normally. Ask it to check Subzero, save a decision, or send a note to your vault.
+The manual is [How to use it](guides/16-using-subzero.md): phrases, what gets saved, and every skill and tool.
+
+**Does it keep my lists?**
+No. A shopping list, reading list, or checklist stays in your list app. Subzero keeps decisions,
+projects, notes, and files.
+
 **Do I need to keep my computer on?**
 Only for notes to arrive in Obsidian. The AI apps talk to your online server, not your computer.
 

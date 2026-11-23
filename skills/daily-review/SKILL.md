@@ -18,7 +18,7 @@ description: >
 
 ## Required tools
 
-`context_recent`, `project_list`, `list_recent`, `list_get`, `review_list`,
+`context_recent`, `project_list`, `project_get`, `review_list`,
 `review_approve`, `review_reclassify`, `review_dismiss`, `sync_status`,
 `session_recent`
 
@@ -30,8 +30,8 @@ description: >
 2. **Active projects.** `project_list(status="active")` - each row carries its
    open task count and live decision count.
 
-3. **Open work.** `list_get` on the task lists that matter, or `list_recent`
-   for what changed lately.
+3. **Open work.** Read open tasks from `project_get` on the active projects.
+   Do not call the list tools. A list lives in a list app.
 
 4. **Unresolved questions.** `session_recent` returns each summary's
    `open_questions`. These are the things most likely to be quietly dropped.

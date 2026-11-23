@@ -29,7 +29,7 @@ It writes:
   date, and the first line of the stored summary). A row links to a note only when that session
   already has one. The rest of the history is a single "N older" line. Each Gemini row is one
   takeout day.
-- A Home map in `70-Atlas` linking those indexes, your lists, and your notes.
+- A Home map in `70-Atlas` linking those indexes and your notes.
 - One area map per project that already has a note. Those notes are placed on Home and on their
   project map directly.
 

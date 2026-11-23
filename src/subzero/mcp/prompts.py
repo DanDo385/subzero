@@ -51,8 +51,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.prompt(name="vault")
     def vault() -> str:
-        """Queue a note, summary or two-way list for Obsidian."""
+        """Queue a note or summary for Obsidian."""
         return action_guide("vault")
+
+    @mcp.prompt(name="use_subzero")
+    def use_subzero() -> str:
+        """When to use Subzero, and which tool each kind of request needs."""
+        return action_guide("use-subzero")
 
     @mcp.prompt(name="recall_context")
     def recall_context(topic: str = "") -> str:

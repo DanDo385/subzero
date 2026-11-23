@@ -1,6 +1,6 @@
 ---
 name: vault
-description: Queue a note, existing list or session summary for Obsidian when the user says "send this to my vault", "put this in Obsidian", or asks for a vault copy.
+description: Queue a note or session summary for Obsidian when the user says "send this to my vault", "put this in Obsidian", or asks for a vault copy. Do not queue a list.
 ---
 
 Use `note_write`, which saves canonical database state and queues the local

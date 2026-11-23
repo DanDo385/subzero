@@ -1,7 +1,8 @@
 # 12. Daily use: what to expect
 
 Your server is online and your apps are connected. Here's what a normal day looks like, plus the
-few things worth knowing before they surprise you.
+few things worth knowing before they surprise you. The full manual (what to say, where a result
+goes, skills and tools) is [How to use it](16-using-subzero.md).
 
 ## The first time in each app
 
@@ -17,11 +18,11 @@ few things worth knowing before they surprise you.
 After the first few saves, you don't need to manage anything. The apps:
 
 - **Look things up** when your question could depend on something saved before: a project you're
-  working on, a decision you made, a list you keep.
+  working on, or a decision you made.
 - **Save decisions and facts** at the end of a useful conversation. They bundle everything worth
   keeping into one save, without duplicates.
-- **Update your lists.** If you say "add oat milk to my shopping list," the real list is updated;
-  the app doesn't just write out a copy from memory.
+- **Leave lists alone.** A shopping list, a reading list, or a checklist stays in your list app.
+  Subzero does not add the item.
 - **Preserve files they create.** Charts, documents, code: if an app makes something useful, you can
   ask it to save the file itself, not just mention that it existed.
 
@@ -36,13 +37,13 @@ You don't need special commands. But these phrases help when you want to be expl
 | --- | --- |
 | "Check subzero." | Searches everything saved across all apps for relevant information. |
 | "Save this to subzero." | Saves the current state of the conversation: decisions, facts, tasks. |
-| "Add [something] to my [list name] list." | Updates your real list. |
 | "What did we decide about [topic]?" | Searches past decisions, even from a different app. |
 | "Save this file to my [project] project." | Stores the actual file bytes, not just a reference. |
+| "Add this to my list." | Nothing in Subzero. The list stays in your list app. |
 
 You can also just talk normally. The apps figure out when to use their tools from context.
 
-## Four named actions
+## Named actions
 
 - **search**: "search my memory for Neovim" uses `context_search`. The app chooses
   a few search terms instead of sending your whole prompt.
@@ -56,10 +57,11 @@ You can also just talk normally. The apps figure out when to use their tools fro
 - **email**: "email this to reader@example.com" prepares exactly the requested
   content and shows the sender, recipients, subject, body and requested send time.
   It sends or schedules only after your next confirmation.
-- **vault**: "send this to my vault" uses `note_write`. It can queue a note,
-  session summary or existing list. "Queued" means waiting for your helper;
-  "already written" means the helper acknowledged that version. See
-  [guide 8](08-obsidian.md#send-a-note-or-list-from-any-chat) for folders and two-way lists.
+- **vault**: "send this to my vault" uses `note_write`. It queues a note or a
+  session summary. "Queued" means waiting for your helper; "already written"
+  means the helper acknowledged that version. See
+  [guide 8](08-obsidian.md#send-a-note-from-any-chat) for folders. Lists are not
+  written into the vault as a second copy.
 
 The home is `projects/{project}`, `lesson/{category}`, `setup/{tool}` or `other`.
 A note about Neovim can live in `setup/neovim` and have `concept/lua` and
@@ -137,7 +139,7 @@ If the second app finds it, cross-app memory is working.
 ## Turning off built-in memory (one last time)
 
 If you haven't yet, now is a good time to turn off each app's built-in memory. With it on, an app
-might answer from its own private notes instead of checking the shared record, and the four apps drift
+might answer from its own private notes instead of checking the shared record, and the apps drift
 apart.
 
 Export your history from each app first ([guide 9](09-import-your-history.md), step 1), so you lose
@@ -145,10 +147,12 @@ nothing. Then turn the memory switches off (see the table in [guide 6](06-connec
 
 ## What's next
 
+- **[Guide 16](16-using-subzero.md):** what to say, where each result goes, and every skill and tool.
 - **[Guide 8](08-obsidian.md):** set up your Obsidian notebook, if you want one.
-- **[Guide 9](09-import-your-history.md):** bring in years of old chats from all four apps.
+- **[Guide 9](09-import-your-history.md):** bring in years of old chats.
 - **[Guide 10](10-build-your-wiki.md):** build links and topic maps from your notes.
 - **[Guide 13](13-browser-extension.md):** capture chats live in the browser, backfill old ones, and bridge coding sessions.
+- **[Guide 15](15-agents-messages-and-the-board.md):** coding agents, messages, and the board.
 - **[Troubleshooting](../troubleshooting.md):** when anything goes wrong.
 - **[FAQ](../faq.md):** common questions, short answers.
 

@@ -18,7 +18,7 @@ Plain-language meanings for the words used in these docs.
 | **Git / GitHub / clone** | Git downloads and tracks code; GitHub hosts it; "clone" means download a copy. |
 | **Jev (TypeSafe)** | An AI service built for answering yes/no and multiple-choice questions very cheaply. Used to sort your old chats and decide which notes to link. It doesn't write text. |
 | **Map of Content (MOC) / map** | An Obsidian page that lists and groups all notes about one topic. |
-| **MCP** | Model Context Protocol: the standard that lets ChatGPT, Claude, Gemini and Grok use outside tools like your server. |
+| **MCP** | Model Context Protocol: the standard that lets ChatGPT, Claude, Gemini, Grok and Muse use outside tools like your server. |
 | **Migration / migrate** | Creating or updating the tables in your database. Always safe to run again. |
 | **OAuth / sign-in app / client ID and secret** | The machinery behind "Sign in with Google". The client ID is public-ish; the client secret is secret. |
 | **Obsidian / vault** | A notes app, and the folder of notes it opens. |
@@ -30,7 +30,11 @@ Plain-language meanings for the words used in these docs.
 | **Server** | The program that answers the AI apps. Yours runs on Vercel. |
 | **Service account (1Password)** | A special 1Password login for background programs, limited to the vaults you choose. |
 | **Service role key (Supabase)** | The master key to your Supabase project. Only your server should have it. |
-| **Skill** | A packaged set of instructions some AI apps can load to do a task well. |
+| **Skill** | A packaged set of instructions some AI apps can load to do a task well. `use-subzero` is the one that explains the connector. |
+| **Sigil** | A symbol at the start of a word that names an exact home or person: `%project`, `^lesson`, `&setup`, `#concept`, `@person`, `>agent`. Optional in chat. A coding folder can put one in a `.subzero` file so you never type it. |
+| **Home** | Where a note or session is filed: `projects/…`, `lesson/…`, `setup/…`, or `other`. |
+| **Dispatch** | A job queued for a coding agent. Queued means waiting, not started. |
+| **Board** | The page on your own computer (`subzero board`) that shows agents, jobs and messages for you. |
 | **Supabase** | A hosting service for your database and files. |
 | **Terminal** | The app where you type commands. |
 | **Token** | A temporary password proving you're signed in. |

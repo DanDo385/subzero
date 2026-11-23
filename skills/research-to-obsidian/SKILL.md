@@ -16,7 +16,7 @@ description: >
 - the user says "write this up", "save this", "make a note"
 
 Do **not** create a note for something already fully captured as structured
-state (a decision, a task, a list item). Those are retrievable already; a note
+state (a decision or a task). Those are retrievable already; a note
 duplicates them into a second place that can drift.
 
 ## Required tools
@@ -62,8 +62,8 @@ duplicates them into a second place that can drift.
 ## Failure behaviour
 
 If `note_write` reports `vault_status` other than `queued` or `written`, say
-why rather than implying the file exists. A canonical list uses `list_ref`
-with empty content; do not turn a two-way list into a prose note.
+why rather than implying the file exists. Do not write a list into the vault.
+A list app manages lists.
 
 ## Example
 

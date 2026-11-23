@@ -1,8 +1,9 @@
 # 8. Set up your Obsidian notebook
 
 [Obsidian](https://obsidian.md) is a free notes app that works on plain files in a folder (a
-*vault*). subzero fills a vault with clean, linked notes: research, project pages, your
-lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
+*vault*). subzero fills a vault with clean, linked notes: research, project pages,
+and "map" pages for your topics. You can read them, edit them, and see how they link together.
+Lists stay in your list app.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
 your server "anything new to write?" every 30 seconds. Nothing on the internet can reach into your
@@ -83,12 +84,13 @@ systemctl --user enable --now obsidian-sync.timer
 The timer runs the helper every 5 minutes. To stop: `systemctl --user disable --now obsidian-sync.timer`.
 Logs: `journalctl --user -u obsidian-sync -f`.
 
-## Send a note or list from any chat
+## Send a note from any chat
 
 Say "send this to my vault". The app calls `note_write` and tells you whether
 the note is **queued** or **already written**. Queued means this helper still
 needs to pick it up. Saving to shared memory with "save this" alone can leave
-the vault untouched.
+the vault untouched. A list stays in your list app. Do not ask for a vault copy
+of a list.
 
 Each new note has one home. Existing numbered folders stay in use:
 
@@ -104,11 +106,9 @@ Custom root settings replace the numbered root names in this mapping.
 Existing files are not moved by this update. If a file already has a different
 tracked path, the server refuses a second copy and asks you to relocate it first.
 
-For a list, the app finds your existing list and asks `note_write` for its vault
-view. It appears under `Lists/` inside its home. Tick an item in Obsidian while
-the helper is running: the same item is completed in the database on the next
-poll. Keep the hidden `pc:id` comments intact so items stay linked. Ordinary
-Markdown checkboxes in a prose note do not have this two-way behavior.
+An older list note may still be in the vault from before lists left Subzero.
+Leave it, including any hidden `pc:id` comments. Do not start a new list here.
+Ordinary Markdown checkboxes in a prose note are just checkboxes.
 
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user
 session manager. Use `systemctl` with `sudo` instead: copy the files to `/etc/systemd/system/` and
@@ -121,11 +121,11 @@ replace `%h` in the service file with your full home directory path.)
 | Folder | What goes there |
 | --- | --- |
 | `00-Inbox` | Things worth keeping whose home isn't clear yet |
-| `20-Projects` | One folder per project: status page, lists, saved files |
+| `20-Projects` | One folder per project: status page and saved files |
 | `30-Research` | Findings from research conversations, with sources |
 | `40-Wiki` | Explanations of how things work |
 | `50-Concepts` | Single ideas and terms |
-| `60-Resources` | Tools, articles, your lists, saved files not tied to a project |
+| `60-Resources` | Tools, articles, and saved files not tied to a project |
 | `70-Atlas` | One session index per assistant, plus map pages that link a topic ([guide 10](10-build-your-wiki.md)) |
 
 The four index notes are `ChatGPT`, `Claude`, `Grok`, and `Gemini`. Each lists the newest
@@ -134,10 +134,8 @@ only when that session already has its own note. Older sessions are one line, "N
 Gemini rows are takeout days (one row per day in the export). `vault-fill` writes these
 from the database. It does not call a model. See [guide 10](10-build-your-wiki.md).
 
-Lists render open, blocked, and done items. Dropped items stay out of the file.
-
 Rendered files carry a `type/` tag in frontmatter so the graph can be filtered:
-`type/project` on project notes, `type/list` on lists, `type/moc` on maps, and
+`type/project` on project notes, `type/moc` on maps, and
 `type/session-index` on the four indexes. Tags already stored on a note are kept.
 
 ## Editing notes
@@ -150,7 +148,9 @@ sees your version. Two things to know:
 - If you edit a note at the same moment an AI app updates it, your edit wins. The update is held back
   as a *conflict* instead of overwriting you.
 
-Ticking a checkbox in a list note (`- [x]`) marks that item done everywhere.
+Ticking a checkbox in an older list note (`- [x]`) can still complete that item
+on the next poll, if the hidden `pc:id` comments are intact. New lists are not
+created this way.
 
 ## Common problems
 

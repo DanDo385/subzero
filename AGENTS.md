@@ -162,7 +162,7 @@ to their 1Password Environment (`project-env`).
 
 ### Consumers outside `src/`
 
-- `skills/` - portable workflow skills, including the named search/save/email/vault actions.
+- `skills/` - portable workflow skills. `use-subzero` is the map of when to call the connector. `search`, `save`, `email`, and `vault` are the named actions.
 - `instructions/` — per-provider connector setup plus the shared custom instruction.
 - `scripts/` — thin wrappers over `subzero import <provider>` / `reclassify`.
 
