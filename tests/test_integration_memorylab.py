@@ -139,12 +139,36 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
             "LEFT JOIN notes n ON n.id = t.note_id"
         )
     }
+    # Stored as real JSON objects, not JSON text (a double-encoding bug once
+    # made every score unreadable and every draft unrenderable).
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM memory_triage WHERE jsonb_typeof(scores) <> 'object'"
+        )
+        == 0
+    )
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM notes WHERE jsonb_typeof(metadata) <> 'object'"
+        )
+        == 0
+    )
+    from subzero.obsidian.render import render_note
+
+    draft = await services.db.fetchrow(
+        "SELECT n.*, NULL AS project_slug FROM notes n WHERE vault_path LIKE '00-Inbox/%'"
+    )
+    rendered = render_note(dict(draft))
+    assert "triage_outcome: inbox" in rendered and "jev_worth_processing: 0.85" in rendered
+
     # The vault note is Claude's to write; only the Inbox draft exists now.
     assert rows["Deploy runbook"]["vault_path"] is None
     assert rows["Which project is this"]["vault_path"].startswith("00-Inbox/")
     assert rows["Small talk"]["layers"] == []
 
-    targets = {t.title: t.destination for t in await extraction_targets(services, limit=10)}
+    ranked = await extraction_targets(services, limit=10)
+    assert [t.importance for t in ranked] == [0.95, 0.85, 0.7]  # worth is readable
+    targets = {t.title: t.destination for t in ranked}
     assert targets == {
         "Deploy runbook": "resource",
         "Which project is this": NO_NOTE,

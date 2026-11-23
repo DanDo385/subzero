@@ -169,7 +169,7 @@ async def _write_note(
         note_id,
         note_class,
         vault_path,
-        json.dumps(metadata),
+        metadata,  # the pool's jsonb codec encodes dicts; never json.dumps here
     )
     if services.settings.obsidian_enabled:
         await services.sync_queue.enqueue(
@@ -314,7 +314,7 @@ async def recover(
             decision.reason,
             decision.gate,
             decision.candidates,
-            json.dumps(decision.scores),
+            decision.scores,
             note_id,
             decision.layers,
         )
