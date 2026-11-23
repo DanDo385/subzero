@@ -80,7 +80,16 @@ async def lease_jobs(request: Request, services: Services) -> Response:
             extra={"job_type": job["job_type"], "vault_path": job["vault_path"]},
         )
 
-    return JSONResponse({"jobs": deliverable}, status_code=200)
+    return JSONResponse(
+        {
+            "jobs": deliverable,
+            # The server sets the worker's next wait rather than leaving it to
+            # guess: only the server knows whether work is still arriving, and
+            # nothing can push a job to the laptop.
+            "poll_in_seconds": await services.sync_queue.poll_hint(backlog=bool(deliverable)),
+        },
+        status_code=200,
+    )
 
 
 async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any] | None:
