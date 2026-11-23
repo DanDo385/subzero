@@ -136,6 +136,52 @@ async def test_an_ordinary_failure_returns_to_the_queue(services) -> None:
     assert len(await services.sync_queue.lease(worker_id="w2")) == 1
 
 
+# ------------------------------------------------------------- poll cadence
+
+
+async def test_an_idle_queue_tells_the_worker_to_slow_down(services) -> None:
+    from subzero.obsidian.queue import (
+        ACTIVE_POLL_SECONDS,
+        BACKLOG_POLL_SECONDS,
+        IDLE_POLL_SECONDS,
+    )
+
+    # Nothing has ever been queued, so there is no reason to ask again soon.
+    assert await services.sync_queue.poll_hint(backlog=False) == IDLE_POLL_SECONDS
+
+    note_id, _, _ = await services.notes.upsert(title="A note", content="body")
+    await services.sync_queue.enqueue(
+        job_type="write_note",
+        object_type="note",
+        object_id=note_id,
+        vault_path="00-Inbox/a-note.md",
+        payload={},
+    )
+    # Work just arrived, so more is probably coming: stay quick.
+    assert await services.sync_queue.poll_hint(backlog=False) == ACTIVE_POLL_SECONDS
+    # Draining a backlog always beats both.
+    assert await services.sync_queue.poll_hint(backlog=True) == BACKLOG_POLL_SECONDS
+
+
+async def test_a_queue_that_went_quiet_stops_asking(services) -> None:
+    from subzero.obsidian.queue import ACTIVE_WINDOW_SECONDS, IDLE_POLL_SECONDS
+
+    note_id, _, _ = await services.notes.upsert(title="An old note", content="body")
+    await services.sync_queue.enqueue(
+        job_type="write_note",
+        object_type="note",
+        object_id=note_id,
+        vault_path="00-Inbox/old-note.md",
+        payload={},
+    )
+    await services.db.execute(
+        "UPDATE sync_jobs SET created_at = now() - make_interval(secs => $1)",
+        ACTIVE_WINDOW_SECONDS * 2,
+    )
+
+    assert await services.sync_queue.poll_hint(backlog=False) == IDLE_POLL_SECONDS
+
+
 # --------------------------------------------------------------- worker API
 
 
@@ -159,7 +205,6 @@ async def test_worker_lease_returns_rendered_markdown(services) -> None:
         vault_path="30-Research/mcp-oauth.md",
         payload={},
     )
-
     async with await _worker_client(services) as client:
         response = await client.post("/worker/jobs/lease", json={"worker_id": "w1"})
         assert response.status_code == 200
@@ -170,6 +215,31 @@ async def test_worker_lease_returns_rendered_markdown(services) -> None:
     assert jobs[0]["vault_path"] == "30-Research/mcp-oauth.md"
     assert "Grok requires DCR." in jobs[0]["content"]
     assert f"pc_id: {note_id}" in jobs[0]["content"]
+
+
+async def test_worker_credential_check_leases_no_jobs(services) -> None:
+    note_id, _, _ = await services.notes.upsert(title="Probe note", content="Keep queued.")
+    job_id = await services.sync_queue.enqueue(
+        job_type="write_note",
+        object_type="note",
+        object_id=note_id,
+        vault_path="00-Inbox/probe-note.md",
+        payload={},
+    )
+    before = await services.db.fetchrow(
+        "SELECT status, lease_owner, attempts FROM sync_jobs WHERE id = $1", job_id
+    )
+    async with await _worker_client(services) as client:
+        response = await client.post(
+            "/worker/jobs/lease", json={"worker_id": "credential-check", "limit": 0}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["jobs"] == []
+    row = await services.db.fetchrow(
+        "SELECT status, lease_owner, attempts FROM sync_jobs WHERE id = $1", job_id
+    )
+    assert dict(row) == dict(before)
 
 
 async def test_worker_can_push_a_human_note_edit_back(services) -> None:
@@ -382,3 +452,16 @@ async def test_review_reclassify_records_the_override(services) -> None:
     )
     assert event["overridden_by_user"] is True
     assert event["override_note"] == "it was Alpha all along"
+
+
+async def test_the_lease_response_carries_the_cadence(services) -> None:
+    """The worker obeys the server's answer, so the answer has to be in it."""
+    from subzero.obsidian.queue import IDLE_POLL_SECONDS
+
+    async with await _worker_client(services) as client:
+        response = await client.post("/worker/jobs/lease", json={"worker_id": "w1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["jobs"] == []
+    assert body["poll_in_seconds"] == IDLE_POLL_SECONDS

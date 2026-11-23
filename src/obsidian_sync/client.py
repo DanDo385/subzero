@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from obsidian_sync.config import WorkerSettings
+
+
+@dataclass(frozen=True)
+class Lease:
+    """One answer to "is there anything to write?".
+
+    ``poll_in_seconds`` is how long the server asks the worker to wait before
+    asking again, because only the server knows whether work is still arriving.
+    It is ``None`` against a server too old to send one, and the worker then
+    falls back to its own configured interval.
+    """
+
+    jobs: list[dict[str, Any]]
+    poll_in_seconds: float | None = None
 
 
 class SyncClient:
@@ -18,13 +33,18 @@ class SyncClient:
             headers={"x-worker-key": settings.api_key.get_secret_value()},
         )
 
-    async def lease(self) -> list[dict[str, Any]]:
+    async def lease(self) -> Lease:
         response = await self._client.post(
             "/worker/jobs/lease",
             json={"worker_id": self._settings.worker_id, "limit": self._settings.batch_size},
         )
         response.raise_for_status()
-        return response.json().get("jobs", [])
+        body = response.json()
+        hint = body.get("poll_in_seconds")
+        return Lease(
+            jobs=body.get("jobs", []),
+            poll_in_seconds=float(hint) if hint is not None else None,
+        )
 
     async def ack(
         self,
