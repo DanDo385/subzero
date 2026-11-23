@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import UUID
 
+import asyncpg
+
 from subzero.classifier.base import (
     ClassificationResult,
     Classifier,
@@ -137,9 +139,23 @@ class ClassificationService:
             return None
 
     async def queue_reclassification(
-        self, *, object_type: str, object_id: UUID, reason: str
+        self,
+        *,
+        object_type: str,
+        object_id: UUID,
+        reason: str,
+        conn: asyncpg.Connection | None = None,
     ) -> None:
-        await self._db.execute(
+        """Put an object on the durable classification work queue.
+
+        Pass the connection an open transaction is using when the object is
+        being created in it: then "saved" and "queued for classification"
+        commit together or not at all. Re-queueing an object that is already
+        there raises its attempt count and pushes ``next_attempt_at`` out
+        exponentially, to an hour at most.
+        """
+        executor = conn or self._db
+        await executor.execute(
             """
             INSERT INTO reclassification_queue (object_type, object_id, reason)
             VALUES ($1, $2, $3)
@@ -167,8 +183,10 @@ class ClassificationService:
         suggested: dict[str, Any] | None = None,
         confidence: float | None = None,
         classification_event_id: UUID | None = None,
+        conn: asyncpg.Connection | None = None,
     ) -> UUID | None:
-        return await self._db.fetchval(
+        executor = conn or self._db
+        return await executor.fetchval(
             """
             INSERT INTO review_queue (
                 object_type, object_id, reason, question, options, suggested,

@@ -76,6 +76,9 @@ class WikiReport:
     memberships_review: int = 0
     notes_queued: int = 0
     mocs_queued: int = 0
+    #: A render that was not queued because another job for the same vault path
+    #: is still open. The stamp is left alone so a later run picks it up.
+    renders_deferred: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -584,7 +587,7 @@ class WikiService:
             everything,
         )
         for note in notes:
-            await queue.enqueue(
+            job = await queue.enqueue(
                 job_type="write_note",
                 object_type="note",
                 object_id=note["id"],
@@ -592,6 +595,9 @@ class WikiService:
                 payload={"note_id": str(note["id"]), "reason": "wiki"},
                 expected_sha256=note["vault_synced_sha256"],
             )
+            if job is None:
+                report.renders_deferred += 1
+                continue
             await self._db.execute(
                 "UPDATE notes SET wiki_rendered_at = now() WHERE id = $1", note["id"]
             )
@@ -612,7 +618,7 @@ class WikiService:
         )
         for moc in mocs:
             vault_path = moc["vault_path"] or self._services.vault_paths.moc(moc["title"])
-            await queue.enqueue(
+            job = await queue.enqueue(
                 job_type="write_moc",
                 object_type="moc",
                 object_id=moc["id"],
@@ -620,6 +626,9 @@ class WikiService:
                 payload={"moc_id": str(moc["id"])},
                 expected_sha256=moc["rendered_sha256"],
             )
+            if job is None:
+                report.renders_deferred += 1
+                continue
             await self._db.execute(
                 "UPDATE mocs SET vault_path = $2, rendered_at = now() WHERE id = $1",
                 moc["id"],

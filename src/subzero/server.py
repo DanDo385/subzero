@@ -608,17 +608,20 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 "embeddings": settings.embedding_provider,
             },
         )
-        async with (
-            mcp_app.router.lifespan_context(app),
-            background_refresh(db, services.embeddings, settings),
-            background_classify(services),
-        ):
-            try:
+        # The background loops are cancelled before the pool closes, so each one
+        # can give up its lease on the way out and a restarted server does not
+        # have to wait for that lease to expire.
+        try:
+            async with (
+                mcp_app.router.lifespan_context(app),
+                background_refresh(db, services.embeddings, settings),
+                background_classify(services),
+            ):
                 yield
-            finally:
-                await services.aclose()
-                set_services(None)
-                set_database(None)
+        finally:
+            await services.aclose()
+            set_services(None)
+            set_database(None)
 
     routes = _build_routes(settings, mcp_app)
 
