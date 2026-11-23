@@ -2,7 +2,7 @@
 name: recall-context
 description: >
   Retrieve the user's shared cross-provider context before answering. Use when
-  the request depends on past work - a project, earlier decisions, lists,
+  the request depends on past work - a project, earlier decisions,
   preferences, a continuing task - and always when the user says "we
   discussed", "remember", "continue", "last time", or "what did we decide".
   Never for standalone questions.
@@ -18,7 +18,8 @@ Retrieve when **any** of these hold:
 - the request continues work on a project
 - the answer depends on a preference, a decision, or a person you would only
   know from earlier conversations
-- the user asks what is on a list, what is outstanding, or what was decided
+- the user asks what is outstanding, or what was decided. A list question
+  goes to the list app, not to Subzero
 - you are about to say "I don't have access to previous conversations" - you do
 
 Do **not** retrieve for a self-contained question ("what's 12% of 340",
@@ -27,7 +28,7 @@ Do **not** retrieve for a self-contained question ("what's 12% of 340",
 ## Required tools
 
 `context_bootstrap`, `context_search`, `context_recent`, `context_for_topic`,
-`project_get`, `list_get`, `memory_search`
+`project_get`, `memory_search`
 
 ## Procedure
 
@@ -48,8 +49,8 @@ Do **not** retrieve for a self-contained question ("what's 12% of 340",
    words - summaries and memories carry the same content at a fraction of the
    size.
 
-3. **Go specific.** For "what's on my X list" call `list_get` directly. For
-   "where is project Y" call `project_get`. These are cheaper and exact.
+3. **Go specific.** For "where is project Y" call `project_get`. For a list,
+   stop and say a list app manages lists. Do not call the list tools.
 
 4. **Read the provenance on every item.**
    - `user_statement` - the user said this. Treat it as fact.
@@ -94,4 +95,4 @@ latest sessions, open questions, open tasks, active decisions.
 
 > "Add this to my reading list."
 
-Skip `context_bootstrap`. Go to `list_search("reading")` then `list_add_item`.
+Do not call Subzero. Say that a list app manages lists.

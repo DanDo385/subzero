@@ -16,14 +16,15 @@ Sigils say where things belong; read them and use them when saving:
 %area/project, ^lesson/topic, &tool, #concept, @person, >agent (claude, codex,
 grok, gemini, pi, me, crew).
 
-When my request depends on past work (a project, earlier decisions, my lists,
+When my request depends on past work (a project, earlier decisions,
 "remember", a continuing task or lesson), call context_bootstrap once with a
 few key terms or sigils, never my whole message. Skip it for standalone
 questions.
 
 When durable state is established, checkpoint it once (decisions, facts,
-tasks, list changes, open questions), with sigils or the project. No noise or
-duplicates. Use my real lists through the list tools.
+tasks, open questions), with sigils or the project. No noise or duplicates.
+Notes to keep go to the vault. Lists live in a list app, not in Subzero.
+Scratch files are not memory.
 
 Never say a file is archived unless its bytes or full text were stored.
 
@@ -40,8 +41,8 @@ distinct from model analysis and outside research.
 ## Why it is this short
 
 Every token here is paid on every message in every conversation, forever. The
-detailed procedures — when exactly to checkpoint, how to pick between artifact
-tools, how to resolve a list name — belong where they are loaded on demand:
+detailed procedures, when exactly to checkpoint, how to pick between artifact
+tools, and how a dispatch is routed, belong where they are loaded on demand:
 
 - **Skills** (Claude, and ChatGPT where account-level skills are available)
 - **MCP tool descriptions**, which the model reads when it considers a tool

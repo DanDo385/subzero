@@ -149,6 +149,20 @@ was chosen (`sigil`, `jev 0.82`, or `default`).
 
 The board runs only on your machine (127.0.0.1) and never shows your device token to the page.
 
+## 8. Where a note goes
+
+| Kind of note | Where it goes |
+| --- | --- |
+| Something you or Claude should find later | The vault, through Subzero. The conversation is already in the database. |
+| A job or a message for another agent | The board (`subzero dispatch`, `subzero msg`) |
+| A list | A list app. Subzero does not keep lists. |
+| Scratch from an agent run | The temporary run folder `scratch-run` creates under `~/Code/.scratch`. It is not memory. |
+
+Herdr (tabs, panes, worktrees) is driven from the terminal. The browser extension captures chats
+and can open a bridge session with a CLI when you ask it to. It does not click herdr on its own.
+A worker on the always-on machine can pass a claimed job into a herdr pane with
+`herdr pane send-text`.
+
 ## When something goes wrong
 
 | You see | What it means | Fix |

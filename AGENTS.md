@@ -165,3 +165,38 @@ to their 1Password Environment (`project-env`).
 - `skills/` - portable workflow skills, including the named search/save/email/vault actions.
 - `instructions/` — per-provider connector setup plus the shared custom instruction.
 - `scripts/` — thin wrappers over `subzero import <provider>` / `reclassify`.
+
+## Notes, scratch, and other agents
+
+The machines on the tailnet share one Subzero server. Name them in
+`~/.config/subzero/MACHINES.md` (mbp, imac, ubuntu, and any machine added
+later). Postgres is the conversation history. Obsidian is the rendered copy of
+the same notes. Chat with the vault through `context_bootstrap` and
+`note_write`. Do not keep a second history in a scratch file.
+
+**Temp files.** `scratch-run` is the only place for temp files. A run lives at
+`~/Code/.scratch/{project}/{run-id}/` with `tmp/`, `logs/`, `artifacts/`,
+`work/`, and `run.json`, and `TMPDIR` points at that run's `tmp/`. Do not
+write notes, handoffs, or task lists under `~/Code/scratch`, `/tmp`, `/var`,
+or `/private` outside that run. `scratch-gc` deletes only registered runs that
+are old enough. Active, pinned, and unknown runs stay.
+
+**Where a note goes.**
+
+- A note a person should read goes to the vault with `note_write`.
+- A job or a message for another agent goes to the dispatch board
+  (`subzero dispatch`, `subzero msg`, `subzero board` on 127.0.0.1). See
+  `docs/guides/15-agents-messages-and-the-board.md`. The board never receives
+  the device token. Hooks must never fail the harness.
+- A list is not Subzero state. Do not add list tools, list tables, or list
+  instructions. The list tools still registered are frozen until they are
+  removed. A separate list app connects and manages lists.
+
+**Herdr and the browser.** Herdr commands run in the terminal. The browser
+extension captures chats and can open a bridge session with a CLI
+(`docs/guides/13-browser-extension.md`, `bridge_sessions`). Grok, the other
+CLIs, and herdr attach to that browser session only when the person asks.
+Worktree commands stay `herdr` commands. Do not drive herdr from the page.
+A worker may pass a claimed job into a herdr pane with `herdr pane send-text`,
+as guide 15 describes. Tailnet install is `docs/guides/14-run-on-your-mac-over-tailscale.md`.
+Vercel remains the public backup when the Mac is asleep.

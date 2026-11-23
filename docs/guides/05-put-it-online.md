@@ -69,7 +69,7 @@ It copies each setting from your `.env.local` into Vercel's *Production* environ
 passwords and keys as *sensitive* so the Vercel website never shows them. (Settings for the Obsidian
 helper stay on your computer.)
 
-✅ You'll see one `set PC_...` line per setting, then `Done`.
+✅ You'll see one `set SUBZERO_...` line per setting, then `Done`.
 
 ## Step 5: Deploy
 
