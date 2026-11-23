@@ -21,6 +21,7 @@ def result(
     worth: float = 0.9,
     gate: float = 2.0,
     bucket: str = "resource",
+    bucket_confidence: float = 0.8,
     relation: str = "new",
     atomicity: float = 1.0,
     preference: float = 0.1,
@@ -34,8 +35,13 @@ def result(
         "has_decision": Answer("noul", decision),
         "has_preference": Answer("noul", preference),
         "has_procedure": Answer("noul", procedure),
-        "atomicity": Answer("score", atomicity, confidence=0.7),
-        "para_bucket": Answer("choice", bucket, confidence=0.8),
+        "atomicity": Answer(
+            "score",
+            atomicity,
+            confidence=0.7,
+            probabilities={"2": max(0.0, atomicity - 1.0), "1": 1.0 - max(0.0, atomicity - 1.0)},
+        ),
+        "para_bucket": Answer("choice", bucket, confidence=bucket_confidence),
         "relation_to_existing": Answer("choice", relation, confidence=0.7),
         "confidence_gate": Answer("score", gate, confidence=0.7),
     }
@@ -71,8 +77,16 @@ def test_high_confidence_clear_bucket_becomes_a_note() -> None:
 
 
 def test_ready_permanent_goes_to_permanent() -> None:
-    decision = triage(result(atomicity=2.0))
-    assert decision.note_class == "permanent"
+    assert triage(result(atomicity=2.0)).note_class == "permanent"
+    # An expected value of 1.76 is "mostly ready", not ready.
+    assert triage(result(atomicity=1.76)).note_class == "resource"
+    # Project material stays with the project however tidy it is.
+    assert triage(result(atomicity=2.0, bucket="project")).note_class == "project"
+
+
+def test_an_unsure_bucket_is_only_a_suggestion() -> None:
+    decision = triage(result(bucket="area", bucket_confidence=0.4))
+    assert (decision.outcome, decision.bucket) == ("inbox", "area")
 
 
 @pytest.mark.parametrize(

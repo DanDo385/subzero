@@ -86,8 +86,9 @@ How each session is decided (first rule that matches wins):
 | Jev was unreachable | log only, asked again later |
 | `worth_processing` under 0.6, or bucket `discard` | discard if Jev was sure, otherwise log only |
 | `confidence_gate` low | log only |
-| gate high, a clear bucket, not `unclear` or `duplicates` | **note** in that bucket (or `Permanent/` if Jev rated it ready to stand alone) |
-| anything else worth keeping | **draft in `00-Inbox/`** |
+| gate high, Jev at least 70% sure of the bucket, not `unclear` or `duplicates` | **note** in that bucket; a resource Jev is 90% sure stands alone goes to `Permanent/` |
+| bucket `project` but no matching Subzero project | **draft in `00-Inbox/`** (Subzero never creates a project from a guess) |
+| anything else worth keeping | **draft in `00-Inbox/`**, with Jev's bucket as a suggestion |
 
 Sessions marked private or highly sensitive never get a vault note. They are
 counted in the report and never listed.

@@ -231,6 +231,16 @@ def decide(row: Any) -> Triage:
         return Triage(
             "log", decision.bucket, "sensitive_withheld", decision.gate, [], decision.scores
         )
+    if decision.outcome == "note" and decision.bucket == "project" and not row["project_slug"]:
+        # Subzero never creates a project from a guess: park it with the hint.
+        return Triage(
+            "inbox",
+            "project",
+            "no_matching_project",
+            decision.gate,
+            decision.candidates,
+            decision.scores,
+        )
     return decision
 
 

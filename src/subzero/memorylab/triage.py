@@ -8,9 +8,11 @@ The decision policy, in order (first match wins):
    ``discard`` when the gate is high (Jev is sure it is worthless), ``log``
    otherwise.
 3. Low ``confidence_gate``: ``log``.
-4. High gate, a clear bucket (not ``inbox``), relation not ``unclear`` and not
-   ``duplicates``: ``note`` in that bucket, or in ``permanent`` when Jev rated
-   it ready to stand alone.
+4. High gate, a clear bucket (not ``inbox``, Choice confidence at least
+   TRIAGE_BUCKET_MIN), relation not ``unclear`` and not ``duplicates``:
+   ``note`` in that bucket, or in ``permanent`` for a resource Jev rated ready
+   to stand alone with probability TRIAGE_PERMANENT_MIN or more. recover.py
+   sends a project note with no matching Subzero project to the inbox.
 5. Anything else that is worth processing: ``inbox`` (a draft in 00-Inbox).
 
 Independently, in a session worth processing, a confident preference, procedure or decision marks the
@@ -28,10 +30,11 @@ from typing import Any
 from subzero.classifier.base import ClassificationResult
 from subzero.classifier.questions import (
     TRIAGE_ATOMICITY_LEVELS,
+    TRIAGE_BUCKET_MIN,
     TRIAGE_CANDIDATE_MIN,
-    TRIAGE_CONFIDENCE_LEVELS,
     TRIAGE_GATE_HIGH,
     TRIAGE_GATE_MEDIUM,
+    TRIAGE_PERMANENT_MIN,
     TRIAGE_WORTH_MIN,
 )
 
@@ -75,10 +78,6 @@ class Triage:
         return "inbox"
 
 
-def _level_name(levels: list[str], index: float) -> str:
-    return levels[max(0, min(len(levels) - 1, round(index)))].split(".", 1)[0].lower()
-
-
 def has_triage(result: ClassificationResult) -> bool:
     return "worth_processing" in result.answers and "confidence_gate" in result.answers
 
@@ -111,12 +110,14 @@ def triage(result: ClassificationResult) -> Triage:
         if gate_raw >= TRIAGE_GATE_MEDIUM
         else "low"
     )
-    bucket, _ = result.choice("para_bucket")
+    bucket, bucket_confidence = result.choice("para_bucket")
     relation, _ = result.choice("relation_to_existing")
+    # Score answers are expected values (1.76 is "mostly ready"), so read the
+    # probability of the top level instead of rounding the value.
     atomicity = result.answers.get("atomicity")
-    ready = atomicity is not None and _level_name(
-        TRIAGE_ATOMICITY_LEVELS, float(atomicity.value)
-    ).startswith("ready")
+    top_level = str(len(TRIAGE_ATOMICITY_LEVELS) - 1)
+    ready_p = float(atomicity.probabilities.get(top_level, 0.0)) if atomicity else 0.0
+    clear_bucket = bucket in BUCKET_NOTE_CLASS and bucket_confidence >= TRIAGE_BUCKET_MIN
 
     candidates = [
         kind
@@ -141,8 +142,11 @@ def triage(result: ClassificationResult) -> Triage:
         return make("discard" if gate == "high" else "log", reason)
     if gate == "low":
         return make("log", "low_confidence")
-    if gate == "high" and bucket in BUCKET_NOTE_CLASS and relation not in ("unclear", "duplicates"):
-        return make("note", "high_confidence", "permanent" if ready else bucket)
+    if gate == "high" and clear_bucket and relation not in ("unclear", "duplicates"):
+        # Permanent is for a standalone insight; project and area material
+        # stays with its project or area however tidy it is.
+        permanent = bucket == "resource" and ready_p >= TRIAGE_PERMANENT_MIN
+        return make("note", "high_confidence", "permanent" if permanent else bucket)
     if relation == "duplicates" and gate == "high":
         return make("log", "duplicates_existing")
     reason = (
@@ -151,7 +155,3 @@ def triage(result: ClassificationResult) -> Triage:
         else ("bucket_unclear" if bucket == "inbox" else "medium_confidence")
     )
     return make("inbox", reason, bucket if bucket in BUCKET_NOTE_CLASS else None)
-
-
-def gate_name(index: float) -> str:
-    return _level_name(TRIAGE_CONFIDENCE_LEVELS, index)
