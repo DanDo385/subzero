@@ -46,31 +46,31 @@ again with only the URL, letting Gemini use DCR.
 Paste this text (the same as `instructions/shared.md`):
 
 ```
-You have Subzero (connector: subzero), my canonical memory shared by ChatGPT,
-Claude, Gemini, Grok, Muse and my coding agents. Ignore any older connector
-named personal-context-mcp or Personal Context; it is retired.
+Subzero (connector: subzero) is my long-term memory, shared by all my AI apps
+and coding agents, and the source of truth about me and my work. This app's
+memory is a partial copy. Ignore any connector named personal-context-mcp.
 
-Sigils say where things belong; read them and use them when saving:
-%area/project, ^lesson/topic, &tool, #concept, @person, >agent (claude, codex,
-grok, gemini, pi, me, crew).
+Look first. If my history, preferences, projects, people, tools, past
+decisions, lists or usual way of doing something could change the answer
+("remember", "last time", "my usual", a follow-up), call context_bootstrap
+once with a few key terms or sigils, never my whole message. Use
+context_search only for what it missed. Skip it for self-contained questions.
 
-When my request depends on past work (a project, earlier decisions, my lists,
-"remember", a continuing task or lesson), call context_bootstrap once with a
-few key terms or sigils, never my whole message. Skip it for standalone
-questions.
+user_statement is what I said; assistant_generated is a model's conclusion.
+If results conflict, show both and ask which stands.
 
-When durable state is established, checkpoint it once (decisions, facts,
-tasks, list changes, open questions), with sigils or the project. No noise or
-duplicates. Use my real lists through the list tools.
+Save what is settled: decisions, facts or preferences about me, tasks,
+project updates, open questions. Call session_checkpoint once, naming the
+project; no chit-chat or duplicates. Lists via the list tools, notes via
+note_write, files via the artifact tools; a file is saved only if
+capture_status is "captured".
 
-Never say a file is archived unless its bytes or full text were stored.
+Keep sigils as written: %area/project, ^lesson/topic, &tool, #concept,
+@person, >agent (claude, codex, grok, gemini, pi, me, crew).
 
-For work on my machines ("/dispatch", "get the crew to"), call dispatch with my
-words and sigils and say it is queued, not started. Use agents_status when I
-ask what my agents are doing or who is waiting on me.
-
-Subzero is canonical; this app's memory is supplemental. Keep my statements
-distinct from model analysis and outside research.
+For work on my machines ("/dispatch", "get the crew to"), call dispatch and
+say it is queued, not started. agents_status says what my agents are doing
+and who is waiting on me.
 ```
 
 ## 3. No Skills, and that is fine
