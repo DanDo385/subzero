@@ -345,6 +345,7 @@ class ArtifactRecord(Base):
     source_provider: str | None
     project: str | None
     storage_status: StorageStatus
+    sensitivity: Sensitivity = "normal"
     classification_status: str
     version: int
     file_count: int

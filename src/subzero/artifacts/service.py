@@ -56,6 +56,7 @@ def _artifact_record(row: asyncpg.Record, files: list[asyncpg.Record]) -> Artifa
         source_provider=row["source_provider"],
         project=row.get("project_slug"),
         storage_status=row["storage_status"],
+        sensitivity=row["sensitivity"],
         classification_status=row["classification_status"],
         version=row["version"],
         file_count=len(files),
