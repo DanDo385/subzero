@@ -26,7 +26,7 @@ from typing import Any
 
 from typesafe_sdk import Choice, Noul, Score
 
-QUESTIONS_VERSION = "2026-11-09.1"
+QUESTIONS_VERSION = "2026-11-23.1"
 
 #: Offered whenever a Choice ranges over projects, so "none of these" is
 #: always reachable.
@@ -180,6 +180,7 @@ def checkpoint_questions(project_candidates: dict[str, str]) -> dict[str, Any]:
             criteria=IMPORTANCE_LEVELS,
         ),
     }
+    questions.update(triage_questions())
     if project_candidates:
         questions["project"] = Choice(
             instructions=(
@@ -190,6 +191,128 @@ def checkpoint_questions(project_candidates: dict[str, str]) -> dict[str, Any]:
             criteria={**project_candidates, UNASSIGNED: _unassigned_text("conversation")},
         )
     return questions
+
+
+# --------------------------------------------------------------------------
+# Memory triage: where a session's knowledge goes (subzero.memorylab)
+# --------------------------------------------------------------------------
+#
+# Asked in the same request as the checkpoint questions, so a session is read
+# once. subzero/memorylab/triage.py turns the answers into one of four
+# outcomes (note, inbox draft, log only, discard); nothing here decides that.
+
+TRIAGE_INTENT_CRITERIA: dict[str, str] = {
+    "research": "Finding out about a topic: gathering facts, sources or explanations.",
+    "how_to": "Working out the steps to get something done.",
+    "comparison": "Weighing two or more options against each other.",
+    "decision": "Reaching or recording a choice about what to do.",
+    "debugging": "Finding and fixing why something does not work.",
+    "brainstorm": "Generating ideas without settling on one.",
+    "other": "None of the above describes the main purpose.",
+}
+
+#: Index 0..2, lowest first.
+TRIAGE_ATOMICITY_LEVELS: list[str] = [
+    "Fleeting. Only meaningful in the moment; nothing here would stand alone as a note.",
+    "Extractable. Contains one or more ideas worth keeping, but they would need to "
+    "be pulled out and rewritten before they stood alone.",
+    "Ready permanent. States a single clear idea, decision or procedure that could be "
+    "kept as a self-contained note almost as written.",
+]
+
+#: PARA buckets plus the two non-destinations. Keys are what
+#: memorylab.triage maps onto vault roots; Python resolves the path, never Jev.
+TRIAGE_PARA_CRITERIA: dict[str, str] = {
+    "project": "Serves a specific piece of work with a goal and an end: a build, a launch, a deliverable.",
+    "area": "An ongoing responsibility with no end date: health, money, a role, a home, a skill being kept up.",
+    "resource": "A topic of interest or reference material, useful whatever is being worked on.",
+    "archive": "Belonged to a project or area that is finished or no longer active.",
+    "inbox": "Worth keeping, but which of the above it belongs to is genuinely unclear from what is here.",
+    "discard": "Not worth keeping anywhere beyond the raw transcript.",
+}
+
+TRIAGE_RELATION_CRITERIA: dict[str, str] = {
+    "new": "Introduces something not covered by anything listed as already known.",
+    "extends": "Adds to or refines something already known without contradicting it.",
+    "contradicts": "Disagrees with, reverses or supersedes something already known.",
+    "duplicates": "Says essentially the same as something already known.",
+    "unclear": "Cannot tell how it relates from what is given.",
+}
+
+#: Index 0..2, lowest first.
+TRIAGE_CONFIDENCE_LEVELS: list[str] = [
+    "Low. The content is too thin, mixed or ambiguous to file without a person looking at it.",
+    "Medium. A reasonable filing is clear, but a person might reasonably file it differently.",
+    "High. What this is and where it belongs is obvious from the content itself.",
+]
+
+#: Below this worth_processing probability a session is logged only, never
+#: drafted. The prompt that defined the experiment set it at 0.6.
+TRIAGE_WORTH_MIN = 0.60
+#: A preference/procedure/decision Noul at or above this marks a hot-memory
+#: candidate (MEMORY.md / USER.md). Uses NOUL_YES, the house "yes" line.
+TRIAGE_CANDIDATE_MIN = 0.80
+#: confidence_gate is read as an expected level (0..2). At or above HIGH a
+#: clear bucket becomes a note; at or above MEDIUM it becomes an inbox draft.
+TRIAGE_GATE_HIGH = 1.5
+TRIAGE_GATE_MEDIUM = 0.75
+
+
+def triage_questions() -> dict[str, Any]:
+    """The memory-lab questions, merged into every checkpoint request."""
+    return {
+        "worth_processing": Noul(
+            instructions=(
+                "This session contains at least one reusable insight, decision, "
+                "preference, or procedure that would help in a later, different session."
+            )
+        ),
+        "primary_intent": Choice(
+            instructions="What was the main purpose of this session?",
+            criteria=TRIAGE_INTENT_CRITERIA,
+        ),
+        "has_decision": Noul(
+            instructions=(
+                "The session contains an explicit decision or commitment by the "
+                "person: something chosen or promised, not merely discussed."
+            )
+        ),
+        "has_preference": Noul(
+            instructions=(
+                "The session reveals a stable preference or working pattern of the "
+                "person that would still hold in unrelated future sessions."
+            )
+        ),
+        "has_procedure": Noul(
+            instructions=(
+                "The session contains a reusable how-to or workflow: steps that "
+                "worked and could be followed again."
+            )
+        ),
+        "atomicity": Score(
+            instructions="How close is the most valuable part of this session to a standalone note?",
+            criteria=TRIAGE_ATOMICITY_LEVELS,
+        ),
+        "para_bucket": Choice(
+            instructions=(
+                "In a PARA knowledge system, where would the most valuable part of "
+                "this session belong? Choose by what it is for, not by its topic."
+            ),
+            criteria=TRIAGE_PARA_CRITERIA,
+        ),
+        "relation_to_existing": Choice(
+            instructions=(
+                "How does this session relate to what is listed in the state as "
+                "already known (existing notes, memories, decisions)? When nothing "
+                "is listed, judge whether it reads as new ground."
+            ),
+            criteria=TRIAGE_RELATION_CRITERIA,
+        ),
+        "confidence_gate": Score(
+            instructions="How confidently can this session be filed without a person checking it?",
+            criteria=TRIAGE_CONFIDENCE_LEVELS,
+        ),
+    }
 
 
 def artifact_questions(
