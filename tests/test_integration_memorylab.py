@@ -197,4 +197,19 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     again = await recover(services, dry_run=False)
     assert again.seen == 0 and again.skipped_unchanged == 4
 
+    # A later run that decides only one session still reports the whole history.
+    await services.db.execute(
+        "UPDATE memory_triage SET classification_event_id = NULL WHERE conversation_id = "
+        "(SELECT id FROM conversations WHERE title = 'Small talk')"
+    )
+    assert (await recover(services, dry_run=False)).seen == 1
+    report_text = await services.db.fetchval(
+        "SELECT content FROM notes WHERE vault_path LIKE 'Experiments/Analysis/recovery-report%'"
+    )
+    assert "All 4 triaged sessions" in report_text and "decided 1 of them" in report_text
+    candidates = await services.db.fetchval(
+        "SELECT content FROM notes WHERE vault_path = 'Experiments/Analysis/hot-memory-candidates.md'"
+    )
+    assert "Editor habits" in candidates
+
     assert await write_structured(services) >= 0
