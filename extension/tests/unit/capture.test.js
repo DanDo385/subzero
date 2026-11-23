@@ -510,6 +510,40 @@ test('server errors back off and keep the item; rejected items move to the faile
   assert.deepEqual(state.captureQueue.map((i) => i.provider_conversation_id), ['conv-1']);
 });
 
+test('conversations the server refuses do not hold up the rest', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  const broken = new Set(['c0', 'c1', 'c2']); // one for each delivery worker
+  respond = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    if (broken.has(body.provider_conversation_id)) {
+      return { ok: false, status: 500, text: async () => 'this one is broken' };
+    }
+    return { ok: true, status: 200, url: 'https://server.example/x', json: async () => ({ conversation_id: body.provider_conversation_id, messages_inserted: 1 }) };
+  };
+  for (let n = 0; n < 6; n++) await queue.enqueue({ ...payload, provider_conversation_id: `c${n}` });
+  await queue.drain();
+  assert.deepEqual(state.captureQueue.map((i) => i.provider_conversation_id), ['c0', 'c1', 'c2']);
+  assert(state.captureQueue.every((i) => i._attempts === 1));
+  assert.equal(requests.length, 6);
+});
+
+test('an unavailable server stops delivery without spending every item\'s attempts', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  respond = async () => ({ ok: false, status: 503, text: async () => 'starting up' });
+  for (let n = 0; n < 6; n++) await queue.enqueue({ ...payload, provider_conversation_id: `c${n}` });
+  await queue.drain();
+  assert.equal(requests.length, 3, 'each worker stops at its first 503');
+  assert.equal(state.captureQueue.filter((i) => i._attempts === 0).length, 3);
+});
+
+test('a re-capture keeps attachments the queued capture had', async () => {
+  const queue = await import(moduleUrl('lib/queue.js'));
+  const file = { provider_attachment_id: 'f1', file_name: 'plan.pdf', file_size: 10 };
+  await queue.enqueue({ ...payload, provider_conversation_id: 'att', attachments: [file] });
+  await queue.enqueue({ ...payload, provider_conversation_id: 'att', attachments: [] });
+  assert.deepEqual(plain(state['queue:chatgpt:att'].attachments), [file]);
+});
+
 test('a rejected token keeps every item and asks to pair again', async () => {
   const queue = await import(moduleUrl('lib/queue.js'));
   respond = async () => ({ ok: false, status: 401, text: async () => '{"error":"unauthorized"}' });
