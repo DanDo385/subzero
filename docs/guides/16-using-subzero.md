@@ -11,6 +11,9 @@ a write, plus the purple-giraffe test, is [guide 12](12-daily-use.md). The
 browser extension is [guide 13](13-browser-extension.md). Coding agents, the
 board, and pairing a machine are [guide 15](15-agents-messages-and-the-board.md).
 
+For two copyable custom-instruction blocks and the CLI-to-browser handoff,
+see [browser and mobile custom instructions](../../instructions/browser-custom-instructions.md).
+
 ## If you only read one section
 
 1. Start a **new** chat. Chats from before you connected do not know about Subzero.
