@@ -8,14 +8,23 @@ near-duplicate check could never find it by meaning.
 
 from __future__ import annotations
 
+import pytest
+
 from conftest import requires_db
 from subzero.embeddings.refresh import refresh_backlog
-from test_integration_semantic import fake  # noqa: F401  (fixture)
+from subzero.embeddings.service import EmbeddingService
+from test_integration_semantic import FakeProvider
 
 pytestmark = requires_db
 
 
-async def test_refresh_fills_memories_and_summaries(services, fake) -> None:  # noqa: F811
+@pytest.fixture
+def fake(settings):
+    provider = FakeProvider()
+    return provider, EmbeddingService(provider, settings)
+
+
+async def test_refresh_fills_memories_and_summaries(services, fake) -> None:
     provider, embeddings = fake
     # Saved by the services fixture's embedding service, which has no provider.
     kept = await services.memories.save(content="Dan deploys the server from the mbp")
@@ -48,3 +57,21 @@ async def test_refresh_fills_memories_and_summaries(services, fake) -> None:  # 
     )
     sent = [text for call in provider.calls for text in call]
     assert not any("safe combination" in text for text in sent)
+
+
+async def test_a_batch_larger_than_a_write_chunk_is_written_in_full(
+    services,
+    fake,
+    monkeypatch,
+) -> None:
+    from subzero.embeddings import refresh
+
+    _, embeddings = fake
+    monkeypatch.setattr(refresh, "WRITE_CHUNK", 2)
+    for n in range(7):
+        await services.memories.save(content=f"Distinct fact number {n} about the deploy")
+
+    result = await refresh_backlog(services.db, embeddings, batch_size=50, max_batches=1)
+
+    assert result.embedded == 7
+    assert await services.db.fetchval("SELECT count(*) FROM memories WHERE embedding IS NULL") == 0
