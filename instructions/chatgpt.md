@@ -28,33 +28,18 @@ the server is put online (docs/guides/05-put-it-online.md) rather than run local
 
 ## 3. Custom instructions
 
-**Settings → Personalization → Custom instructions**, into "Anything else
-ChatGPT should know". Paste this text (the same as `instructions/shared.md`):
+**Settings → Personalization → Custom instructions**. Paste **Block A** and
+**Block B** from [instructions/shared.md](shared.md): that file is the only copy
+of the text, so it cannot disagree with itself.
 
-```
-Subzero (connector: subzero) is my long-term memory, shared by all my AI apps
-and coding agents, and the source of truth about me and my work. This app's
-memory is a partial copy. Ignore any connector named personal-context-mcp.
+Both blocks fit. The field holds 5,000 characters on Plus and up, and Free/Go
+(1,500) cannot add connectors in the first place. An edit takes effect
+immediately, including in chats that are already open.
 
-Look first. If my history, preferences, projects, people, tools, past
-decisions, lists or usual way of doing something could change the answer
-("remember", "last time", "my usual", a follow-up), call context_bootstrap
-once with a few key terms, never my whole message. Use context_search
-only for what it missed. Skip it for self-contained questions.
-
-user_statement is what I said; assistant_generated is a model's conclusion.
-If results conflict, show both and ask which stands.
-
-Save what is settled: decisions, facts or preferences about me, tasks,
-project updates, open questions. Call session_checkpoint once, naming the
-project; no chit-chat or duplicates. Lists via the list tools, notes via
-note_write, files via the artifact tools; a file is saved only if
-capture_status is "captured".
-
-For work on my machines ("/dispatch", "get the crew to"), call dispatch and
-say it is queued, not started. agents_status says what my agents are doing
-and who is waiting on me.
-```
+Two places it does **not** apply: inside a **Project**, where project
+instructions win (paste the blocks there too if you want Subzero in that
+Project), and in a temporary chat, unless you switch personalization on when
+you start it.
 
 ## Turn off built-in memory (recommended)
 

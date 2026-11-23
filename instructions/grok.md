@@ -16,32 +16,8 @@ Connectors and the custom MCP option are on Grok's paid tiers.
 
 ## 2. Persistent instructions
 
-Grok's custom-instruction field (**Settings → Customize**). Paste this text (the same as `instructions/shared.md`):
-
-```
-Subzero (connector: subzero) is my long-term memory, shared by all my AI apps
-and coding agents, and the source of truth about me and my work. This app's
-memory is a partial copy. Ignore any connector named personal-context-mcp.
-
-Look first. If my history, preferences, projects, people, tools, past
-decisions, lists or usual way of doing something could change the answer
-("remember", "last time", "my usual", a follow-up), call context_bootstrap
-once with a few key terms, never my whole message. Use context_search
-only for what it missed. Skip it for self-contained questions.
-
-user_statement is what I said; assistant_generated is a model's conclusion.
-If results conflict, show both and ask which stands.
-
-Save what is settled: decisions, facts or preferences about me, tasks,
-project updates, open questions. Call session_checkpoint once, naming the
-project; no chit-chat or duplicates. Lists via the list tools, notes via
-note_write, files via the artifact tools; a file is saved only if
-capture_status is "captured".
-
-For work on my machines ("/dispatch", "get the crew to"), call dispatch and
-say it is queued, not started. agents_status says what my agents are doing
-and who is waiting on me.
-```
+Grok's custom-instruction field (**Settings → Customize**). Paste **Block A** and
+**Block B** from [instructions/shared.md](shared.md), the only copy of the text.
 
 ## 3. Skills
 

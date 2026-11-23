@@ -23,50 +23,33 @@ which step broke; fix that before connecting any app.
 
 ## The custom instruction (same for every app)
 
-Copy the text below and paste it into each app's custom instruction field:
+Open [instructions/shared.md](../../instructions/shared.md) and copy its two
+blocks into each app's custom-instruction field:
 
-```
-Subzero (connector: subzero) is my long-term memory, shared by all my AI apps
-and coding agents, and the source of truth about me and my work. This app's
-memory is a partial copy. Ignore any connector named personal-context-mcp.
+- **Block A: memory and tools.** Tells the app that Subzero is canonical, when
+  to call `context_bootstrap`, and what counts as saved. Required.
+- **Block B: voice and teaching.** How you want answers and explanations to
+  read. Optional, and useful on its own in an app you have not connected yet.
 
-Look first. If my history, preferences, projects, people, tools, past
-decisions, lists or usual way of doing something could change the answer
-("remember", "last time", "my usual", a follow-up), call context_bootstrap
-once with a few key terms, never my whole message. Use context_search
-only for what it missed. Skip it for self-contained questions.
-
-user_statement is what I said; assistant_generated is a model's conclusion.
-If results conflict, show both and ask which stands.
-
-Save what is settled: decisions, facts or preferences about me, tasks,
-project updates, open questions. Call session_checkpoint once, naming the
-project; no chit-chat or duplicates. Lists via the list tools, notes via
-note_write, files via the artifact tools; a file is saved only if
-capture_status is "captured".
-
-For work on my machines ("/dispatch", "get the crew to"), call dispatch and
-say it is queued, not started. agents_status says what my agents are doing
-and who is waiting on me.
-```
-
-This is the same text as [instructions/shared.md](../../instructions/shared.md). It's deliberately
-short: the app reads it with every message. The detailed procedures live in Skills, tool descriptions
-and MCP prompts, which are loaded only when needed.
+That file is the only copy of the text, so the app guides cannot drift away from
+it. It is deliberately short, because the app reads it with every message: the
+detailed procedures live in Skills, MCP tool descriptions and MCP prompts, which
+load only when needed.
 
 ## Moving from personal-context-mcp
 
 If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it
-and add a new one named **subzero** with the same server address. Then paste the instruction above
-over the old one. Old saved memories stay: they live in your database, not in the connector.
+and add a new one named **subzero** with the same server address. Then paste the two blocks from
+[instructions/shared.md](../../instructions/shared.md) over the old text. Old saved memories stay:
+they live in your database, not in the connector.
 
 ## App by app
 
 | App | Where to add it | Where the instruction goes | Needs | Full guide |
 | --- | --- | --- | --- | --- |
-| **Claude** | claude.ai → **Settings → Connectors → Add custom connector** | **Settings → Profile** → "What personal preferences should Claude consider" | any plan that offers custom connectors | [instructions/claude.md](../../instructions/claude.md) |
+| **Claude** | claude.ai → **Settings → Connectors → Add custom connector** | your initials, bottom left → **Settings → Instructions for Claude** | any plan that offers custom connectors | [instructions/claude.md](../../instructions/claude.md) |
 | **ChatGPT** | chatgpt.com → **Settings → Security and login → Developer mode** on, then **Settings → Plugins → +** | **Settings → Personalization → Custom instructions** | a plan with developer mode (Plus, Pro, Business, ...) | [instructions/chatgpt.md](../../instructions/chatgpt.md) |
-| **Gemini** | gemini.google.com **on a computer** → **Settings & help → Connected Apps → Custom apps for Spark → Add a custom app** | **Settings & help → Saved info** | **Google AI Pro or Ultra** (not Plus), a *personal* Google account, Keep Activity on | [instructions/gemini.md](../../instructions/gemini.md) |
+| **Gemini** | gemini.google.com **on a computer** → **Settings & help → Connected Apps → Custom apps for Spark → Add a custom app** | **Settings & help → Personal Intelligence → Instructions for Gemini** | **Google AI Pro or Ultra** (not Plus), a *personal* Google account, Keep Activity on | [instructions/gemini.md](../../instructions/gemini.md) |
 | **Grok** | **grok.com/connectors** (not your accounts.x.ai page) → **New Connector → Custom** | **Settings → Customize** | a paid Grok plan | [instructions/grok.md](../../instructions/grok.md) |
 | **Muse** | **Settings → Connectors → Add custom connector**, or ask Muse in a chat to add one with your server address | its own settings, or the start of a chat | US or Canada; connects from Meta's cloud, so the server must be public | none yet |
 
