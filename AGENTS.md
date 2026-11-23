@@ -18,9 +18,9 @@ ids) out of committed docs and templates; they live in Git-ignored `deploy/local
 
 ```bash
 uv sync --all-groups                       # install, including dev group
-uv run subzero migrate            # apply migrations (--status to see pending)
-uv run subzero check              # validate config, DB, migrations, buckets, Jev
-uv run subzero serve              # run the MCP server
+uv run subzero migrate                     # apply migrations (--status to see pending)
+uv run subzero check                       # validate config, DB, migrations, buckets, Jev
+uv run subzero serve                       # run the MCP server
 docker compose up -d db                    # Postgres 17 + pgvector on :5432
 
 uv run ruff check src tests
@@ -121,12 +121,28 @@ allowlist of subjects; capability scopes (`auth/scopes.py`) granted server-side 
 in depth only — `tests/test_http_security.py` asserts an unauthenticated caller learns nothing with
 or without it. Keep that test honest when adding routes.
 
-**Config is environment-only**, `PC_`-prefixed, in `config.py`, documented in `.env.example`.
+**Config is environment-only**, `SUBZERO_`-prefixed (old `PC_` names are still read as a fallback), in `config.py`, documented in `.env.example`.
 `Settings.validate_startup()` reports *every* unsafe configuration at once and the server refuses to
 boot on one (`auth_mode=none|static` in prod, plain HTTP in prod, OAuth without an allowlist).
 
+**Sigils are parsed by code, before Jev** (`sigils.py`): `%project`, `^lesson`, `&setup`, `#concept`,
+`@person`, `>agent`. Read in `session_checkpoint`, `note_write` and `context_bootstrap`; a `%project`
+only names an existing project and never creates one.
+
+**Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
+tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
+the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
+`scout`. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`) runs on each machine:
+hooks must never fail the harness, and the board serves only 127.0.0.1 and never sends the device
+token to the page.
+
 **Embeddings are optional.** `SUBZERO_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
-full-text search alone, so nothing may assume a vector is present.
+full-text search alone, so nothing may assume a vector is present. When a provider is set,
+`embeddings/refresh.py` fills `messages.embedding` in the server's background (small batches every
+`SUBZERO_EMBEDDING_REFRESH_SECONDS`, `embedding_skipped` marks what policy forbids), and
+`retrieval/semantic.py` serves `memory_deep_search` and bootstrap's optional `semantic` layer, the one
+read path that makes a model call (one, with a 2 s timeout). Pass vectors as `$n::text::vector` with
+`vector_literal`.
 
 **Historical backfill is two passes.** Import screens sensitivity deterministically
 (`importers/sensitivity.py`, can only raise a level), then Jev classifies an excerpt (pass 1),
@@ -149,3 +165,38 @@ to their 1Password Environment (`project-env`).
 - `skills/` - portable workflow skills, including the named search/save/email/vault actions.
 - `instructions/` — per-provider connector setup plus the shared custom instruction.
 - `scripts/` — thin wrappers over `subzero import <provider>` / `reclassify`.
+
+## Notes, scratch, and other agents
+
+The machines on the tailnet share one Subzero server. Name them in
+`~/.config/subzero/MACHINES.md` (mbp, imac, ubuntu, and any machine added
+later). Postgres is the conversation history. Obsidian is the rendered copy of
+the same notes. Chat with the vault through `context_bootstrap` and
+`note_write`. Do not keep a second history in a scratch file.
+
+**Temp files.** `scratch-run` is the only place for temp files. A run lives at
+`~/Code/.scratch/{project}/{run-id}/` with `tmp/`, `logs/`, `artifacts/`,
+`work/`, and `run.json`, and `TMPDIR` points at that run's `tmp/`. Do not
+write notes, handoffs, or task lists under `~/Code/scratch`, `/tmp`, `/var`,
+or `/private` outside that run. `scratch-gc` deletes only registered runs that
+are old enough. Active, pinned, and unknown runs stay.
+
+**Where a note goes.**
+
+- A note a person should read goes to the vault with `note_write`.
+- A job or a message for another agent goes to the dispatch board
+  (`subzero dispatch`, `subzero msg`, `subzero board` on 127.0.0.1). See
+  `docs/guides/15-agents-messages-and-the-board.md`. The board never receives
+  the device token. Hooks must never fail the harness.
+- A list is not Subzero state. Do not add list tools, list tables, or list
+  instructions. The list tools still registered are frozen until they are
+  removed. A separate list app connects and manages lists.
+
+**Herdr and the browser.** Herdr commands run in the terminal. The browser
+extension captures chats and can open a bridge session with a CLI
+(`docs/guides/13-browser-extension.md`, `bridge_sessions`). Grok, the other
+CLIs, and herdr attach to that browser session only when the person asks.
+Worktree commands stay `herdr` commands. Do not drive herdr from the page.
+A worker may pass a claimed job into a herdr pane with `herdr pane send-text`,
+as guide 15 describes. Tailnet install is `docs/guides/14-run-on-your-mac-over-tailscale.md`.
+Vercel remains the public backup when the Mac is asleep.

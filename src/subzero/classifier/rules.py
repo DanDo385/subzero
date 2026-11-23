@@ -332,6 +332,15 @@ class RulesClassifier:
             str(state.get("input_hash", "")),
         )
 
+    async def classify_dispatch(
+        self, state: dict[str, Any], target_candidates: dict[str, str]
+    ) -> ClassificationResult:
+        """No judgement without Jev: any free agent, at low confidence."""
+        return self._result(
+            {"target": Answer("choice", "crew", confidence=0.2, probabilities={"crew": 0.2})},
+            str(state.get("input_hash", "")),
+        )
+
     async def classify_moc(
         self, state: dict[str, Any], moc_candidates: dict[str, str]
     ) -> ClassificationResult:

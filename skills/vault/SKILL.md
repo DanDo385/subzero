@@ -10,10 +10,9 @@ become `concept/{name}` tags. Use project_search to resolve project homes.
 
 For a note or session summary, supply a stable title and Markdown content.
 Reusing that title updates the same note. Do not claim to capture a transcript
-you cannot see. For a list, first use `list_search` and `list_get`, then call
-`note_write(title=..., list_ref=...)` with empty content. The server renders the
-canonical list with item IDs, so ticking a box completes that same item in the
-database. Never copy list items into a prose note. Use list_* to change items.
+you cannot see. Do not mirror a list into the vault. A list app manages lists.
+A note the person should find later is a normal `note_write` with a title and
+Markdown content.
 
 Read `vault_status`: `queued` means waiting for the worker; `written` means it
 acknowledged this version. Say "queued" or "already written" plainly. If disabled,

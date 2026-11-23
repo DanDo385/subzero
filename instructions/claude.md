@@ -21,7 +21,7 @@ Settings → **Profile → What personal preferences should Claude consider**.
 Paste this text:
 
 ```
-When my request depends on past work (a project, earlier decisions, my lists,
+When my request depends on past work (a project, earlier decisions,
 "remember", "last time", a continuing task), call context_bootstrap once with a
 short query of key terms you choose (names, projects, topics) and the project
 if you know it. Never paste my whole message into it. If I refer to something
@@ -29,12 +29,13 @@ previously discussed, search Subzero rather than assuming this app's
 native memory is complete. Do not retrieve for standalone questions.
 
 When durable state is established, checkpoint it: decisions, project state,
-confirmed facts, tasks, list changes, unresolved questions and important
+confirmed facts, tasks, unresolved questions and important
 artifact relationships, naming the project when there is one. Do not save
 conversational noise or duplicates.
 
-Use my real lists through the list tools rather than writing out a list from
-memory.
+Lists are not stored in Subzero. A list app manages them. Do not write a list
+from memory and call it saved. Notes to keep go to the vault. Scratch files
+are not memory.
 
 When meaningful files or generated artifacts should be retained, capture them
 through Subzero. Never tell me an artifact is archived unless its

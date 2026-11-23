@@ -46,6 +46,17 @@ are stored through the same canonical writers as imported conversations.
 | `Refusing to start. Fix the configuration problems above` | A setting is missing or unsafe. | The lines above it say exactly which; `check` shows them too. |
 | `SUBZERO_AUTH_MODE=static is refused when SUBZERO_ENVIRONMENT=prod` | Test settings are being used online. | Run `init` again and choose `online`. |
 | `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
+| `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
+| `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
+| `PC_HARNESS_API_KEY is required for bridge commands` | The CLI has no capability token for the browser bridge. | Add `PC_HARNESS_API_KEY` to `.env.local`, restart the server, and run the bridge command again. |
+
+## Browser session bridge
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Bridge request failed with status 401` | The harness token is missing or does not match the server. | Check that `PC_HARNESS_API_KEY` is identical in the CLI and server environment. |
+| The Bridge tab says `Not paired` | The browser has no device token. | Pair the extension with `uv run subzero pair-device`, then paste the code into the extension popup. |
+| The Bridge tab stays empty | The session has no messages, or the server has not applied the bridge migration. | Run `uv run subzero migrate`, then append a message with `bridge-message`. |
 
 ## Database
 
@@ -108,3 +119,29 @@ See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#c
 Open an issue using the **Setup help** template on GitHub. Include what you ran, what you expected and
 what you saw, plus the output of `check`. **Never include your `.env.local` or any secret**; `check` doesn't
 print any.
+
+## Agents, hooks and the board
+
+See [guide 15](guides/15-agents-messages-and-the-board.md#when-something-goes-wrong) for the full
+table. The common ones:
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Not connected. Run: subzero connect ...` | This machine has no device token. | `subzero pair-device` on the server, then `subzero connect <address>` here. |
+| `The server refused this device` | The device token was revoked. | Connect again with a new pairing code. |
+| `this device is not paired for agents` | The token can only save chats (the extension's kind). | `subzero pair-device --agents` on the server, then `subzero connect` again. |
+| No master prompt in Claude Code | Hooks not installed, or the session predates them. | `subzero hooks install`; start a new session; read `~/.cache/subzero/hook-errors.log`. |
+| `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
+| `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |
+
+## Browser extension
+
+The full table is in [guide 13](guides/13-browser-extension.md#when-it-goes-wrong). The common ones:
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Could not establish connection. Receiving end does not exist` (older versions) | The chat tab had no Subzero script, usually because it was open before the extension was installed or reloaded. | Update the extension (0.2 reconnects tabs by itself), or refresh the tab. |
+| `Could not reach https://… Is the server running?` | Nothing answers at the paired address. The extension never falls back to another server. | Open the address plus `/healthz`; start the server. Waiting conversations are sent when it is back. |
+| `… does not know that code` | The pairing code was made against a different database than the server uses. | Run `pair-device` with the server's settings (guide 14's installer prints the command) and check its `Database:` line. |
+| `… did not accept this browser's token. Pair it again.` | The server does not know this browser. | Pair again; queued conversations are kept. |
+| `No messages found` on Gemini, Grok or Muse | Their page layout changed. | Open an issue; Claude and ChatGPT are unaffected. |

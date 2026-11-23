@@ -5,7 +5,7 @@ Two tiers:
 * **Unit** tests exercise pure logic (path validation, key generation, archive
   guards, confidence policy, dedup hashing). They need nothing external.
 * **Integration** tests exercise real SQL against a real Postgres with
-  pgvector. They are skipped, with a clear reason, unless PC_TEST_DATABASE_URL
+  pgvector. They are skipped, with a clear reason, unless SUBZERO_TEST_DATABASE_URL
   points at a throwaway database.
 
 Nothing here ever touches a production database: the integration fixture
@@ -21,11 +21,13 @@ import pytest
 
 from subzero.config import Settings
 
-TEST_DB_ENV = "PC_TEST_DATABASE_URL"
+TEST_DB_ENV = "SUBZERO_TEST_DATABASE_URL"
+#: Name before the rename; still read so an old shell profile keeps working.
+LEGACY_TEST_DB_ENV = "PC_TEST_DATABASE_URL"
 
 
 def _test_dsn() -> str | None:
-    dsn = os.environ.get(TEST_DB_ENV)
+    dsn = os.environ.get(TEST_DB_ENV) or os.environ.get(LEGACY_TEST_DB_ENV)
     if not dsn:
         return None
     # Refuse to run destructive schema work against anything not obviously a

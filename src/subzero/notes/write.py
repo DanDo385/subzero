@@ -6,6 +6,7 @@ import json
 from typing import Any
 from uuid import UUID
 
+from subzero import sigils
 from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
@@ -84,6 +85,20 @@ class NoteWriter:
             )
             levels = {"normal": 0, "private": 1, "highly_sensitive": 2}
             sensitivity = max((sensitivity, stored_level), key=levels.__getitem__)
+        # Sigils the user typed in the title or body decide the home before Jev.
+        marks = sigils.parse_all(title, content)
+        if marks.any:
+            if (
+                marks.project
+                and not project
+                and not home
+                and await self.projects.resolve(marks.project)
+            ):
+                project = marks.project
+            if not home and marks.home and not marks.home.startswith("projects/"):
+                home = marks.home
+            if concepts is None and marks.concepts:
+                concepts = list(marks.concepts)
         project_id = await self.projects.resolve(project)
         if home and home.startswith("projects/"):
             project_id = await self.projects.resolve(home.removeprefix("projects/"))
@@ -120,6 +135,7 @@ class NoteWriter:
                 append=append,
                 home=home,
                 concepts=concepts,
+                people=list(marks.people) or None,
                 conn=conn,
             )
             record = await conn.fetchrow("SELECT * FROM notes WHERE id = $1", note_id)

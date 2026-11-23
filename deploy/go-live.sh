@@ -13,16 +13,16 @@ PLAIN="${1:-}"
 if [[ -z "$PLAIN" && -f deploy/admin.env.op && -f deploy/production.env.op ]]; then
   run() { op run --env-file=deploy/admin.env.op -- "$@"; }
   PRODUCTION=deploy/production.env.op
-  URL="$(op run --no-masking --env-file=deploy/production.env.op -- printenv PC_BASE_URL)"  # not a secret
+  URL="$(op run --no-masking --env-file=deploy/production.env.op -- sh -c 'printf %s "${SUBZERO_BASE_URL:-${PC_BASE_URL:-}}"')"  # not a secret
   deploy/preflight.sh
 else
   PLAIN="${PLAIN:-.env.local}"
   [[ -f "$PLAIN" ]] || { echo "No settings at $PLAIN. Run: uv run subzero init" >&2; exit 1; }
   run() { "$@"; }
   PRODUCTION="$PLAIN"
-  URL="$(grep -E '^PC_BASE_URL=' "$PLAIN" | head -1 | cut -d= -f2- | tr -d '"'"'")"
+  URL="$(grep -E '^(SUBZERO|PC)_BASE_URL=' "$PLAIN" | head -1 | cut -d= -f2- | tr -d '"'"'")"
 fi
-[[ "$URL" == https://* ]] || { echo "PC_BASE_URL must be an https:// address (got: ${URL:-nothing})." >&2; exit 1; }
+[[ "$URL" == https://* ]] || { echo "SUBZERO_BASE_URL must be an https:// address (got: ${URL:-nothing})." >&2; exit 1; }
 
 echo "==> Creating/updating the database tables"
 run uv run subzero migrate

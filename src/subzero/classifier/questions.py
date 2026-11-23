@@ -26,7 +26,7 @@ from typing import Any
 
 from typesafe_sdk import Choice, Noul, Score
 
-QUESTIONS_VERSION = "2026-09-24.1"
+QUESTIONS_VERSION = "2026-11-09.1"
 
 #: Offered whenever a Choice ranges over projects, so "none of these" is
 #: always reachable.
@@ -302,6 +302,45 @@ def list_candidate_questions(list_candidates: dict[str, str]) -> dict[str, Any]:
                 "Choose 'none' if none of them is a natural home for it."
             ),
             criteria={**list_candidates, "none": "No existing list is a natural home."},
+        ),
+    }
+
+
+# --------------------------------------------------------------------------
+# Dispatch: which agent takes a job
+# --------------------------------------------------------------------------
+
+#: Who a dispatched job can go to. Keys are the names a ``>`` sigil uses, so
+#: ``>grok`` and Jev's answer mean the same thing. "crew" is the no-match
+#: option: any free coding agent.
+DISPATCH_TARGETS: dict[str, str] = {
+    "claude": "Changes across several files of an existing codebase, careful refactors, "
+    "debugging, or writing documentation that must match the code.",
+    "codex": "A well-specified coding task with tests or a clear check to make pass.",
+    "grok": "Anything that needs what is being said on X right now: posts, people, "
+    "reactions to a release.",
+    "gemini": "Reading something long, such as a long PDF, a video or a large document, "
+    "and summarising it.",
+    "pi": "A small, quick edit or shell task on one machine.",
+    "me": "Something only the person can do: decide, pay, sign in, or type code they "
+    "are learning to write.",
+    "crew": "Any available coding agent; nothing here favours one in particular.",
+}
+
+#: Below this Jev confidence a job goes to "crew" instead of a named agent.
+DISPATCH_ROUTE_AUTO = 0.60
+
+
+def dispatch_questions(target_candidates: dict[str, str]) -> dict[str, Any]:
+    """Which agent should do a job the person dispatched without naming one?"""
+    return {
+        "target": Choice(
+            instructions=(
+                "A person dispatched this task to their agents without saying which "
+                "one should do it. Which agent is the best fit? Choose 'crew' when "
+                "none is clearly better than the others."
+            ),
+            criteria=target_candidates,
         ),
     }
 

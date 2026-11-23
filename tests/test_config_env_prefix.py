@@ -1,4 +1,4 @@
-"""SUBZERO_ settings take priority, with PC_ names supported during migration."""
+"""Settings read SUBZERO_ names first and the pre-rename PC_ names as a fallback."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from subzero.config import Settings, legacy_env_names
 
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # No .env/.env.local from the developer's checkout, no stray settings.
     monkeypatch.chdir(tmp_path)
     for name in ("SUBZERO_LOG_LEVEL", "PC_LOG_LEVEL", "SUBZERO_PORT", "PC_PORT"):
         monkeypatch.delenv(name, raising=False)
@@ -45,3 +46,32 @@ def test_new_name_in_env_local_wins_over_old(tmp_path: Path) -> None:
 def test_legacy_env_names_lists_old_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PC_PORT", "1")
     assert "PC_PORT" in legacy_env_names()
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("postgresql://postgres@/subzero?host=/srv/pg", "subzero on this computer (/srv/pg)"),
+        ("postgresql://u:secret@db.example.com:6543/postgres", "postgres on db.example.com:6543"),
+        ("postgresql://u:secret@localhost/subzero", "subzero on localhost"),
+        ("", "(no database configured)"),
+    ],
+)
+def test_database_target_names_the_database_without_credentials(url: str, expected: str) -> None:
+    from pydantic import SecretStr
+
+    target = Settings(database_url=SecretStr(url)).database_target()
+    assert target == expected
+    assert "secret" not in target
+
+
+def test_approved_bridge_key_still_reads_pc_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SUBZERO_HARNESS_API_KEY", raising=False)
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "bridge-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "bridge-test-key"
+
+
+def test_bridge_key_obeys_new_prefix_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "legacy-test-key")
+    monkeypatch.setenv("SUBZERO_HARNESS_API_KEY", "new-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "new-test-key"

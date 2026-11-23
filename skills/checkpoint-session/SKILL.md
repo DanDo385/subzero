@@ -3,7 +3,7 @@ name: checkpoint-session
 description: >
   Persist durable state from a conversation into shared cross-provider memory.
   Use when something has been settled that should outlive this chat: a
-  decision, a confirmed fact, a task, a list change, a project update, or an
+  decision, a confirmed fact, a task, a project update, or an
   unresolved question.
 ---
 
@@ -17,7 +17,6 @@ would need to be told again:
 - a decision was made
 - a fact about the user, their work or their preferences was confirmed
 - a concrete task was created
-- a list changed
 - a project's status, scope or goals changed
 - a question was raised and left open
 - substantive research was done that is worth keeping
@@ -37,14 +36,14 @@ Noise is expensive here: it buries the things that matter.
 
 ## Required tools
 
-`session_checkpoint` (primary), `list_search` and `project_search` (to find
-real names before referring to them)
+`session_checkpoint` (primary), `project_search` (to find a project name
+before referring to it)
 
 ## Procedure
 
-1. **Look up real names first.** If you are going to touch a list or a
-   project, call `list_search` / `project_search` so you use the name that
-   exists rather than creating a near-duplicate.
+1. **Look up the project name first.** Call `project_search` so you use the
+   name that exists rather than creating a near-duplicate. Do not send list
+   updates. A list app manages lists.
 
 2. **Call `session_checkpoint` ONCE** with everything:
 
@@ -62,7 +61,6 @@ real names before referring to them)
      `assistant_generated` for your own recommendation they have not confirmed
    - `facts` - self-contained, with **accurate** `provenance`
    - `tasks` - concrete unfinished actions
-   - `list_updates` - additions and completions on existing lists
    - `project_updates` - status or goal changes
    - `open_questions` - what is still unresolved. They accumulate across
      checkpoints of one session
@@ -119,7 +117,7 @@ session_checkpoint(
     "subject": "personal-ai-architecture",
     "provenance": "user_statement"
   }],
-  tasks=[{"text": "Test the Gemini connector on iPhone", "list": "personal-ai-tasks"}],
+  tasks=[{"text": "Test the Gemini connector on iPhone"}],
   open_questions=["Does Grok support static OAuth client ids yet?"]
 )
 ```

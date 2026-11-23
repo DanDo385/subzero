@@ -166,6 +166,42 @@ async def test_worker_api_requires_the_shared_secret(client) -> None:
         assert response.json() == {"error": "unauthorized"}
 
 
+async def test_agent_api_requires_a_device_token(client) -> None:
+    http_client, _ = client
+    session = "00000000-0000-0000-0000-000000000000"
+    for method, path in (
+        ("POST", "/api/v1/agents/start"),
+        ("POST", f"/api/v1/agents/{session}/beat"),
+        ("POST", f"/api/v1/agents/{session}/end"),
+        ("GET", "/api/v1/agents/board"),
+        ("POST", "/api/v1/messages"),
+        ("GET", "/api/v1/messages/me"),
+        ("POST", "/api/v1/dispatch"),
+        ("POST", "/api/v1/dispatch/claim"),
+        ("POST", f"/api/v1/dispatch/{session}/finish"),
+        ("GET", "/api/v1/bootstrap?q=anything"),
+    ):
+        response = await http_client.request(method, path, json={})
+        assert response.status_code == 401, path
+        assert response.json() == {"error": "unauthorized"}, path
+
+
+@pytest.mark.parametrize("server_id", ["", "high-entropy-server-path"])
+async def test_bridge_api_reveals_nothing_without_auth(tmp_path, server_id: str) -> None:
+    settings = _settings(local_storage_root=str(tmp_path / "storage"), server_id=server_id)
+    transport = httpx.ASGITransport(app=create_app(settings))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        for method, path in (
+            ("POST", "/api/v1/sessions"),
+            ("GET", "/api/v1/sessions/00000000-0000-0000-0000-000000000000"),
+            ("GET", "/api/v1/sessions/invalid-id"),
+            ("POST", "/api/v1/sessions/00000000-0000-0000-0000-000000000000/messages"),
+        ):
+            response = await client.request(method, path, json={"title": "private task"})
+            assert response.status_code == 401, path
+            assert response.json() == {"error": "unauthorized"}, path
+
+
 async def test_worker_api_rejects_a_wrong_secret(client) -> None:
     http_client, _ = client
     response = await http_client.post(

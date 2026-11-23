@@ -37,11 +37,15 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Mount, Route
 
 from subzero import worker_api
+from subzero.agents.api import build_agent_routes
 from subzero.auth.kv import PostgresKeyValue
 from subzero.auth.provider import build_auth_provider
 from subzero.auth.ratelimit import RateLimitMiddleware
+from subzero.bridge.api import build_bridge_routes
 from subzero.config import Settings, get_settings
 from subzero.db.pool import Database, set_database
+from subzero.embeddings.refresh import background_refresh
+from subzero.importers.reclassify import background_classify
 from subzero.ingest import build_ingest_routes
 from subzero.logging_setup import (
     configure_logging,
@@ -57,7 +61,12 @@ logger = get_logger(__name__)
 
 SERVER_INSTRUCTIONS = """\
 Subzero is this user's canonical memory, shared across ChatGPT, \
-Claude, Gemini and Grok.
+Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
+named personal-context-mcp is also present, do not use it.
+
+Sigils in what the user types say where things belong: %area/project, \
+^lesson/topic, &tool, #concept, @person, and >agent for who gets a dispatched \
+job. Pass them through as written: the server reads them.
 
 Retrieve (context_bootstrap) only when the request depends on past work: a \
 project, earlier decisions, lists, "remember", "last time", a continuing task. \
@@ -78,6 +87,9 @@ saved unless the tool result reports capture_status "captured".
 Every retrieved item carries provenance. Treat "user_statement" as what the \
 user said and "assistant_generated" as a model's conclusion, not a fact. When \
 a package lists conflicts, ask the user which one stands; do not pick one.
+
+For work on the user's machines, call dispatch (it queues; say so). \
+agents_status shows running coding sessions and who is waiting on the user.
 """
 
 
@@ -490,6 +502,8 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
         Route("/artifacts/download", local_download, methods=["GET"]),
         Route("/artifacts/upload", local_upload, methods=["PUT", "POST"]),
         *build_ingest_routes(settings),
+        *build_agent_routes(),
+        *build_bridge_routes(settings),
         # The MCP app owns its own path plus the /.well-known OAuth metadata.
         Mount("/", app=mcp_app),
     ]
@@ -544,7 +558,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 "embeddings": settings.embedding_provider,
             },
         )
-        async with mcp_app.router.lifespan_context(app):
+        async with (
+            mcp_app.router.lifespan_context(app),
+            background_refresh(db, services.embeddings, settings),
+            background_classify(services),
+        ):
             try:
                 yield
             finally:

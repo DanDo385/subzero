@@ -28,6 +28,9 @@ worker = [
 
 [project.scripts]
 subzero = "subzero.cli:main"
+# Old command name, kept so launchd agents installed before the rename still
+# start. Remove once deploy/install-*.sh has been re-run on every machine.
+personal-context-mcp = "subzero.cli:main"
 obsidian-sync = "obsidian_sync.cli:main"
 
 [dependency-groups]

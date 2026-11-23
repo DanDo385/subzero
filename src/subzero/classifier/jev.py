@@ -30,6 +30,7 @@ from subzero.classifier.questions import (
     QUESTIONS_VERSION,
     artifact_questions,
     checkpoint_questions,
+    dispatch_questions,
     link_questions,
     list_candidate_questions,
     moc_questions,
@@ -232,6 +233,16 @@ class JevClassifier:
             link_questions(),
             fallback=lambda s, _c: self._fallback.classify_note_link(s),
             candidates={},
+        )
+
+    async def classify_dispatch(
+        self, state: dict[str, Any], target_candidates: dict[str, str]
+    ) -> ClassificationResult:
+        return await self._ask(
+            state,
+            dispatch_questions(target_candidates),
+            fallback=self._fallback.classify_dispatch,
+            candidates=target_candidates,
         )
 
     async def classify_moc(

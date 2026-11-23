@@ -88,6 +88,26 @@ and, in a brand-new Claude Code session:
 
 ✅ It finds the answer in your server, not in its own memory.
 
+### Option C: Browser session bridge
+
+To show messages from a terminal coding harness in the extension's Bridge tab, add a separate
+capability token to `.env.local` and restart the server:
+
+```bash
+PC_HARNESS_API_KEY=choose-a-long-random-secret
+```
+
+Then create a bridge session and append messages from another Terminal window:
+
+```bash
+uv run subzero bridge-session --title "My coding task"
+uv run subzero bridge-message SESSION_ID "The first progress update"
+```
+
+The first command prints a `subzero://session/...` link. Paste it into the extension's Bridge tab.
+The tab polls every five seconds. The harness token is only for creating sessions and posting
+messages, so never paste it into the extension.
+
 ### Option B: MCP Inspector (a test tool; needs Node.js from guide 1)
 
 ```bash

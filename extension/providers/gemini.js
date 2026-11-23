@@ -1,3 +1,6 @@
+(function () {
+  'use strict';
+
 // Subzero — Gemini provider extractor.
 // DOM-based extraction. Gemini's batchExecute RPC is too fragile for production,
 // so we use the DOM structure the page renders. Fallback if RPC approach later proves stable.
@@ -209,4 +212,10 @@ async function listConversations() {
   return convs;
 }
 
-export { extractCurrentConversation, listConversations, isConversationPage };
+// Registered for the content script: MV3 content scripts are classic scripts
+// and cannot import ES modules, so providers attach to a shared global.
+(globalThis.__subzeroProviders ||= {}).gemini = {
+  extractCurrentConversation, listConversations, isConversationPage,
+};
+
+})();

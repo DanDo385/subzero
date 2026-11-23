@@ -18,13 +18,15 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
         from subzero.embeddings.remote import OpenAIEmbeddingProvider
 
         return OpenAIEmbeddingProvider(
-            settings.openai_api_key.get_secret_value(), settings.embedding_model
+            settings.openai_api_key.get_secret_value(),
+            settings.embedding_model or OpenAIEmbeddingProvider.default_model,
         )
     if settings.embedding_provider == "gemini" and settings.gemini_api_key.get_secret_value():
         from subzero.embeddings.remote import GeminiEmbeddingProvider
 
         return GeminiEmbeddingProvider(
-            settings.gemini_api_key.get_secret_value(), settings.embedding_model
+            settings.gemini_api_key.get_secret_value(),
+            settings.embedding_model or GeminiEmbeddingProvider.default_model,
         )
     if settings.embedding_provider != "none":
         logger.warning(

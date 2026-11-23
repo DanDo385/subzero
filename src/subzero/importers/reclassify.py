@@ -10,6 +10,8 @@ The raw archive is never touched.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 from typing import Any
 from uuid import UUID
 
@@ -174,3 +176,78 @@ def summarise(report: ImportReport) -> dict[str, Any]:
         "deep_extraction_candidates": data["deep_extraction_candidates"],
         "errors": data["errors"],
     }
+
+
+# ------------------------------------------------------- background intake
+
+
+async def unclassified_conversations(services: Services, *, limit: int) -> list[UUID]:
+    """Imported conversations with messages and no usable classification
+    under any question set: what the browser extension saved since the last
+    run. Newest first."""
+    rows = await services.db.fetch(
+        """
+        SELECT c.id
+        FROM conversations c
+        WHERE c.imported
+          AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
+          AND NOT EXISTS (
+                SELECT 1 FROM classification_events e
+                WHERE e.object_type = 'checkpoint' AND e.object_id = c.id AND NOT e.degraded)
+        ORDER BY c.updated_at DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return [row["id"] for row in rows]
+
+
+#: A conversation whose classification just failed waits this long before
+#: the next try, so one that always fails cannot starve the rest.
+RETRY_AFTER_S = 6 * 3600
+
+
+async def classify_forever(services: Services) -> None:
+    """The server's background classification loop. Never raises."""
+    settings = services.settings
+    failed_at: dict[UUID, float] = {}
+    while True:
+        try:
+            now = time.monotonic()
+            ids = [
+                cid
+                for cid in await unclassified_conversations(
+                    services, limit=settings.auto_classify_batch * 3
+                )
+                if now - failed_at.get(cid, -RETRY_AFTER_S) >= RETRY_AFTER_S
+            ][: settings.auto_classify_batch]
+            if ids:
+                report = await reclassify_conversations(services, ids, concurrency=2)
+                for error in report.errors:
+                    with contextlib.suppress(ValueError):
+                        failed_at[UUID(error.split(":", 1)[0])] = time.monotonic()
+                logger.info(
+                    "conversations classified",
+                    extra={
+                        "classified": len(ids) - len(report.errors),
+                        "failed": len(report.errors),
+                    },
+                )
+        except Exception:
+            logger.exception("background classification failed; retrying next interval")
+        await asyncio.sleep(settings.auto_classify_seconds)
+
+
+@contextlib.asynccontextmanager
+async def background_classify(services: Services):  # type: ignore[no-untyped-def]
+    """Run the loop for the server's lifetime, when turned on."""
+    if services.settings.auto_classify_seconds <= 0:
+        yield
+        return
+    task = asyncio.create_task(classify_forever(services), name="auto-classify")
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task

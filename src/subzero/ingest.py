@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 
 from subzero.config import Settings
 from subzero.importers.base import parse_timestamp
+from subzero.importers.sensitivity import screen_texts
 from subzero.logging_setup import get_logger
 from subzero.services import get_services
 
@@ -33,23 +34,47 @@ def _bearer_token(request: Request) -> str | None:
 
 
 async def _validate_device_token(db, token: str) -> dict[str, Any] | None:
-    """Validate a device token. Returns device record or None."""
+    """The device a live token belongs to, or None. Records the use in the
+    same statement: one round trip, which matters against a remote database."""
     row = await db.fetchrow(
         """
-        SELECT id, device_id, device_name
-        FROM device_tokens
+        UPDATE device_tokens SET last_used_at = now()
         WHERE token = $1 AND revoked_at IS NULL
+        RETURNING id, device_id, device_name, scopes
         """,
         token,
     )
-    if row is None:
-        return None
-    # Update last_used_at.
-    await db.execute(
-        "UPDATE device_tokens SET last_used_at = now() WHERE id = $1",
-        row["id"],
-    )
-    return dict(row)
+    return dict(row) if row is not None else None
+
+
+#: Provider ids are fixed by migrations; read once per process, and again
+#: only when a capture names one not seen yet.
+_known_providers: set[str] = set()
+
+
+async def _provider_exists(db, provider: str) -> bool:
+    if provider not in _known_providers:
+        _known_providers.update(r["id"] for r in await db.fetch("SELECT id FROM providers"))
+    return provider in _known_providers
+
+
+def _merge_attachments(known: list[Any], new: list[Any]) -> list[Any]:
+    """Union of attachment references, keeping the first seen of each.
+
+    Keyed by the provider's attachment id, else by file name and size.
+    """
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for item in [*known, *new]:
+        if not isinstance(item, dict):
+            continue
+        key = str(
+            item.get("provider_attachment_id") or f"{item.get('file_name')}:{item.get('file_size')}"
+        )
+        if key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
 
 
 def _make_token() -> str:
@@ -114,7 +139,7 @@ def build_ingest_routes(settings: Settings) -> list:
         async with db.transaction() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT id, device_name
+                SELECT id, device_name, scopes
                 FROM pairing_codes
                 WHERE code = $1 AND used_at IS NULL AND expires_at > now()
                 FOR UPDATE
@@ -128,12 +153,13 @@ def build_ingest_routes(settings: Settings) -> list:
             token = _make_token()
             await conn.execute(
                 """
-                INSERT INTO device_tokens (device_id, token, device_name)
-                VALUES ($1, $2, $3)
+                INSERT INTO device_tokens (device_id, token, device_name, scopes)
+                VALUES ($1, $2, $3, $4)
                 """,
                 device_id,
                 token,
                 device_name or row["device_name"] or "unknown",
+                row["scopes"],
             )
             await conn.execute(
                 "UPDATE pairing_codes SET used_at = now(), used_by_device_id = $1 WHERE id = $2",
@@ -197,7 +223,7 @@ def build_ingest_routes(settings: Settings) -> list:
             return JSONResponse(
                 {"error": "provider and provider_conversation_id must be strings"}, status_code=400
             )
-        if not await db.fetchval("SELECT EXISTS(SELECT 1 FROM providers WHERE id = $1)", provider):
+        if not await _provider_exists(db, provider):
             return JSONResponse({"error": "unknown provider"}, status_code=400)
 
         normalized = []
@@ -233,11 +259,41 @@ def build_ingest_routes(settings: Settings) -> list:
                 conv_id, normalized, provider=provider, conn=conn
             )
             skipped = len(normalized) - inserted
+            # Attachment references accumulate: a later capture that shows
+            # fewer of them must not drop the ones already recorded.
+            merged: list[Any] = []
+            if attachments:
+                known = await conn.fetchval(
+                    "SELECT metadata->'_attachments' FROM conversations WHERE id = $1", conv_id
+                )
+                merged = _merge_attachments(known if isinstance(known, list) else [], attachments)
+            # The deterministic sensitivity screen file imports run, here on
+            # every capture (local pattern matching, nothing leaves the
+            # process). It only ever raises the stored level, and it runs
+            # before anything (embeddings, Jev) could send the text out.
+            screen = (
+                screen_texts(
+                    [title or "", *(m["content"] for m in normalized)],
+                    default=settings.import_default_sensitivity,
+                )
+                if settings.import_sensitivity_screen
+                else None
+            )
+            metadata: dict[str, Any] = {"_attachments": merged} if merged else {}
+            if screen and screen.reasons:
+                metadata["sensitivity_screen"] = screen.reasons
             await conn.execute(
-                "UPDATE conversations SET updated_at = coalesce($2::timestamptz, updated_at), metadata = metadata || $3::jsonb WHERE id = $1",
+                """
+                UPDATE conversations
+                SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz),
+                    sensitivity = greatest(sensitivity, $4::pc_sensitivity),
+                    metadata = metadata || $3::jsonb
+                WHERE id = $1
+                """,
                 conv_id,
                 updated_at,
-                {"_attachments": attachments} if attachments else {},
+                metadata,
+                screen.level if screen else settings.import_default_sensitivity,
             )
 
         status = "created" if created else "updated"
@@ -263,6 +319,55 @@ def build_ingest_routes(settings: Settings) -> list:
                 "status": status,
                 "messages_inserted": inserted,
                 "messages_skipped": skipped,
+            }
+        )
+
+    # ---- Sync state (what the server already has) ----
+
+    async def sync_state(request: Request) -> JSONResponse:
+        """Per provider: every conversation the server has, with the provider's
+        last update time it has seen. The extension fetches only what is newer."""
+        token = _bearer_token(request)
+        if not token:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        db = get_services().db
+        if await _validate_device_token(db, token) is None:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        provider = request.query_params.get("provider", "")
+        if not provider:
+            return JSONResponse({"error": "provider is required"}, status_code=400)
+        # ?recent=N: only the N most recently updated. A sync stops at the
+        # first conversation that is up to date, which is always among the
+        # newest, so it needs a few hundred rows, not the whole history.
+        try:
+            recent = int(request.query_params.get("recent", "0"))
+        except ValueError:
+            return JSONResponse({"error": "recent must be a number"}, status_code=400)
+        rows = await db.fetch(
+            """
+            SELECT provider_conversation_id, provider_updated_at
+            FROM conversations
+            WHERE provider = $1 AND provider_conversation_id IS NOT NULL
+            ORDER BY provider_updated_at DESC NULLS LAST
+            LIMIT $2
+            """,
+            provider,
+            recent if recent > 0 else None,
+        )
+        conversations = {
+            row["provider_conversation_id"]: (
+                row["provider_updated_at"].isoformat() if row["provider_updated_at"] else None
+            )
+            for row in rows
+        }
+        known = [v for v in conversations.values() if v]
+        return JSONResponse(
+            {
+                "provider": provider,
+                "count": len(conversations),
+                "latest": max(known) if known else None,
+                "conversations": conversations,
             }
         )
 
@@ -315,5 +420,6 @@ def build_ingest_routes(settings: Settings) -> list:
         Route("/api/v1/auth/pair-device", pair_device, methods=["POST"]),
         Route("/api/v1/auth/devices/{device_id}", revoke_device, methods=["DELETE"]),
         Route("/api/v1/ingest/conversation", ingest_conversation, methods=["POST"]),
+        Route("/api/v1/ingest/sync-state", sync_state, methods=["GET"]),
         Route("/api/v1/handoff", handoff, methods=["GET"]),
     ]

@@ -89,9 +89,8 @@ def register(mcp: FastMCP) -> None:
             "- decisions: things settled, one sentence each\n"
             "- facts: durable, self-contained statements, with accurate provenance\n"
             "- tasks: concrete unfinished actions\n"
-            "- list_updates: additions and completions on existing lists - call "
-            "list_search first to find their real names\n"
             "- project_updates: status or goal changes\n"
+            "- do not send list_updates: a list app manages lists\n"
             "- open_questions: what is still unresolved\n"
             "- resolved_questions: earlier open questions this conversation answered\n\n"
             "- home: one of projects/{existing-project-slug}, lesson/{category}, setup/{tool}, other\n"
@@ -129,18 +128,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.prompt(name="manage_lists")
     def manage_lists() -> str:
-        """How to work with the user's lists."""
+        """Lists are leaving Subzero. An external list app manages them."""
         return (
-            "The user keeps many lists and they are canonical state, not prose.\n\n"
-            "1. Call list_search FIRST. The name in conversation rarely matches "
-            "the stored name - 'my reading list' may be 'Books to read'.\n"
-            "2. Add with list_add_item to the list you found.\n"
-            "3. Only call list_create when nothing existing is a reasonable home, "
-            "and say that you are creating it.\n"
-            "4. To complete or move an item, use the item id from list_get. "
-            "Matching on text can hit the wrong item.\n"
-            "5. Never answer a list question by writing out a Markdown list from "
-            "memory - read the real one."
+            "Subzero is not the list keeper. Do not create lists, add items, "
+            "or complete items here. A separate list app connects and manages "
+            "lists. If the user asks for a list, say that, and do not invent "
+            "one from memory.\n\n"
+            "The old list tools may still be registered. Do not call them."
         )
 
     @mcp.resource("subzero://guide/{name}", mime_type="text/markdown")

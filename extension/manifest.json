@@ -1,14 +1,26 @@
 {
   "manifest_version": 3,
   "name": "Subzero",
-  "version": "0.1.0",
-  "description": "Captures AI chat sessions from Claude, ChatGPT, Gemini and Grok into your Subzero database.",
-  "permissions": ["storage", "alarms", "sidePanel"],
+  "version": "0.2.1",
+  "description": "Captures AI chat sessions from Muse, Claude, ChatGPT, Gemini and Grok into your Subzero database.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "scripting",
+    "sidePanel"
+  ],
   "host_permissions": [
     "https://claude.ai/*",
     "https://chatgpt.com/*",
     "https://gemini.google.com/*",
-    "https://grok.com/*"
+    "https://grok.com/*",
+    "https://muse.ai/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -20,9 +32,17 @@
         "https://claude.ai/*",
         "https://chatgpt.com/*",
         "https://gemini.google.com/*",
-        "https://grok.com/*"
+        "https://grok.com/*",
+        "https://muse.ai/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "providers/claude.js",
+        "providers/chatgpt.js",
+        "providers/gemini.js",
+        "providers/grok.js",
+        "providers/muse.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
