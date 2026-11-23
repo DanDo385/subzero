@@ -55,7 +55,7 @@ your machine.** It enqueues jobs; the laptop polls outbound and writes.
 - [Memory layers](#memory-layers)
 - [Context retrieval](#context-retrieval)
 - [Session checkpoints](#session-checkpoints)
-- [Lists](#lists)
+- [Tasks](#tasks)
 - [Artifacts](#artifacts)
 - [Jev classification](#jev-classification)
 - [Confidence policy](#confidence-policy)
@@ -80,8 +80,8 @@ your machine.** It enqueues jobs; the laptop polls outbound and writes.
 | **Shared memory** | A decision made in Claude is retrievable in Gemini, with provenance saying it came from Claude and when. |
 | **Session archive** | Conversations and messages, imported from provider exports or checkpointed live. |
 | **Semantic retrieval** | Hybrid full-text + vector search across memories, summaries, notes and decisions. |
-| **Projects** | The central graph node: conversations, memories, decisions, tasks, lists, notes and artifacts hang off it. |
-| **Lists** | First-class rows, not Markdown. Add from ChatGPT, complete from Claude, tick a box in Obsidian. |
+| **Projects** | The central graph node: conversations, memories, decisions, tasks, notes and artifacts hang off it. |
+| **Tasks** | A project's concrete next steps as rows. Rendered into the project's vault note; personal errands live in the user's own apps. |
 | **Artifacts** | Multi-file projects stay one artifact with their tree, hashes and manifest intact. |
 | **Classification** | Jev decides what is important and where it belongs; Python decides what to do about it. |
 | **Obsidian** | A curated, human-editable layer, synced by an outbound-only local worker. |
@@ -133,7 +133,7 @@ flowchart TB
         direction LR
         P1[conversations, messages]
         P2[summaries, memories]
-        P3[projects, decisions, lists]
+        P3[projects, decisions, tasks]
         P4[artifact metadata + manifests]
         P5[classification + audit log]
     end
@@ -185,7 +185,7 @@ subzero/
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
 │   ├── db/                   # asyncpg pool + migration runner
-│   ├── memory/ sessions/ projects/ lists/ notes/
+│   ├── memory/ sessions/ projects/ notes/ tasks.py
 │   ├── retrieval/            # hybrid search + context packages
 │   ├── artifacts/            # keys, manifests, archive guards, filing, service
 │   ├── classifier/           # base, questions, rules, jev, policy, service
@@ -376,7 +376,7 @@ sequenceDiagram
     J-->>S: typed answers + probabilities + confidence
     Note over S: Policy engine maps answers to actions
     S->>D: BEGIN
-    S->>D: conversation, summary, decisions, memories, tasks, lists, projects
+    S->>D: conversation, summary, decisions, memories, tasks, projects
     opt promote_to_vault = yes AND not sensitive
         S->>Q: enqueue vault write
     end
@@ -407,30 +407,24 @@ back.
 
 ---
 
-## Lists
+## Tasks
 
-Lists are rows, not Markdown files.
+Tasks are the concrete next steps of a project or area: context about what is
+unfinished there, not personal errands. Shopping lists, errands and personal
+todos live in the user's own apps through those apps' own connectors; the old
+`lists` and `list_items` tables were exported with `subzero export-lists` and
+dropped in migration 0018.
 
-The chat tools for lists were removed in the context cutover: lists are no
-longer a feature an app can drive. The rows, the service and the Obsidian
-rendering below remain, driven by the sync worker and by `session_checkpoint`.
+Postgres is canonical. `session_checkpoint` writes tasks inside its one
+transaction, deduplicated on the normalized text per project, or per source
+conversation for a task with no project, so checkpointing the same next step
+twice yields one open task. Deep extraction files unfinished actions found in
+old chats the same way.
 
-Postgres is canonical. Obsidian renders a view, with each item carrying its
-UUID so a checkbox ticked by hand flows back:
-
-```markdown
-- [ ] Configure the Gemini connector <!-- pc:id=8f14e45f-ceea-467a-9ba3-6b5f2c3d1e7a -->
-- [x] Ship the MCP server            <!-- pc:id=c9f0f895-fb98-4b6a-a2f5-2a5d2c9e1b44 -->
-```
-
-Identity comes **only** from that marker. An edited line without one is
-reported as unmatched, never matched by text — ticking the wrong item because
-two lines read similarly would be worse than doing nothing.
-
-A list created inside a session checkpoint is queued on that same database
-connection, and its vault path is written there too. The worker renders the
-file after the checkpoint commits, including open, blocked, and done items.
-Dropped items are left out.
+The vault carries its own next steps: when a project or area note is rendered,
+its open tasks appear as a generated `## Next steps` block inside the note's
+marked generated section, refreshed on every write and stripped from a human
+edit on the way back in.
 
 ---
 
@@ -635,10 +629,9 @@ anywhere along the path, unknown roots, and unknown file extensions.
 answer "did that reach my vault" honestly rather than assuming.
 
 Session indexes live under `70-Atlas`, one note per provider, built from
-summaries already stored. Maps of Content render in the same folder. The Home
-map also links active lists, which are not notes and so are not membership
-rows. Frontmatter includes `type/project`, `type/list`, `type/moc`, or
-`type/session-index` so the graph can be filtered. `vault-fill` writes the
+summaries already stored. Maps of Content render in the same folder.
+Frontmatter includes `type/project`, `type/moc`, or `type/session-index`
+so the graph can be filtered. `vault-fill` writes the
 indexes and those maps from stored rows, then queues a render. It does not
 call a model. Exact-title links are the only links it creates.
 
@@ -714,8 +707,8 @@ A client that matches no policy entry gets **read-only** by default.
 ```
 context:read    memory:read     memory:write
 sessions:read   sessions:write  projects:read   projects:write
-lists:read      lists:write     notes:read      notes:write
-artifacts:read  artifacts:write review:write
+notes:read      notes:write     artifacts:read  artifacts:write
+review:write
 ```
 
 ### Deliberately absent

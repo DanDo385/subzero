@@ -124,13 +124,10 @@ async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
         "SELECT provenance::text FROM memories WHERE content LIKE '%iCloud%'"
     )
     assert fact["provenance"] == "user_statement"
-    # Unfinished actions land on one shared list, marked with where they came from.
-    item = await services.db.fetchrow(
-        "SELECT i.text, i.notes, l.name FROM list_items i JOIN lists l ON l.id = i.list_id"
-    )
-    assert item["name"] == "From past chats"
-    assert item["text"] == "Write the MOC renderer."
-    assert "claude" in item["notes"]
+    # Unfinished actions become open tasks, marked with where they came from.
+    task = await services.db.fetchrow("SELECT text, notes FROM tasks")
+    assert task["text"] == "Write the MOC renderer."
+    assert "claude" in task["notes"]
 
     # The note itself, in the folder Jev chose, tagged, and queued for the vault.
     note = await services.db.fetchrow(
@@ -142,7 +139,7 @@ async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
     assert note["metadata"]["tags"] == ["obsidian", "memory", "agents/hermes"]
     assert "Postgres is canonical" in note["content"]
     jobs = await services.db.fetch("SELECT job_type FROM sync_jobs ORDER BY created_at")
-    assert {"write_note", "write_list"} <= {j["job_type"] for j in jobs}
+    assert {j["job_type"] for j in jobs} == {"write_note"}
 
     meta = await services.db.fetchval("SELECT metadata->'extraction' FROM conversations")
     assert meta["status"] == "extracted"
@@ -223,15 +220,3 @@ async def test_concurrent_writers_of_one_title_make_one_note(services) -> None:
     assert sum(created for _, created, _ in results) == 1
     content = await services.db.fetchval("SELECT content FROM notes")
     assert all(f"Part {i}." in content for i in range(8))
-
-
-async def test_list_changes_are_queued_for_the_vault(services) -> None:
-    list_id, _ = await services.lists.create(name="Groceries", list_type="shopping")
-    item_id, _ = await services.lists.add_item(list_id=list_id, text="Oat milk")
-    await services.lists.complete_item(item_id)
-    jobs = await services.db.fetch(
-        "SELECT job_type, vault_path, status FROM sync_jobs WHERE object_id = $1", list_id
-    )
-    # One open job per file: each change supersedes the previous one.
-    assert [j["status"] for j in jobs].count("approved") == 1
-    assert jobs[0]["vault_path"] == "60-Resources/Lists/groceries.md"

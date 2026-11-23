@@ -1,8 +1,9 @@
 """Markdown rendering for the vault.
 
-Lists carry their item UUID in an HTML comment so a checkbox ticked by hand
-in Obsidian can be matched back to the canonical row. Identity is never
-recovered from the item text.
+Generated sections (a project's next steps, related notes, maps, sources) are
+wrapped in one marked block that is regenerated on every write and stripped
+from a human edit on the way back in, so a re-render never clobbers prose a
+person typed and a person's prose never leaks generated links into the store.
 """
 
 from __future__ import annotations
@@ -10,12 +11,6 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-
-SUBZERO_ID_PREFIX = "pc:id="
-
-
-def item_marker(item_id: Any) -> str:
-    return f"<!-- {SUBZERO_ID_PREFIX}{item_id} -->"
 
 
 def _frontmatter(fields: dict[str, Any]) -> str:
@@ -54,54 +49,23 @@ def _triage_fields(meta: dict[str, Any]) -> dict[str, Any]:
     return fields
 
 
-def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
-    front = _frontmatter(
-        {
-            "pc_type": "list",
-            "pc_id": list_row["id"],
-            "title": list_row["name"],
-            "list_type": list_row.get("list_type"),
-            "project": list_row.get("project_slug"),
-            "updated": list_row.get("updated_at"),
-            "home": (list_row.get("metadata") or {}).get("home"),
-            "tags": [
-                "subzero/list",
-                "type/list",
-                *(list_row.get("metadata") or {}).get("tags", []),
-            ],
-        }
-    )
-    body = [front, "", f"# {list_row['name']}", ""]
-    if list_row.get("description"):
-        body += [list_row["description"], ""]
+def render_next_steps(open_tasks: list[dict[str, Any]]) -> list[str]:
+    """The open tasks of a project or area, as a generated Next steps section.
 
-    open_items = [i for i in items if i["status"] == "open"]
-    done_items = [i for i in items if i["status"] == "done"]
-    blocked = [i for i in items if i["status"] == "blocked"]
-
-    def render_group(title: str, group: list[dict[str, Any]], checked: bool) -> list[str]:
-        if not group:
-            return []
-        lines = [f"## {title}", ""]
-        for item in group:
-            box = "x" if checked else " "
-            suffix = f" (due {item['due_date']})" if item.get("due_date") else ""
-            lines.append(f"- [{box}] {item['text']}{suffix} {item_marker(item['id'])}")
-            if item.get("notes"):
-                lines.append(f"      {item['notes']}")
-        lines.append("")
-        return lines
-
-    body += render_group("Open", open_items, checked=False)
-    body += render_group("Blocked", blocked, checked=False)
-    body += render_group("Done", done_items, checked=True)
-    body += [
-        "",
-        "<!-- Managed by Subzero. Tick a box here and the change flows",
-        "     back to the canonical list; do not edit the pc:id comments. -->",
-        "",
-    ]
-    return "\n".join(body)
+    Rendered inside the note's generated block, so a re-render refreshes it
+    and a human edit to the surrounding body is never touched. An empty task
+    list renders no section at all. The bullets are plain, not checkboxes:
+    ticking one in Obsidian cannot complete the task, and the next render
+    would silently untick it.
+    """
+    if not open_tasks:
+        return []
+    lines = ["## Next steps", ""]
+    for task in open_tasks:
+        due = f" (due {task['due_date']})" if task.get("due_date") else ""
+        lines.append(f"- {task['text']}{due}")
+    lines.append("")
+    return lines
 
 
 #: Everything between these markers is regenerated on every write and is
@@ -128,8 +92,10 @@ def render_note(
     *,
     related: list[tuple[str, str, str]] | None = None,
     mocs: list[tuple[str, str]] | None = None,
+    next_steps: list[dict[str, Any]] | None = None,
 ) -> str:
-    """``related`` is (file stem, title, relation); ``mocs`` is (stem, title)."""
+    """``related`` is (file stem, title, relation); ``mocs`` is (stem, title);
+    ``next_steps`` is the open task rows of the note's project or area."""
     meta = note.get("metadata") or {}
     if isinstance(meta, str):
         meta = json.loads(meta or "{}")
@@ -162,6 +128,7 @@ def render_note(
     parts = [front, "", f"# {note['title']}", "", note["content"].strip(), ""]
 
     generated: list[str] = []
+    generated += render_next_steps(next_steps or [])
     if mocs:
         generated += ["## Maps", ""]
         generated += [f"- {wikilink(stem, title)}" for stem, title in mocs]
@@ -218,7 +185,6 @@ def render_moc(
     section_titles: dict[str, str],
     children: list[tuple[str, str]] | None = None,
     parent: tuple[str, str] | None = None,
-    lists: list[tuple[str, str]] | None = None,
 ) -> str:
     """A Map of Content: sections in the order of ``section_titles``, entries
     sorted by title. Entirely generated - a MOC has no human-owned body."""
@@ -244,13 +210,6 @@ def render_moc(
         parts += [
             f"- {wikilink(stem, title)}"
             for stem, title in sorted(entries, key=lambda e: e[1].lower())
-        ]
-        parts.append("")
-    if lists:
-        parts += ["## Lists", ""]
-        parts += [
-            f"- {wikilink(stem, title)}"
-            for stem, title in sorted(lists, key=lambda entry: entry[1].lower())
         ]
         parts.append("")
     if children:

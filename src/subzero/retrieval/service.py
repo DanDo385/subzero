@@ -10,7 +10,7 @@ summary, imported text lowest) times recency.
 Bootstrap (``context_bootstrap``) fills a token budget in this order:
 
     1 handoff    the project's newest session summaries with their open
-                 questions, open tasks and list items, and active decisions
+                 questions, open tasks, and active decisions
     2 relevant   items matching the query, ranked as above
     3 raw        transcript excerpts, only when 1 and 2 found nothing
 
@@ -76,7 +76,7 @@ PROVENANCE_WEIGHT = {
 KIND_WEIGHT = {
     "decision": 1.0,
     "memory": 0.95,
-    "list_item": 0.9,
+    "task": 0.9,
     "note": 0.85,
     "artifact": 0.8,
     "summary": 0.8,
@@ -279,19 +279,19 @@ FROM (
         "UNION ALL",
         _branch(
             """
-    (SELECT 'list_item', x.id, l.name, x.text || coalesce(E'\\n' || x.notes, ''),
-            x.provenance::text, l.project_id, x.updated_at, NULL, NULL,
+    (SELECT 'task', x.id, NULL, x.text || coalesce(E'\\n' || x.notes, ''),
+            x.provenance::text, x.project_id, x.updated_at, NULL, NULL,
             x.source_provider, x.source_conversation_id, NULL, NULL,
             {rank}
-     FROM list_items x JOIN lists l ON l.id = x.list_id, q
-     WHERE l.status = 'active' AND x.status IN ('open', 'blocked')
-       AND ((x.search_tsv || l.search_tsv) @@ q.m OR x.id = ANY($5::uuid[]))
+     FROM tasks x, q
+     WHERE x.status IN ('open', 'blocked')
+       AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
        AND {scope}
-     ORDER BY exact DESC, rank DESC, x.position LIMIT $8)
+     ORDER BY exact DESC, rank DESC LIMIT $8)
 """,
-            "(x.search_tsv || l.search_tsv)",
+            "x.search_tsv",
             "x.id",
-            "l.project_id",
+            "x.project_id",
         ),
         "UNION ALL",
         _branch(
@@ -332,7 +332,7 @@ LEFT JOIN projects p ON p.id = u.project_id
 )
 
 #: One statement for a project's handoff: newest summaries (tagged, or untagged
-#: but naming the project), open tasks and list items, active decisions.
+#: but naming the project), open tasks, active decisions.
 _HANDOFF_SQL = """
 WITH pn AS (SELECT to_tsquery('english', NULLIF($2, '')) AS q)
 SELECT * FROM (
@@ -347,13 +347,12 @@ SELECT * FROM (
             AND s.search_tsv @@ pn.q)
      ORDER BY s.updated_at DESC LIMIT $3)
     UNION ALL
-    (SELECT 'list_item', li.id, l.name, li.text || coalesce(E'\\n' || li.notes, ''),
-            li.provenance::text, li.updated_at, li.source_provider, li.source_conversation_id,
-            NULL, NULL, NULL, false, li.priority
-     FROM list_items li JOIN lists l ON l.id = li.list_id
-     WHERE l.project_id = $1 AND l.status = 'active' AND li.status IN ('open', 'blocked')
-     ORDER BY (l.list_type = 'task') DESC, li.priority DESC, li.due_date NULLS LAST,
-              li.position LIMIT $4)
+    (SELECT 'task', t.id, NULL, t.text || coalesce(E'\\n' || t.notes, ''),
+            t.provenance::text, t.updated_at, t.source_provider, t.source_conversation_id,
+            NULL, NULL, NULL, false, t.priority
+     FROM tasks t
+     WHERE t.project_id = $1 AND t.status IN ('open', 'blocked')
+     ORDER BY t.priority DESC, t.due_date NULLS LAST, t.created_at LIMIT $4)
     UNION ALL
     (SELECT 'decision', d.id, NULL, d.statement || coalesce(E'\\n\\nWhy: ' || d.rationale, ''),
             d.provenance::text, d.decided_at, d.source_provider, d.source_conversation_id,
@@ -1219,9 +1218,7 @@ class RetrievalService:
                 title=row["title"],
                 max_tokens=item_cap,
             )
-            {"summary": summaries, "list_item": tasks, "decision": decisions}[row["kind"]].append(
-                item
-            )
+            {"summary": summaries, "task": tasks, "decision": decisions}[row["kind"]].append(item)
         summaries.sort(key=lambda i: i.effective_at or _now(), reverse=True)
         if parsed is not None and parsed.terms:
             # Within tasks and decisions, the ones that mention the query lead.

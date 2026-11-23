@@ -42,6 +42,7 @@ from subzero.importers.reclassify import load_conversation
 from subzero.logging_setup import get_logger
 from subzero.models import CheckpointDecision, CheckpointFact
 from subzero.services import Services
+from subzero.tasks import upsert_task
 from subzero.util import sha256_text, utcnow
 
 logger = get_logger(__name__)
@@ -173,8 +174,6 @@ SECTION_GUIDANCE: dict[str, str] = {
 #: Destination meaning "extract structured memory only, write no vault note"
 #: (memory lab sessions routed to the structured layer but not the vault).
 NO_NOTE = "none"
-
-FOLLOWUP_LIST = "From past chats"
 
 
 def _clean_tags(tags: list[str]) -> list[str]:
@@ -600,29 +599,24 @@ class DeepExtractor:
     async def _add_followups(
         self, conversation_id: UUID, conversation: Any, payload: ExtractionPayload
     ) -> int:
-        """Unfinished actions from old chats go to one shared list, where any
-        app (and the vault) can see, tick off or drop them."""
+        """Unfinished actions from old chats become open tasks, where any app
+        (and the vault's next steps) can see them."""
         if not payload.unfinished_actions:
             return 0
         services = self._services
-        list_id, _ = await services.lists.create(
-            name=FOLLOWUP_LIST,
-            description="Things you meant to do, found in past conversations across your AI apps.",
-            list_type="task",
-        )
         happened = max((m.created_at for m in conversation.messages if m.created_at), default=None)
         where = (
             f"{conversation.provider}, {happened:%Y-%m-%d}" if happened else conversation.provider
         )
         added = 0
         for action in payload.unfinished_actions:
-            _, created = await services.lists.add_item(
-                list_id=list_id,
-                text=action.strip(),
-                notes=f'From "{conversation.title or "a conversation"}" ({where})',
-                source_provider=conversation.provider,
+            _, created = await upsert_task(
+                services.db,
+                text=action,
                 source_conversation_id=conversation_id,
+                source_provider=conversation.provider,
                 provenance="assistant_generated",
+                notes=f'From "{conversation.title or "a conversation"}" ({where})',
             )
             added += int(created)
         return added

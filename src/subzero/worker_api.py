@@ -21,7 +21,6 @@ from subzero.config import Settings
 from subzero.logging_setup import get_logger
 from subzero.obsidian.render import (
     render_artifact_note,
-    render_list,
     render_moc,
     render_note,
 )
@@ -110,7 +109,26 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
             if row is None:
                 return None
             related, mocs = await note_graph(services, job["object_id"])
-            payload["content"] = render_note(dict(row), related=related, mocs=mocs)
+            # A project or area note carries its own next steps: the open
+            # tasks render inside the generated block of the note.
+            next_steps = (
+                [
+                    dict(t)
+                    for t in await services.db.fetch(
+                        """
+                        SELECT text, due_date FROM tasks
+                        WHERE project_id = $1 AND status = 'open'
+                        ORDER BY priority DESC, due_date NULLS LAST, created_at
+                        """,
+                        row["project_id"],
+                    )
+                ]
+                if row["project_id"]
+                else []
+            )
+            payload["content"] = render_note(
+                dict(row), related=related, mocs=mocs, next_steps=next_steps
+            )
             payload["content_type"] = "text/markdown"
 
         elif job["job_type"] == "write_moc":
@@ -123,30 +141,7 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
                 section_titles=SECTION_TITLES,
                 children=data["children"],
                 parent=data["parent"],
-                lists=data["lists"],
             )
-            payload["content_type"] = "text/markdown"
-
-        elif job["job_type"] == "write_list":
-            list_row = await services.db.fetchrow(
-                """
-                SELECT l.*, p.slug AS project_slug
-                FROM lists l LEFT JOIN projects p ON p.id = l.project_id
-                WHERE l.id = $1
-                """,
-                job["object_id"],
-            )
-            if list_row is None:
-                return None
-            items = await services.db.fetch(
-                """
-                SELECT id, text, status, priority, due_date, notes
-                FROM list_items WHERE list_id = $1
-                ORDER BY status = 'done', priority DESC, position
-                """,
-                job["object_id"],
-            )
-            payload["content"] = render_list(dict(list_row), [dict(i) for i in items])
             payload["content_type"] = "text/markdown"
 
         elif job["job_type"] == "write_artifact_note":
@@ -246,8 +241,6 @@ async def push_edits(request: Request, services: Services) -> Response:
                     file_sha256=str(edit.get("sha256") or "") or None,
                 )
                 applied.append({"vault_path": edit["vault_path"], **result})
-            elif kind == "list_items":
-                applied.append(await _apply_list_edits(services, edit))
             await services.sync_queue.record_inbound(
                 vault_path=str(edit.get("vault_path")),
                 sha256=str(edit.get("sha256") or ""),
@@ -259,55 +252,3 @@ async def push_edits(request: Request, services: Services) -> Response:
             applied.append({"vault_path": edit.get("vault_path"), "error": str(exc)})
 
     return JSONResponse({"applied": applied})
-
-
-async def _apply_list_edits(services: Services, edit: dict[str, Any]) -> dict[str, Any]:
-    """Apply checkbox state parsed out of a rendered list file.
-
-    Identity comes from the `pc:id` marker only. An item whose marker is
-    missing is reported, never matched by text - guessing here would tick the
-    wrong thing.
-    """
-    changed = 0
-    unmatched: list[str] = []
-    for item in edit.get("items") or []:
-        raw_id = item.get("id")
-        if not raw_id:
-            unmatched.append(str(item.get("text", ""))[:80])
-            continue
-        try:
-            item_id = UUID(str(raw_id))
-        except ValueError:
-            unmatched.append(str(raw_id))
-            continue
-
-        target_status = "done" if item.get("checked") else "open"
-        result = await services.db.execute(
-            """
-            UPDATE list_items
-            SET status = $2,
-                completed_at = CASE WHEN $2 = 'done' THEN coalesce(completed_at, now())
-                                    ELSE NULL END,
-                provenance = 'user_statement'::pc_provenance
-            WHERE id = $1 AND status <> $2
-            """,
-            item_id,
-            target_status,
-        )
-        if result.rsplit(" ", 1)[-1] != "0":
-            changed += 1
-            await services.audit.record(
-                tool="obsidian_sync",
-                action="update",
-                object_type="list_item",
-                object_id=item_id,
-                resulting_version={"status": target_status},
-                provenance="user_statement",
-                approval_status="user_approved",
-                metadata={"source": "vault_edit", "vault_path": edit.get("vault_path")},
-            )
-    return {
-        "vault_path": edit.get("vault_path"),
-        "changed": changed,
-        "unmatched": unmatched,
-    }

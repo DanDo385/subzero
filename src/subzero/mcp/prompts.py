@@ -146,6 +146,7 @@ def register(mcp: FastMCP) -> None:
               (SELECT count(*) FROM conversations) AS conversations,
               (SELECT count(*) FROM session_summaries) AS summaries,
               (SELECT count(*) FROM projects WHERE status = 'active') AS active_projects,
+              (SELECT count(*) FROM tasks WHERE status IN ('open','blocked')) AS open_tasks,
               (SELECT count(*) FROM notes) AS notes,
               (SELECT count(*) FROM artifacts) AS artifacts,
               (SELECT count(*) FROM artifacts WHERE storage_status = 'captured')

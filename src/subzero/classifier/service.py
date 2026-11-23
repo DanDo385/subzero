@@ -63,22 +63,6 @@ class ClassificationService:
             for row in rows
         }
 
-    async def list_candidates(self, *, limit: int = 40) -> dict[str, str]:
-        rows = await self._db.fetch(
-            """
-            SELECT slug, name, coalesce(description, '') AS blurb, list_type
-            FROM lists
-            WHERE status = 'active'
-            ORDER BY updated_at DESC
-            LIMIT $1
-            """,
-            limit,
-        )
-        return {
-            row["slug"]: (f"{row['name']} ({row['list_type']}). {row['blurb']}".strip()[:240])
-            for row in rows
-        }
-
     # ------------------------------------------------------------ recording
 
     async def record(
@@ -355,10 +339,3 @@ class ClassificationService:
         routing = self.policy().route(result)
         event_id = await self.record(result, routing, object_type="note", object_id=object_id)
         return result, routing, event_id
-
-    async def classify_list_candidate(
-        self, state: dict[str, Any]
-    ) -> tuple[ClassificationResult, dict[str, str]]:
-        candidates = await self.list_candidates()
-        result = await self._classifier.classify_list_candidate(state, candidates)
-        return result, candidates

@@ -16,7 +16,6 @@ from subzero.models import (
     CheckpointArtifactRef,
     CheckpointDecision,
     CheckpointFact,
-    CheckpointListUpdate,
     CheckpointProjectUpdate,
     CheckpointResult,
     CheckpointTask,
@@ -94,7 +93,7 @@ def register(mcp: FastMCP) -> None:
         noise and not things that will be stale next week.
 
         Prefer session_checkpoint when you have several things to record at
-        once; it does this plus projects, tasks and lists in one transaction.
+        once; it does this plus projects and tasks in one transaction.
         """
         services = get_services()
         principal = current_principal()
@@ -225,11 +224,13 @@ def register(mcp: FastMCP) -> None:
         ] = [],
         tasks: Annotated[
             list[CheckpointTask],
-            Field(description="Concrete unfinished actions. Each goes onto a list."),
-        ] = [],
-        list_updates: Annotated[
-            list[CheckpointListUpdate],
-            Field(description="Items to add to, complete on or remove from the user's real lists."),
+            Field(
+                description=(
+                    "Concrete next steps for a project or area: what is unfinished "
+                    "there. Not personal errands; shopping and errand lists belong "
+                    "in the user's own apps."
+                )
+            ),
         ] = [],
         project_updates: Annotated[
             list[CheckpointProjectUpdate],
@@ -285,8 +286,8 @@ def register(mcp: FastMCP) -> None:
         """Persist everything durable this session established, in one call.
 
         Call when the conversation has settled something worth carrying
-        forward: a decision, a confirmed fact, a task, a list change, a project
-        update, an unresolved question. Do NOT checkpoint small talk, a
+        forward: a decision, a confirmed fact, a next step, a project update,
+        an unresolved question. Do NOT checkpoint small talk, a
         one-off lookup, or anything you already checkpointed - repeats are
         deduplicated but they cost a round trip.
 
@@ -306,7 +307,6 @@ def register(mcp: FastMCP) -> None:
             decisions=decisions,
             facts=facts,
             tasks=tasks,
-            list_updates=list_updates,
             project_updates=project_updates,
             open_questions=open_questions,
             resolved_questions=resolved_questions,

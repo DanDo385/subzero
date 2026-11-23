@@ -1,4 +1,4 @@
-"""Vault rendering, list round-tripping, and safe writes."""
+"""Vault rendering, next-steps round-tripping, and safe writes."""
 
 from __future__ import annotations
 
@@ -7,9 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from obsidian_sync.vault import Vault, note_id_of, parse_list_items
+from obsidian_sync.vault import Vault, note_id_of
 from subzero.errors import PathSecurityError
-from subzero.obsidian.render import item_marker, render_list, render_moc, render_note
+from subzero.obsidian.render import (
+    extract_note_body,
+    render_moc,
+    render_next_steps,
+    render_note,
+)
 from subzero.util import sha256_bytes
 
 ROOTS = {"inbox": "00-Inbox", "project": "20-Projects", "resource": "60-Resources"}
@@ -31,124 +36,47 @@ def vault(vault_dir: Path) -> Vault:
 # ---------------------------------------------------------------- rendering
 
 
-def test_rendered_list_carries_stable_item_ids() -> None:
-    list_id, a, b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    markdown = render_list(
-        {
-            "id": list_id,
-            "name": "Personal AI tasks",
-            "list_type": "task",
-            "description": None,
-            "project_slug": "personal-ai",
-            "updated_at": None,
-        },
-        [
-            {
-                "id": a,
-                "text": "Test the Gemini connector",
-                "status": "open",
-                "priority": 1,
-                "due_date": None,
-                "notes": None,
-            },
-            {
-                "id": b,
-                "text": "Ship the MCP server",
-                "status": "done",
-                "priority": 0,
-                "due_date": None,
-                "notes": None,
-            },
-        ],
-    )
-    assert item_marker(a) in markdown
-    assert item_marker(b) in markdown
-    assert "- [ ] Test the Gemini connector" in markdown
-    assert "- [x] Ship the MCP server" in markdown
-
-
-def test_round_trip_of_a_rendered_list() -> None:
-    a, b = uuid.uuid4(), uuid.uuid4()
-    markdown = render_list(
+def test_next_steps_render_inside_the_generated_block() -> None:
+    markdown = render_note(
         {
             "id": uuid.uuid4(),
-            "name": "L",
-            "list_type": "task",
-            "description": None,
-            "project_slug": None,
-            "updated_at": None,
+            "title": "Harbor Notes",
+            "content": "A project note.",
+            "note_class": "project",
         },
-        [
-            {
-                "id": a,
-                "text": "one",
-                "status": "open",
-                "priority": 0,
-                "due_date": None,
-                "notes": None,
-            },
-            {
-                "id": b,
-                "text": "two",
-                "status": "done",
-                "priority": 0,
-                "due_date": None,
-                "notes": None,
-            },
+        next_steps=[
+            {"text": "Write the beginner setup guide", "due_date": None},
+            {"text": "Pick a hosting provider", "due_date": "2026-12-01"},
         ],
     )
-    items = parse_list_items(markdown)
-    by_id = {i["id"]: i for i in items}
-    assert by_id[str(a)]["checked"] is False
-    assert by_id[str(b)]["checked"] is True
+    assert "## Next steps" in markdown
+    assert "- Write the beginner setup guide" in markdown
+    assert "- Pick a hosting provider (due 2026-12-01)" in markdown
+    # Plain bullets, not checkboxes: nothing syncs a tick back to the task row.
+    assert "- [ ]" not in markdown
+    # The section sits inside the generated block, so a re-render refreshes it
+    # and it never becomes part of the human-owned body.
+    assert markdown.index("## Next steps") > markdown.index("pc:generated")
 
 
-def test_a_human_ticking_a_box_is_detected() -> None:
-    item_id = uuid.uuid4()
-    line = f"- [x] Test the Gemini connector {item_marker(item_id)}"
-    parsed = parse_list_items(line)
-    assert parsed == [{"id": str(item_id), "checked": True, "text": "Test the Gemini connector"}]
+def test_next_steps_round_trip_through_extract_note_body() -> None:
+    note = {
+        "id": uuid.uuid4(),
+        "title": "Harbor Notes",
+        "content": "Body a human wrote.",
+        "note_class": "project",
+    }
+    rendered = render_note(note, next_steps=[{"text": "Write the guide", "due_date": None}])
+    assert "## Next steps" in rendered
+    assert extract_note_body(rendered, note["title"]) == "Body a human wrote."
 
 
-def test_an_item_without_a_marker_is_reported_not_guessed() -> None:
-    """Matching a hand-added line by text could tick the wrong item."""
-    parsed = parse_list_items("- [x] A line someone typed by hand")
-    assert parsed[0]["id"] is None
-    assert parsed[0]["text"] == "A line someone typed by hand"
-
-
-def test_rendered_list_omits_dropped_items_and_tags_its_type() -> None:
-    markdown = render_list(
-        {
-            "id": uuid.uuid4(),
-            "name": "Todo",
-            "list_type": "task",
-            "description": None,
-            "project_slug": None,
-            "updated_at": None,
-        },
-        [
-            {
-                "id": uuid.uuid4(),
-                "text": "Still open",
-                "status": "open",
-                "priority": 0,
-                "due_date": None,
-                "notes": None,
-            },
-            {
-                "id": uuid.uuid4(),
-                "text": "Thrown away",
-                "status": "dropped",
-                "priority": 0,
-                "due_date": None,
-                "notes": None,
-            },
-        ],
+def test_no_tasks_render_no_next_steps_section() -> None:
+    assert render_next_steps([]) == []
+    markdown = render_note(
+        {"id": uuid.uuid4(), "title": "T", "content": "Body.", "note_class": "project"}
     )
-    assert "type/list" in markdown
-    assert "Still open" in markdown
-    assert "Thrown away" not in markdown
+    assert "## Next steps" not in markdown
 
 
 def test_note_and_map_frontmatter_carry_type_tags() -> None:
@@ -182,7 +110,6 @@ def test_note_and_map_frontmatter_carry_type_tags() -> None:
         {"id": uuid.uuid4(), "title": "Home", "description": "Start here."},
         {"reference": [("chatgpt", "ChatGPT")]},
         section_titles={"reference": "Reference"},
-        lists=[("todo", "Todo")],
         children=[("revamp", "Revamp")],
     )
     assert "type/project" in project
@@ -191,8 +118,6 @@ def test_note_and_map_frontmatter_carry_type_tags() -> None:
     assert "type/session-index" in index
     assert "type/project" not in research
     assert "type/moc" in moc
-    assert "## Lists" in moc
-    assert "[[todo|Todo]]" in moc
     assert "[[chatgpt|ChatGPT]]" in moc
 
 

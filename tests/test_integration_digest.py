@@ -41,8 +41,12 @@ async def test_digest_contains_context_and_leaves_out_sensitive(services) -> Non
         sha256_text("Use Vercel for hosting."),
         project_id,
     )
-    list_id, _ = await services.lists.create(name="Todo", list_type="task")
-    await services.lists.add_item(list_id=list_id, text="Rotate the Google client secret")
+    await services.db.execute(
+        "INSERT INTO tasks (text, content_sha256, project_id) VALUES ($1, $2, $3)",
+        "Rotate the Google client secret",
+        sha256_text("Rotate the Google client secret"),
+        project_id,
+    )
 
     text = await build_digest(services.db, services.settings, owner="Dan")
 

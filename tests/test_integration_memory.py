@@ -1,4 +1,4 @@
-"""Integration: memory, dedup, projects, lists, retrieval, checkpoints.
+"""Integration: memory, dedup, projects, tasks, retrieval, checkpoints.
 
 Requires SUBZERO_TEST_DATABASE_URL pointing at a throwaway Postgres with pgvector.
 """
@@ -9,7 +9,6 @@ from conftest import requires_db
 from subzero.models import (
     CheckpointDecision,
     CheckpointFact,
-    CheckpointListUpdate,
     CheckpointProjectUpdate,
     CheckpointTask,
 )
@@ -116,66 +115,6 @@ async def test_project_events_deduplicate(services) -> None:
     assert second is None
 
 
-# ------------------------------------------------------------------ lists
-
-
-async def test_list_crud_and_item_deduplication(services) -> None:
-    list_id, created = await services.lists.create(name="Personal AI tasks", list_type="task")
-    assert created
-
-    first_id, added = await services.lists.add_item(
-        list_id=list_id, text="Test Gemini connector on iPhone"
-    )
-    assert added
-    _, added_again = await services.lists.add_item(
-        list_id=list_id, text="test gemini connector on iphone  "
-    )
-    assert not added_again
-
-    items = await services.lists.items("personal-ai-tasks")
-    assert len(items) == 1
-    assert items[0].id == first_id
-
-
-async def test_item_resolution_prefers_id_over_text(services) -> None:
-    list_id, _ = await services.lists.create(name="Reading")
-    item_id, _ = await services.lists.add_item(list_id=list_id, text="Attention Is All You Need")
-
-    assert await services.lists.resolve_item(list_id, str(item_id)) == item_id
-    assert await services.lists.resolve_item(list_id, "attention is all you need") == item_id
-    assert await services.lists.resolve_item(list_id, "something else") is None
-
-
-async def test_completing_an_item_sets_a_timestamp(services) -> None:
-    list_id, _ = await services.lists.create(name="Tasks", list_type="task")
-    item_id, _ = await services.lists.add_item(list_id=list_id, text="Ship the MCP server")
-    await services.lists.complete_item(item_id)
-
-    done = await services.lists.items("tasks", status="done")
-    assert len(done) == 1
-    assert done[0].completed_at is not None
-
-
-async def test_moving_an_item_between_lists(services) -> None:
-    someday, _ = await services.lists.create(name="Someday")
-    active, _ = await services.lists.create(name="Active")
-    item_id, _ = await services.lists.add_item(list_id=someday, text="Browser capture extension")
-
-    await services.lists.move_item(item_id, target_list_id=active)
-    assert [i.text for i in await services.lists.items("active")] == ["Browser capture extension"]
-    assert await services.lists.items("someday") == []
-
-
-async def test_move_onto_a_duplicate_collapses_instead_of_duplicating(services) -> None:
-    a, _ = await services.lists.create(name="A")
-    b, _ = await services.lists.create(name="B")
-    item_id, _ = await services.lists.add_item(list_id=a, text="same thing")
-    await services.lists.add_item(list_id=b, text="same thing")
-
-    await services.lists.move_item(item_id, target_list_id=b)
-    assert len(await services.lists.items("b")) == 1
-
-
 # ------------------------------------------------------------- checkpoint
 
 
@@ -243,22 +182,27 @@ async def test_checkpoint_without_a_conversation_id_still_collapses(services) ->
     assert a.conversation_id == b.conversation_id
 
 
-async def test_checkpoint_reports_a_missing_list_item_instead_of_guessing(services) -> None:
-    await services.lists.create(name="Reading")
-    result = await _checkpoint(
-        services,
-        list_updates=[CheckpointListUpdate(list="Reading", complete=["a book we never added"])],
-    )
-    assert result.skipped.get("list_items") == 1
-    assert any("nothing was completed" in note for note in result.notes)
+async def test_checkpoint_tasks_dedupe_to_one_open_task_each(services) -> None:
+    """Same text checkpointed twice yields one open task: per project, or per
+    conversation when the task has no project."""
+    await services.projects.create(name="Personal AI")
+    payload = {
+        "tasks": [
+            CheckpointTask(text="Ship the cutover", project="Personal AI"),
+            CheckpointTask(text="Write the migration notes"),
+        ]
+    }
+    first = await _checkpoint(services, **payload)
+    second = await _checkpoint(services, **payload)
+    assert first.created.get("tasks") == 2
+    assert second.created.get("tasks", 0) == 0
+    assert second.skipped.get("tasks") == 2
 
-
-async def test_checkpoint_warns_when_it_invents_a_list(services) -> None:
-    result = await _checkpoint(
-        services, list_updates=[CheckpointListUpdate(list="Brand New List", add=["first item"])]
-    )
-    assert result.created.get("lists") == 1
-    assert any("Created list" in note for note in result.notes)
+    rows = await services.db.fetch("SELECT text, status, project_id FROM tasks ORDER BY text")
+    assert [r["text"] for r in rows] == ["Ship the cutover", "Write the migration notes"]
+    assert all(r["status"] == "open" for r in rows)
+    assert rows[0]["project_id"] is not None
+    assert rows[1]["project_id"] is None
 
 
 async def test_checkpoint_refuses_to_attach_an_artifact_without_an_id(services) -> None:

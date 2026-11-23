@@ -13,6 +13,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from subzero.homes import Home
+
 Provenance = Literal[
     "user_statement",
     "assistant_generated",
@@ -53,8 +55,7 @@ WritableNoteClass = Literal[
     "archive",
     "permanent",
 ]
-ListType = Literal["task", "reading", "shopping", "idea", "people", "general"]
-ItemStatus = Literal["open", "done", "dropped", "blocked"]
+TaskStatus = Literal["open", "done", "dropped", "blocked"]
 ArtifactType = Literal[
     "web_project",
     "code_project",
@@ -76,9 +77,7 @@ ArtifactSourceType = Literal[
 
 
 class Base(BaseModel):
-    # populate_by_name lets a field carry a caller-facing alias (e.g. "list")
-    # while keeping a Python-safe attribute name.
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
 
 BridgeRole = Literal["user", "assistant", "system", "tool"]
@@ -158,7 +157,6 @@ class ContextItem(Base):
         "decision",
         "project",
         "task",
-        "list_item",
         "note",
         "message",
         "artifact",
@@ -276,28 +274,15 @@ class ProjectRecord(Base):
     decision_count: int = 0
 
 
-class ListRecord(Base):
+class TaskRecord(Base):
     id: UUID
-    slug: str
-    name: str
-    description: str | None = None
-    list_type: ListType
-    project: str | None = None
-    status: str
-    open_items: int = 0
-    total_items: int = 0
-
-
-class ListItemRecord(Base):
-    id: UUID
-    list_id: UUID
-    list_slug: str
+    project_id: UUID | None = None
     text: str
-    status: ItemStatus
-    priority: int
-    position: int
+    status: TaskStatus = "open"
+    priority: int = 0
     due_date: date | None = None
     notes: str | None = None
+    home: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
 
@@ -407,29 +392,14 @@ class CheckpointFact(Base):
 
 
 class CheckpointTask(Base):
-    text: str = Field(description="A concrete unfinished action.")
-    # Exposed to callers as "list"; the Python attribute cannot be named `list`
-    # because that shadows the builtin when sibling annotations are resolved.
-    list_ref: str | None = Field(
-        default=None,
-        alias="list",
-        description="Target list slug or name. Defaults to the project's task list.",
-    )
+    text: str = Field(description="A concrete next step for a project or area.")
     project: str | None = None
+    home: Home | None = Field(
+        default=None,
+        description="Where this next step lives; defaults to the session's home.",
+    )
     due_date: date | None = None
     priority: int = 0
-
-
-class CheckpointListUpdate(Base):
-    list_ref: str = Field(
-        alias="list",
-        description="List slug or name. Search before inventing a new one.",
-    )
-    add: list[str] = Field(default_factory=list)
-    complete: list[str] = Field(
-        default_factory=list, description="Item ids, or exact item text, to mark done."
-    )
-    remove: list[str] = Field(default_factory=list)
 
 
 class CheckpointProjectUpdate(Base):

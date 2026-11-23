@@ -59,7 +59,7 @@ def register(mcp: FastMCP) -> None:
         """Start a chat that continues earlier work: one call, one package.
 
         Call only when the request depends on past work: a project, earlier
-        decisions, lists, "remember", "last time", a continuing task.
+        decisions, tasks, "remember", "last time", a continuing task.
         Skip for trivial questions and anything self-contained.
 
         Returns the project's handoff first (latest session summaries with
@@ -110,7 +110,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Verbatim excerpts. Leave false; summaries are smaller."),
         ] = False,
     ) -> list[dict[str, Any]]:
-        """Ranked search over decisions, memories, summaries, notes, lists and artifacts.
+        """Ranked search over decisions, memories, summaries, notes, tasks and artifacts.
 
         Use when bootstrap did not cover what you need. Results match any of the
         terms, rank higher the more they match, and favour the user's own words

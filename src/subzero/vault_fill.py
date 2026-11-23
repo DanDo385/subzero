@@ -154,8 +154,7 @@ async def _write_index(
 
 
 async def fill_vault(services: Services) -> dict[str, Any]:
-    """Queue missing list renders, write indexes and maps, then render the wiki."""
-    lists_queued = await services.lists.queue_unrendered()
+    """Write the session indexes and maps, then render the wiki."""
     providers = [provider for provider, _title in PROVIDER_TITLES]
     records = await services.db.fetch(_INDEX_SQL, providers)
     grouped = _rows_from(records)
@@ -167,7 +166,7 @@ async def fill_vault(services: Services) -> dict[str, Any]:
     wiki = WikiService(services)
     home_id = await wiki.add_moc(
         "Home",
-        description="Session indexes, lists, and notes already in the vault.",
+        description="Session indexes and notes already in the vault.",
     )
     home_path = services.vault_paths.moc("Home")
     await services.db.execute("UPDATE mocs SET vault_path = $2 WHERE id = $1", home_id, home_path)
@@ -222,7 +221,6 @@ async def fill_vault(services: Services) -> dict[str, Any]:
     links = await wiki.link_exact_titles()
     rendered = await wiki.render()
     return {
-        "lists_queued": lists_queued,
         "indexes": indexes,
         "mocs": moc_titles,
         "memberships": memberships,

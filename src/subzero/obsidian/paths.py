@@ -196,14 +196,6 @@ class VaultPaths:
             f"{self._root('project')}/{slugify(project_slug)}/project.md", self._roots
         )
 
-    def list_view(self, list_slug: str, *, project_slug: str | None = None) -> str:
-        filename = f"{safe_filename(slugify(list_slug))}.md"
-        if project_slug:
-            path = f"{self._root('project')}/{slugify(project_slug)}/Lists/{filename}"
-        else:
-            path = f"{self._root('resource')}/Lists/{filename}"
-        return validate_vault_path(path, self._roots)
-
     def artifact_note(self, artifact_slug: str, *, project_slug: str | None = None) -> str:
         slug = slugify(artifact_slug)
         if project_slug:

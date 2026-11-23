@@ -20,11 +20,8 @@ from pathlib import Path
 
 from subzero.errors import PathSecurityError
 from subzero.obsidian.paths import resolve_in_vault
-from subzero.obsidian.render import SUBZERO_ID_PREFIX
 from subzero.util import sha256_bytes
 
-_ID_MARKER = re.compile(rf"<!--\s*{re.escape(SUBZERO_ID_PREFIX)}([0-9a-fA-F-]{{36}})\s*-->")
-_CHECKBOX = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.*)$")
 _PC_ID_FRONTMATTER = re.compile(r"^pc_id:\s*([0-9a-fA-F-]{36})\s*$", re.M)
 
 
@@ -128,42 +125,15 @@ class Vault:
                 continue
 
             text = data.decode("utf-8", errors="replace")
-            items = parse_list_items(text)
             edits.append(
                 {
-                    "kind": "list_items" if items else "note",
+                    "kind": "note",
                     "vault_path": relative_path,
                     "sha256": digest,
                     "content": text,
-                    "items": items,
                 }
             )
         return edits
-
-
-def parse_list_items(text: str) -> list[dict[str, object]]:
-    """Extract checkbox state from a rendered list file.
-
-    Identity comes only from the ``pc:id`` marker. A line without one is
-    reported with a null id and never matched by text: ticking the wrong item
-    because two lines read similarly would be worse than doing nothing.
-    """
-    items: list[dict[str, object]] = []
-    for line in text.splitlines():
-        match = _CHECKBOX.match(line)
-        if not match:
-            continue
-        checked = match.group(1).lower() == "x"
-        body = match.group(2)
-        marker = _ID_MARKER.search(body)
-        items.append(
-            {
-                "id": marker.group(1) if marker else None,
-                "checked": checked,
-                "text": _ID_MARKER.sub("", body).strip(),
-            }
-        )
-    return items
 
 
 def note_id_of(text: str) -> str | None:

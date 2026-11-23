@@ -29,8 +29,6 @@ SESSIONS_READ = "sessions:read"
 SESSIONS_WRITE = "sessions:write"
 PROJECTS_READ = "projects:read"
 PROJECTS_WRITE = "projects:write"
-LISTS_READ = "lists:read"
-LISTS_WRITE = "lists:write"
 NOTES_READ = "notes:read"
 NOTES_WRITE = "notes:write"
 ARTIFACTS_READ = "artifacts:read"
@@ -48,8 +46,6 @@ ALL_SCOPES: tuple[str, ...] = (
     SESSIONS_WRITE,
     PROJECTS_READ,
     PROJECTS_WRITE,
-    LISTS_READ,
-    LISTS_WRITE,
     NOTES_READ,
     NOTES_WRITE,
     ARTIFACTS_READ,

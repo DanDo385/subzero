@@ -733,20 +733,9 @@ async def moc_render_input(services: Services, moc_id: UUID) -> dict[str, Any] |
         "SELECT vault_path, title FROM mocs WHERE id = $1 AND vault_path IS NOT NULL",
         moc["parent_moc_id"],
     )
-    # Lists are not notes, so they cannot be moc_memberships. Home links them here.
-    list_links: list[tuple[str, str]] = []
-    if moc["slug"] == "home":
-        list_rows = await services.db.fetch(
-            """
-            SELECT name, vault_path FROM lists
-            WHERE status = 'active' AND vault_path IS NOT NULL
-            """
-        )
-        list_links = [(stem(row["vault_path"]), row["name"]) for row in list_rows]
     return {
         "moc": dict(moc),
         "sections": sections,
         "children": [(stem(c["vault_path"]), c["title"]) for c in children],
         "parent": (stem(parent["vault_path"]), parent["title"]) if parent else None,
-        "lists": list_links,
     }

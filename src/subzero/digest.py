@@ -134,22 +134,19 @@ async def build_digest(
 
     items = await db.fetch(
         """
-        SELECT l.name AS list_name, i.text, i.due_date
-        FROM list_items i JOIN lists l ON l.id = i.list_id
-        WHERE l.status = 'active' AND i.status IN ('open', 'blocked')
-        ORDER BY l.name, i.priority DESC, i.position
+        SELECT t.text, t.due_date, p.name AS project_name
+        FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.status IN ('open', 'blocked')
+        ORDER BY t.priority DESC, t.due_date NULLS LAST, t.created_at DESC
         LIMIT 80
         """
     )
     if items:
-        lines = ["## Open lists"]
-        current = None
+        lines = ["## Open tasks"]
         for item in items:
-            if item["list_name"] != current:
-                current = item["list_name"]
-                lines.append(f"\n### {current}")
             due = f" (due {item['due_date']:%Y-%m-%d})" if item["due_date"] else ""
-            lines.append(f"- [ ] {_flat(item['text'], 200)}{due}")
+            where = f" [{item['project_name']}]" if item["project_name"] else ""
+            lines.append(f"- [ ] {_flat(item['text'], 200)}{due}{where}")
         sections.append("\n".join(lines))
 
     # "Recent" means when the conversation happened, not when its summary row

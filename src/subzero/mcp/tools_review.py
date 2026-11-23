@@ -30,7 +30,7 @@ def register(mcp: FastMCP) -> None:
         ] = 25,
         object_type: Annotated[
             str | None,
-            Field(description="conversation, artifact, note or list_candidate."),
+            Field(description="conversation, artifact or note."),
         ] = None,
     ) -> dict:
         """Items whose routing was too uncertain to decide automatically.

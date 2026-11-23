@@ -4,7 +4,7 @@
 **idempotent**: a model that checkpoints twice with the same content must not
 produce two summaries, two decisions and two tasks. Idempotency comes from
 deterministic keys - (provider, provider_conversation_id) for the
-conversation, content hashes for decisions, memories and list items - rather
+conversation, content hashes for decisions, memories and tasks - rather
 than from the caller remembering what it already sent.
 
 The whole checkpoint runs in one transaction, so a failure halfway through
@@ -28,7 +28,6 @@ from subzero.config import Settings
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.homes import home_metadata
-from subzero.lists.service import ListService
 from subzero.logging_setup import get_logger
 from subzero.memory.service import MemoryService
 from subzero.memorylab.triage import has_triage, triage
@@ -36,7 +35,6 @@ from subzero.models import (
     CheckpointArtifactRef,
     CheckpointDecision,
     CheckpointFact,
-    CheckpointListUpdate,
     CheckpointProjectUpdate,
     CheckpointResult,
     CheckpointTask,
@@ -46,6 +44,7 @@ from subzero.obsidian.paths import VaultPaths
 from subzero.obsidian.queue import SyncQueue
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference
+from subzero.tasks import upsert_task
 from subzero.util import sha256_text, truncate_for_budget, utcnow
 
 logger = get_logger(__name__)
@@ -138,7 +137,6 @@ class SessionService:
         settings: Settings,
         memories: MemoryService,
         projects: ProjectService,
-        lists: ListService,
         notes: NoteService,
         classification: ClassificationService,
         embeddings: EmbeddingService,
@@ -150,7 +148,6 @@ class SessionService:
         self._settings = settings
         self._memories = memories
         self._projects = projects
-        self._lists = lists
         self._notes = notes
         self._classification = classification
         self._embeddings = embeddings
@@ -289,7 +286,6 @@ class SessionService:
         decisions: list[CheckpointDecision] | None = None,
         facts: list[CheckpointFact] | None = None,
         tasks: list[CheckpointTask] | None = None,
-        list_updates: list[CheckpointListUpdate] | None = None,
         project_updates: list[CheckpointProjectUpdate] | None = None,
         open_questions: list[str] | None = None,
         resolved_questions: list[str] | None = None,
@@ -305,7 +301,6 @@ class SessionService:
         decisions = decisions or []
         facts = facts or []
         tasks = tasks or []
-        list_updates = list_updates or []
         project_updates = project_updates or []
         open_questions = open_questions or []
         resolved_questions = [q for q in (resolved_questions or []) if q.strip()]
@@ -613,57 +608,21 @@ class SessionService:
 
             # -- tasks ----------------------------------------------------
             for task in tasks:
-                project_id = await self._projects.resolve(task.project) or routed_project_id
-                list_ref = task.list_ref or await self._default_task_list(conn, project_id)
-                list_id = await self._lists.get_or_create(list_ref, list_type="task", conn=conn)
-                _, item_created = await self._lists.add_item(
-                    list_id=list_id,
+                project_id = (
+                    await self._projects.resolve(task.project, conn=conn) or routed_project_id
+                )
+                _, task_created = await upsert_task(
+                    conn,
                     text=task.text,
+                    project_id=project_id,
+                    source_conversation_id=conversation_id,
+                    source_provider=provider,
+                    sensitivity=sensitivity,
                     priority=task.priority,
                     due_date=task.due_date,
-                    source_provider=provider,
-                    source_conversation_id=conversation_id,
-                    conn=conn,
+                    home=task.home or metadata["home"],
                 )
-                bump(created if item_created else skipped, "tasks")
-
-            # -- list updates ---------------------------------------------
-            for list_update in list_updates:
-                resolved_list_id = await self._lists.resolve(list_update.list_ref, conn=conn)
-                if resolved_list_id is None:
-                    resolved_list_id, _ = await self._lists.create(
-                        name=list_update.list_ref, conn=conn
-                    )
-                    bump(created, "lists")
-                    notes_out.append(
-                        f"Created list {list_update.list_ref!r}; no existing list "
-                        "matched. Call list_search first if that was not intended."
-                    )
-                for text in list_update.add:
-                    _, item_created = await self._lists.add_item(
-                        list_id=resolved_list_id,
-                        text=text,
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        conn=conn,
-                    )
-                    bump(created if item_created else skipped, "list_items")
-                for reference in list_update.complete:
-                    item_id = await self._lists.resolve_item(resolved_list_id, reference, conn=conn)
-                    if item_id:
-                        await self._lists.update_item(item_id, status="done", conn=conn)
-                        bump(updated, "list_items")
-                    else:
-                        bump(skipped, "list_items")
-                        notes_out.append(
-                            f"No item on {list_update.list_ref!r} matched {reference!r}; "
-                            "nothing was completed."
-                        )
-                for reference in list_update.remove:
-                    item_id = await self._lists.resolve_item(resolved_list_id, reference, conn=conn)
-                    if item_id:
-                        await self._lists.update_item(item_id, status="dropped", conn=conn)
-                        bump(updated, "list_items")
+                bump(created if task_created else skipped, "tasks")
 
             await conn.execute(
                 "UPDATE session_summaries SET metadata = metadata || $2::jsonb WHERE conversation_id = $1",
@@ -902,12 +861,6 @@ class SessionService:
             truncate_for_budget(summary, 400),
         )
         return row["id"], bool(row["created"])
-
-    async def _default_task_list(self, conn: asyncpg.Connection, project_id: UUID | None) -> str:
-        if project_id is None:
-            return "tasks"
-        slug = await conn.fetchval("SELECT slug FROM projects WHERE id = $1", project_id)
-        return f"{slug}-tasks" if slug else "tasks"
 
     async def _queue_summary_note(
         self,

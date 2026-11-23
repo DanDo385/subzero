@@ -1,7 +1,7 @@
 """Projects: the central graph node.
 
-A project ties together conversations, memories, decisions, tasks, lists,
-notes and artifacts. Slugs are generated from the name by code so that
+A project ties together conversations, memories, decisions, tasks, notes
+and artifacts. Slugs are generated from the name by code so that
 "Personal AI", "personal-ai" and "personal ai" resolve to one project.
 """
 

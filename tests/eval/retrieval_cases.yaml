@@ -190,18 +190,12 @@ cases:
     args: {query: "CRDT"}
     expect: {first: n_crdt, provenance: {n_crdt: external_source}}
 
-  # ------------------------------------------------------------- lists
-  - id: list-by-name
-    category: list
+  # ------------------------------------------------------------- tasks
+  - id: task-search
+    category: task
     tool: search
-    args: {query: "reading list"}
-    expect: {include_any: [r_ddia, r_pragprog]}
-
-  - id: list-item
-    category: list
-    tool: search
-    args: {query: "oat milk"}
-    expect: {first: g_oat}
+    args: {query: "beginner setup guide"}
+    expect: {first: t_hn_guide}
 
   # ------------------------------------------------------------ bootstrap
   - id: handoff-explicit-project

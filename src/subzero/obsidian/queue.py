@@ -29,7 +29,6 @@ LEASE_SECONDS = 300
 _SYNCED_HASH_SQL: dict[str, str] = {
     "note": "SELECT vault_synced_sha256 FROM notes WHERE id = $1",
     "moc": "SELECT rendered_sha256 FROM mocs WHERE id = $1",
-    "list": "SELECT vault_synced_sha256 FROM lists WHERE id = $1",
 }
 
 #: Where the hash of the file the worker just wrote is recorded, so the next
@@ -37,7 +36,6 @@ _SYNCED_HASH_SQL: dict[str, str] = {
 _SYNCED_UPDATE_SQL: dict[str, str] = {
     "note": "UPDATE notes SET vault_synced_sha256 = $2, vault_synced_at = now() WHERE id = $1",
     "moc": "UPDATE mocs SET rendered_sha256 = $2 WHERE id = $1",
-    "list": "UPDATE lists SET vault_synced_sha256 = $2 WHERE id = $1",
 }
 
 

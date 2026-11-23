@@ -344,43 +344,28 @@ NOTES: list[dict[str, Any]] = [
     },
 ]
 
-LISTS: list[dict[str, Any]] = [
+#: Open (and one done) next steps for a project. Shopping and reading lists
+#: are gone: they lived in the user's own apps, and only task-type list items
+#: survived the cutover, as rows in the tasks table.
+TASKS: list[dict[str, Any]] = [
     {
-        "key": "l_hn_tasks",
-        "slug": "harbor-notes-tasks",
-        "name": "Harbor Notes tasks",
-        "list_type": "task",
+        "key": "t_hn_guide",
+        "text": "Write the beginner setup guide",
         "project": "p_harbor",
-        "items": [
-            {"key": "t_hn_guide", "text": "Write the beginner setup guide", "days_ago": 4},
-            {"key": "t_hn_tomb", "text": "Add tombstones for deleted paragraphs", "days_ago": 1},
-            {
-                "key": "t_hn_host",
-                "text": "Pick a hosting provider",
-                "status": "done",
-                "days_ago": 7,
-            },
-        ],
+        "days_ago": 4,
     },
     {
-        "key": "l_reading",
-        "slug": "reading-list",
-        "name": "Reading list",
-        "list_type": "reading",
-        "items": [
-            {"key": "r_ddia", "text": "Designing Data-Intensive Applications", "days_ago": 30},
-            {"key": "r_pragprog", "text": "The Pragmatic Programmer", "days_ago": 25},
-        ],
+        "key": "t_hn_tomb",
+        "text": "Add tombstones for deleted paragraphs",
+        "project": "p_harbor",
+        "days_ago": 1,
     },
     {
-        "key": "l_groceries",
-        "slug": "groceries",
-        "name": "Groceries",
-        "list_type": "shopping",
-        "items": [
-            {"key": "g_oat", "text": "Oat milk", "days_ago": 1},
-            {"key": "g_basil", "text": "Fresh basil", "days_ago": 1},
-        ],
+        "key": "t_hn_host",
+        "text": "Pick a hosting provider",
+        "project": "p_harbor",
+        "status": "done",
+        "days_ago": 7,
     },
 ]
 
@@ -526,35 +511,21 @@ async def seed(db: Any, now: datetime | None = None) -> Seeded:
                 when,
             )
 
-        for lst in LISTS:
-            list_id = remember(lst["key"])
+        for task in TASKS:
+            when = at(task["days_ago"])
             await conn.execute(
                 """
-                INSERT INTO lists (id, slug, name, list_type, project_id)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO tasks (id, project_id, text, content_sha256, status,
+                                   provenance, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, 'user_statement', $6, $6)
                 """,
-                list_id,
-                lst["slug"],
-                lst["name"],
-                lst["list_type"],
-                seeded.ids[lst["project"]] if lst.get("project") else None,
+                remember(task["key"]),
+                seeded.ids[task["project"]] if task.get("project") else None,
+                task["text"],
+                _sha(task["text"].lower()),
+                task.get("status", "open"),
+                when,
             )
-            for position, item in enumerate(lst["items"]):
-                when = at(item["days_ago"])
-                await conn.execute(
-                    """
-                    INSERT INTO list_items (id, list_id, text, text_sha256, status, position,
-                                            provenance, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'user_statement', $7, $7)
-                    """,
-                    remember(item["key"]),
-                    list_id,
-                    item["text"],
-                    _sha(item["text"].lower()),
-                    item.get("status", "open"),
-                    position,
-                    when,
-                )
 
         raw = RAW_CONVERSATION
         when = at(raw["days_ago"])

@@ -22,7 +22,6 @@ from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.email import EmailService
 from subzero.embeddings.service import EmbeddingService, build_embedding_provider
-from subzero.lists.service import ListService
 from subzero.memory.service import MemoryService
 from subzero.notes.service import NoteService
 from subzero.obsidian.paths import VaultPaths
@@ -45,7 +44,6 @@ class Services:
     audit: AuditService
     projects: ProjectService
     memories: MemoryService
-    lists: ListService
     notes: NoteService
     artifacts: ArtifactService
     classification: ClassificationService
@@ -81,18 +79,11 @@ async def build_services(settings: Settings, db: Database) -> Services:
     review = ReviewService(db)
     vault_paths = VaultPaths(settings.obsidian_vault_roots)
     sync_queue = SyncQueue(db, settings.obsidian_vault_roots)
-    lists = (
-        ListService(db, sync_queue=sync_queue, vault_paths=vault_paths)
-        if settings.obsidian_enabled
-        else ListService(db)
-    )
-
     sessions = SessionService(
         db,
         settings=settings,
         memories=memories,
         projects=projects,
-        lists=lists,
         notes=notes,
         classification=classification,
         embeddings=embeddings,
@@ -111,7 +102,6 @@ async def build_services(settings: Settings, db: Database) -> Services:
         audit=audit,
         projects=projects,
         memories=memories,
-        lists=lists,
         notes=notes,
         artifacts=artifacts,
         classification=classification,

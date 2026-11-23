@@ -487,8 +487,8 @@ async def write_run_notes(
 async def write_structured(services: Services) -> int:
     """Cloudflare-style structured memory: facts, events, instructions, tasks.
 
-    Rendered from rows Subzero already holds (memories, decisions, open list
-    items) for sessions on the structured layer. No model call; the content
+    Rendered from rows Subzero already holds (memories, decisions, open
+    tasks) for sessions on the structured layer. No model call; the content
     comes from Claude in ``memory-lab extract``.
     """
     facts = await services.db.fetch(
@@ -508,8 +508,8 @@ async def write_structured(services: Services) -> int:
     )
     tasks = await services.db.fetch(
         """
-        SELECT i.text, l.name FROM list_items i JOIN lists l ON l.id = i.list_id
-        WHERE i.status = 'open' ORDER BY i.priority DESC, i.created_at DESC LIMIT 200
+        SELECT t.text, p.name FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.status = 'open' ORDER BY t.priority DESC, t.created_at DESC LIMIT 200
         """
     )
     groups: dict[str, list[str]] = {"Facts": [], "Instructions": [], "Events": [], "Tasks": []}
@@ -521,9 +521,10 @@ async def write_structured(services: Services) -> int:
             f"- {row['decided_at'].date().isoformat()}: {truncate_for_budget(row['statement'], 240)}"
         )
     for row in tasks:
-        groups["Tasks"].append(f"- [ ] {truncate_for_budget(row['text'], 200)} ({row['name']})")
+        where = f" ({row['name']})" if row["name"] else ""
+        groups["Tasks"].append(f"- [ ] {truncate_for_budget(row['text'], 200)}{where}")
     body = [
-        "Generated from Subzero's stored memories, decisions and open list items.",
+        "Generated from Subzero's stored memories, decisions and open tasks.",
         "Facts are what is true, instructions how to work, events what was decided",
         "and when, tasks what is still open. Regenerate with `subzero memory-lab structured`.",
         "",
