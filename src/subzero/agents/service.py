@@ -35,6 +35,10 @@ STATUSES = ("working", "waiting", "idle", "done")
 STALE_AFTER = timedelta(minutes=30)
 #: Finished sessions and jobs stay on the board this long.
 BOARD_WINDOW = timedelta(hours=2)
+#: A session silent this long has stopped without ending (crashed, closed,
+#: machine asleep for good). The board stops showing it at the same age, so
+#: a job it held is failed then rather than left 'claimed' for ever.
+ABANDONED_AFTER = timedelta(days=1)
 
 #: Words that make a job risky enough to plan before doing.
 #: Matched at the start of a word, so "deleting", "rotated" and "--force" count.
@@ -457,6 +461,7 @@ class AgentService:
             )
             if holder is None:
                 raise NotFoundError("No such agent session.")
+            await self._fail_abandoned(conn)
             if holder["job_id"] is not None:
                 raise ValidationError(
                     f"This session already holds job {str(holder['job_id'])[:8]}; "
@@ -528,6 +533,8 @@ class AgentService:
 
     async def board(self, *, after_event: int = 0) -> dict[str, Any]:
         """Everything the board draws, plus events after ``after_event``."""
+        async with self._db.transaction() as conn:
+            await self._fail_abandoned(conn)
         now = datetime.now(UTC)
         sessions = await self._db.fetch(
             """
@@ -578,6 +585,39 @@ class AgentService:
         }
 
     # ----------------------------------------------------------- internals
+
+    @classmethod
+    async def _fail_abandoned(cls, conn: Any) -> None:
+        """Fail, visibly, each job held by a session that stopped reporting.
+
+        The same outcome as ending a session before its job is done, for the
+        session that never got to say so.
+        """
+        rows = await conn.fetch(
+            """
+            WITH gone AS (
+                SELECT id, job_id FROM agent_sessions
+                 WHERE job_id IS NOT NULL AND ended_at IS NULL
+                   AND last_seen_at < now() - $1::interval
+                   FOR UPDATE SKIP LOCKED
+            ), released AS (
+                -- RETURNING would give the new, NULL job_id; gone keeps the old.
+                UPDATE agent_sessions s SET job_id = NULL FROM gone WHERE s.id = gone.id
+            )
+            UPDATE dispatch_jobs j
+               SET status = 'failed', updated_at = now(),
+                   result = coalesce(j.result, $2)
+              FROM gone
+             WHERE j.id = gone.job_id AND j.status = 'claimed'
+         RETURNING j.id AS job_id, gone.id AS session_id
+            """,
+            ABANDONED_AFTER,
+            "session stopped reporting for a day before the job was marked done",
+        )
+        for row in rows:
+            await cls._event(
+                conn, "job_failed", row["session_id"], row["job_id"], {"why": "abandoned"}
+            )
 
     @staticmethod
     async def _event(

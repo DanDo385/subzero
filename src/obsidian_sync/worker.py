@@ -6,6 +6,8 @@ Poll, lease, write, acknowledge. Nothing in this process listens on a socket.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import signal
 from typing import Any
 
@@ -31,8 +33,37 @@ class ObsidianSyncWorker:
             dry_run=settings.dry_run,
         )
         self._stopping = asyncio.Event()
-        #: vault path -> sha we last wrote, used to spot human edits.
-        self._written: dict[str, str] = {}
+        #: vault path -> sha we last wrote, used to spot human edits. Loaded
+        #: from disk, because a fresh process with an empty map sees no edit.
+        self._written: dict[str, str] = self._load_written()
+        self._dirty = False
+
+    def _load_written(self) -> dict[str, str]:
+        path = self._settings.state_file
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError):
+            logger.warning("ignoring unreadable sync state", extra={"path": str(path)})
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
+
+    def _save_written(self) -> None:
+        """Write the record atomically: a crash leaves the old file or the new."""
+        if not self._dirty or self._settings.dry_run:
+            return
+        path = self._settings.state_file
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(self._written, sort_keys=True), encoding="utf-8")
+            os.replace(tmp, path)
+            self._dirty = False
+        except OSError:
+            logger.warning("could not save sync state", extra={"path": str(path)})
 
     def stop(self) -> None:
         self._stopping.set()
@@ -90,14 +121,19 @@ class ObsidianSyncWorker:
                 for edit in edits:
                     # Accept the new on-disk hash so the edit is pushed once.
                     self._written[str(edit["vault_path"])] = str(edit["sha256"])
+                self._dirty = True
+                self._save_written()
                 logger.info(
                     "pushed vault edits",
                     extra={"count": len(edits), "applied": len(result.get("applied", []))},
                 )
 
         jobs = await self._client.lease()
-        for job in jobs:
-            await self._handle(job)
+        try:
+            for job in jobs:
+                await self._handle(job)
+        finally:
+            self._save_written()
         return len(jobs)
 
     async def _handle(self, job: dict[str, Any]) -> None:
@@ -141,6 +177,7 @@ class ObsidianSyncWorker:
 
         if outcome.sha256:
             self._written[vault_path] = outcome.sha256
+            self._dirty = True
         await self._client.ack(job_id, status="done", sha256=outcome.sha256)
         logger.info("wrote vault file", extra={"vault_path": vault_path})
 

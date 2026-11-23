@@ -103,6 +103,7 @@ are stored through the same canonical writers as imported conversations.
 | `Vault directory does not exist` | The folder in `OBSIDIAN_SYNC_VAULT_PATH` isn't there. | Create it or correct the path. |
 | `worker rejected: check OBSIDIAN_SYNC_API_KEY` | Helper and server disagree on the shared key. | Make `OBSIDIAN_SYNC_API_KEY` equal `SUBZERO_WORKER_API_KEY`; push settings and redeploy if you changed the server's. |
 | An edit of mine didn't show up in the apps | The helper wasn't running when you edited. | Start it; changed notes are pushed on its next pass. If the server also changed that note, the server's update is held back as a *conflict* and your edit stays in the vault. |
+| An edit I made before upgrading the helper never came back | The helper's record of what it wrote started empty with this version. | Nothing is lost; that note is tracked from the next time the server rewrites it. |
 | `vault write not queued; another job for this path won the race` in the server log | Two writes asked for the same file at the same instant; one of them is queued and will render the current content. | Nothing to do. If the file still looks stale afterwards, `uv run subzero wiki render` queues it again. |
 
 ## Gemini digest
@@ -127,6 +128,14 @@ not know. Update it to this version and restart it, so it accepts `25-Areas`,
 | --- | --- | --- |
 | `Could not identify which provider produced this archive` | Unknown file layout. | Name the app: `import gemini file.zip`. For Gemini, export **JSON**, not HTML. |
 | Many `classifier_degraded` | TypeSafe was unreachable. | Nothing is lost. `uv run subzero reclassify` later. |
+
+## Saving files
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `The uploaded bytes do not match that SHA-256` | What arrived in storage is not the file the app described, usually an interrupted or repeated upload. | Ask the app to upload the file again. The artifact stays `pending_import` until it matches, so it is never reported as saved. |
+| `Stored bytes at ... did not match the expected hash` | Storage kept something different from what Subzero sent. | Save again. The artifact is marked `failed`; check the storage service if it keeps happening. |
+| An artifact with status `failed` | A save stopped part-way, for example storage went away between two files. | Save it again; the new save gets the next version. Files from the failed one stay listed, so you can see how far it got. |
 
 ## Background loops
 

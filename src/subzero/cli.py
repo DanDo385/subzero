@@ -582,66 +582,16 @@ def reclassify(limit: int) -> None:
     settings = get_settings()
     _configure_cli_logging(settings)
 
+    from subzero.importers.reclassify import drain_reclassification_queue
+
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            rows = await services.db.fetch(
-                """
-                SELECT object_type, object_id, reason FROM reclassification_queue
-                WHERE next_attempt_at <= now()
-                ORDER BY next_attempt_at LIMIT $1
-                """,
-                limit,
-            )
-            if not rows:
+            done, total = await drain_reclassification_queue(services, limit=limit)
+            if total == 0:
                 click.echo("Nothing queued for reclassification.")
                 return
-
-            done = 0
-            for row in rows:
-                if row["object_type"] == "checkpoint":
-                    # Imported conversations are redone from their stored
-                    # messages. A live checkpoint's state was never stored,
-                    # so only imported conversations qualify.
-                    imported = await services.db.fetchval(
-                        "SELECT imported FROM conversations WHERE id = $1", row["object_id"]
-                    )
-                    if not imported:
-                        continue
-                    report = await reclassify_conversations(services, [row["object_id"]])
-                    if not report.errors:
-                        await services.db.execute(
-                            "DELETE FROM reclassification_queue WHERE object_id = $1",
-                            row["object_id"],
-                        )
-                        done += 1
-                    continue
-                if row["object_type"] != "artifact":
-                    continue
-                record = await services.artifacts.get(row["object_id"])
-                if record is None:
-                    await services.db.execute(
-                        "DELETE FROM reclassification_queue WHERE object_id = $1",
-                        row["object_id"],
-                    )
-                    continue
-                result, _, _ = await services.classification.classify_artifact(
-                    {
-                        "title": record.title,
-                        "description": record.description or "",
-                        "artifact_type": record.artifact_type,
-                        "source_type": record.source_type,
-                        "file_paths": [f.relative_path for f in record.files],
-                        "sensitivity": "normal",
-                    },
-                    object_id=record.id,
-                )
-                if not result.degraded:
-                    await services.db.execute(
-                        "DELETE FROM reclassification_queue WHERE object_id = $1", record.id
-                    )
-                    done += 1
-            click.echo(f"Reclassified {done} of {len(rows)} queued objects.")
+            click.echo(f"Reclassified {done} of {total} queued objects.")
         finally:
             await services.aclose()
             set_services(None)
