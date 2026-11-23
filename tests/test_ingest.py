@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 import pytest
@@ -141,8 +142,22 @@ async def test_ingest_idempotent(client, device_token, provider):
     assert data2["messages_skipped"] == len(payload["messages"])
 
 
+async def test_ingest_accepts_muse(client, device_token):
+    """The extension captures Muse; the server must know the provider."""
+    payload = _load_fixture("grok")
+    payload["provider"] = "muse"
+    payload["provider_conversation_id"] = "muse-conversation-1"
+    resp = await client.post(
+        "/api/v1/ingest/conversation",
+        json=payload,
+        headers={"Authorization": f"Bearer {device_token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["messages_inserted"] == len(payload["messages"])
+
+
 @pytest.mark.parametrize("provider", ["claude", "chatgpt"])
-async def test_ingest_append_messages(client, device_token, provider):
+async def test_ingest_append_messages(client, device_token, provider, services):
     """Sending a conversation with additional messages appends only the new ones."""
     payload = _load_fixture(provider)
     # First send with original messages.
@@ -174,6 +189,64 @@ async def test_ingest_append_messages(client, device_token, provider):
     assert data["status"] == "updated"
     assert data["messages_inserted"] == 1  # Only the new message.
     assert data["messages_skipped"] == len(payload["messages"]) - 1
+    # The appended message takes the next sequence slot: stored order has no gaps.
+    sequences = await services.db.fetch(
+        "SELECT sequence FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        UUID(data["conversation_id"]),
+    )
+    assert [row["sequence"] for row in sequences] == list(range(len(payload["messages"])))
+
+
+async def test_a_batch_stores_each_message_once_in_order(client, device_token, services):
+    messages = [
+        {"provider_message_id": "m1", "role": "user", "content": "first"},
+        {"provider_message_id": "m2", "role": "assistant", "content": "second"},
+        {"provider_message_id": "m1", "role": "user", "content": "first, repeated"},
+        {"provider_message_id": "m3", "role": "assistant", "content": "   "},
+        {"role": "user", "content": "no id"},
+    ]
+    resp = await client.post(
+        "/api/v1/ingest/conversation",
+        json={"provider": "claude", "provider_conversation_id": "batch", "messages": messages},
+        headers={"Authorization": f"Bearer {device_token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["messages_inserted"] == 3
+    rows = await services.db.fetch(
+        "SELECT provider_message_id, content, sequence FROM messages "
+        "WHERE conversation_id = $1 ORDER BY sequence",
+        UUID(resp.json()["conversation_id"]),
+    )
+    assert [(r["provider_message_id"], r["content"], r["sequence"]) for r in rows] == [
+        ("m1", "first", 0),
+        ("m2", "second", 1),
+        (None, "no id", 2),
+    ]
+
+
+async def test_a_capture_is_screened_and_never_lowered(client, device_token, services):
+    async def send(content: str) -> str:
+        resp = await client.post(
+            "/api/v1/ingest/conversation",
+            json={
+                "provider": "chatgpt",
+                "provider_conversation_id": "screened",
+                "messages": [
+                    {"provider_message_id": content[:8], "role": "user", "content": content}
+                ],
+            },
+            headers={"Authorization": f"Bearer {device_token}"},
+        )
+        assert resp.status_code == 200
+        return await services.db.fetchval(
+            "SELECT sensitivity::text FROM conversations WHERE id = $1",
+            UUID(resp.json()["conversation_id"]),
+        )
+
+    assert await send("What should I cook tonight?") == "normal"
+    assert await send("My SSN is 123-45-6789, fill in the form") == "highly_sensitive"
+    # A later, harmless capture never makes it less private.
+    assert await send("Thanks, that worked") == "highly_sensitive"
 
 
 async def test_revoke_device(client, device_token, services):
@@ -225,3 +298,95 @@ async def test_handoff_contains_a_saved_checkpoint(client, device_token, service
     )
     assert response.status_code == 200
     assert "configure the editor language server" in response.json()["handoff"]
+
+
+async def test_recapture_never_removes_history(client, device_token, services):
+    """A later, thinner capture (fewer messages, blank title, fewer attachments)
+    only ever adds: stored messages, title, model and attachments survive."""
+    headers = {"Authorization": f"Bearer {device_token}"}
+    full = _load_fixture("claude")
+    full["provider_conversation_id"] = "history-guard-1"
+    full["title"] = "The real title"
+    full["model"] = "claude-test-model"
+    full["attachments"] = [
+        {"provider_attachment_id": "att-1", "file_name": "a.pdf"},
+        {"provider_attachment_id": "att-2", "file_name": "b.png"},
+    ]
+    first = await client.post("/api/v1/ingest/conversation", json=full, headers=headers)
+    assert first.status_code == 200, first.text
+    conv_id = UUID(first.json()["conversation_id"])
+    stored = len(full["messages"])
+
+    thin = {
+        "provider": "claude",
+        "provider_conversation_id": "history-guard-1",
+        "title": "  ",
+        "model": "",
+        "messages": [
+            full["messages"][-1],
+            {"provider_message_id": "later-1", "role": "user", "content": "a new turn"},
+        ],
+        "attachments": [{"provider_attachment_id": "att-3", "file_name": "c.txt"}],
+    }
+    second = await client.post("/api/v1/ingest/conversation", json=thin, headers=headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["messages_inserted"] == 1
+
+    row = await services.db.fetchrow(
+        "SELECT title, model, metadata FROM conversations WHERE id = $1", conv_id
+    )
+    assert row["title"] == "The real title"
+    assert row["model"] == "claude-test-model"
+    ids = [a["provider_attachment_id"] for a in row["metadata"]["_attachments"]]
+    assert ids == ["att-1", "att-2", "att-3"]
+
+    messages = await services.db.fetch(
+        "SELECT provider_message_id FROM messages WHERE conversation_id = $1 ORDER BY sequence",
+        conv_id,
+    )
+    assert len(messages) == stored + 1
+    assert [m["provider_message_id"] for m in messages][:stored] == [
+        m["provider_message_id"] for m in full["messages"]
+    ]
+    assert messages[-1]["provider_message_id"] == "later-1"
+
+
+async def test_sync_state_reports_what_the_server_has(client, device_token):
+    """The extension asks which conversations exist and how fresh they are,
+    then fetches only newer ones. Provider update times only move forward."""
+    headers = {"Authorization": f"Bearer {device_token}"}
+    unauthorized = await client.get("/api/v1/ingest/sync-state?provider=claude")
+    assert unauthorized.status_code == 401
+
+    payload = _load_fixture("claude")
+    payload["provider_conversation_id"] = "sync-1"
+    payload["updated_at"] = "2026-11-13T10:00:00Z"
+    assert (
+        await client.post("/api/v1/ingest/conversation", json=payload, headers=headers)
+    ).status_code == 200
+    # A stale capture (older update time) must not move the watermark back.
+    payload["updated_at"] = "2026-11-01T00:00:00Z"
+    assert (
+        await client.post("/api/v1/ingest/conversation", json=payload, headers=headers)
+    ).status_code == 200
+
+    state = (await client.get("/api/v1/ingest/sync-state?provider=claude", headers=headers)).json()
+    assert state["count"] == 1
+    assert state["conversations"]["sync-1"].startswith("2026-11-13T10:00:00")
+    assert state["latest"] == state["conversations"]["sync-1"]
+
+    empty = (await client.get("/api/v1/ingest/sync-state?provider=grok", headers=headers)).json()
+    assert empty == {"provider": "grok", "count": 0, "latest": None, "conversations": {}}
+
+    # recent=N: only the most recently updated, which is all a sync needs.
+    payload["provider_conversation_id"] = "sync-2"
+    payload["updated_at"] = "2026-11-14T10:00:00Z"
+    assert (
+        await client.post("/api/v1/ingest/conversation", json=payload, headers=headers)
+    ).status_code == 200
+    newest = (
+        await client.get("/api/v1/ingest/sync-state?provider=claude&recent=1", headers=headers)
+    ).json()
+    assert list(newest["conversations"]) == ["sync-2"]
+    bad = await client.get("/api/v1/ingest/sync-state?provider=claude&recent=x", headers=headers)
+    assert bad.status_code == 400

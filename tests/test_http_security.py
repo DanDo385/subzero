@@ -524,3 +524,53 @@ async def test_authorize_without_registration_refuses_an_unknown_redirect(tmp_pa
         )
     assert response.status_code == 400
     assert "attacker.example" not in response.headers.get("location", "")
+
+
+FUNNEL = {"tailscale-funnel-request": "?1"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/v1/ingest/sync-state"),
+        ("POST", "/api/v1/ingest/conversation"),
+        ("POST", "/api/v1/auth/pair-device"),
+        ("POST", "/api/v1/dispatch/claim"),
+        ("POST", "/api/v1/sessions"),
+        ("POST", "/worker/jobs/lease"),
+        ("GET", "/artifacts/download"),
+        ("GET", "/readyz"),
+    ],
+)
+async def test_funnel_requests_reach_only_the_connector_paths(client, method, path) -> None:
+    """From the internet (Tailscale Funnel), device and worker APIs do not exist."""
+    http_client, _ = client
+    response = await http_client.request(method, path, headers=FUNNEL)
+    assert response.status_code == 404
+    assert response.json() == {"error": "not found"}
+
+
+async def test_funnel_requests_still_reach_mcp_and_sign_in(client) -> None:
+    http_client, _ = client
+    assert (await http_client.get("/healthz", headers=FUNNEL)).status_code == 200
+    mcp = await http_client.post("/mcp", headers=FUNNEL, json={})
+    assert mcp.status_code == 401  # reached the endpoint; still needs sign-in
+    # Sign-in paths answer exactly as they do on the tailnet.
+    for path in ("/.well-known/oauth-protected-resource/mcp", "/authorize", "/auth/callback"):
+        tailnet = await http_client.get(path)
+        funnel = await http_client.get(path, headers=FUNNEL)
+        assert (funnel.status_code, funnel.text) == (tailnet.status_code, tailnet.text)
+
+
+async def test_tailnet_requests_keep_the_device_apis(client) -> None:
+    http_client, _ = client
+    response = await http_client.get("/api/v1/ingest/sync-state")
+    assert response.status_code == 401  # exists; wants a device token
+
+
+async def test_funnel_guard_can_be_turned_off(tmp_path) -> None:
+    settings = _settings(local_storage_root=str(tmp_path / "s"), funnel_mcp_only=False)
+    transport = httpx.ASGITransport(app=create_app(settings))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client:
+        response = await http_client.post("/worker/jobs/lease", headers=FUNNEL)
+    assert response.status_code == 401

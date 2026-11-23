@@ -1,3 +1,6 @@
+(function () {
+  'use strict';
+
 // Subzero — Grok provider extractor.
 // DOM-based extraction. Grok's REST API is poorly documented;
 // DOM extraction with multi-signal role detection is more reliable.
@@ -6,7 +9,7 @@
  * Detect if we're on a Grok conversation page.
  */
 function isConversationPage() {
-  return window.location.pathname.includes('/chat/') &&
+  return /\/(?:c|chat)\//.test(window.location.pathname) &&
     document.querySelector('div[id^="response-"]') !== null;
 }
 
@@ -109,7 +112,7 @@ async function extractCurrentConversation() {
 
   // Extract conversation ID from URL.
   const url = new URL(window.location.href);
-  const idMatch = url.pathname.match(/\/chat\/([a-zA-Z0-9_-]+)/);
+  const idMatch = url.pathname.match(/\/(?:c|chat)\/([a-zA-Z0-9_-]+)/);
   const convId = idMatch ? idMatch[1] : '';
 
   // Extract title from page.
@@ -157,13 +160,13 @@ async function listConversations() {
   if (!sidebar) return [];
 
   // Grok sidebar uses links to individual chats.
-  const items = sidebar.querySelectorAll('a[href*="/chat/"]');
+  const items = sidebar.querySelectorAll('a[href*="/c/"], a[href*="/chat/"]');
   const convs = [];
   const seen = new Set();
 
   for (const item of items) {
     const href = item.getAttribute('href') || '';
-    const match = href.match(/\/chat\/([a-zA-Z0-9_-]+)/);
+    const match = href.match(/\/(?:c|chat)\/([a-zA-Z0-9_-]+)/);
     if (!match) continue;
     const id = match[1];
     if (seen.has(id)) continue;
@@ -185,3 +188,5 @@ async function listConversations() {
 (globalThis.__subzeroProviders ||= {}).grok = {
   extractCurrentConversation, listConversations, isConversationPage,
 };
+
+})();

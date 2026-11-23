@@ -48,6 +48,7 @@ are stored through the same canonical writers as imported conversations.
 | `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
 | `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
 | `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
+| `{"error": "not found"}` from the extension or `subzero agent` on a Mac server | The device reached the Mac through its public (Funnel) address without Tailscale. Those APIs are tailnet-only. | Turn Tailscale on for that device ([guide 14](guides/14-run-on-your-mac-over-tailscale.md)). |
 | `PC_HARNESS_API_KEY is required for bridge commands` | The CLI has no capability token for the browser bridge. | Add `PC_HARNESS_API_KEY` to `.env.local`, restart the server, and run the bridge command again. |
 
 ## Browser session bridge
@@ -134,3 +135,14 @@ table. The common ones:
 | `... is not valid JSON; fix it first` from `hooks install` | Your Claude Code settings file is broken. | Fix the JSON (nothing was changed), then install again. |
 | `Started as scout: it touches the network ...` | A risky job was asked to ship. | Read the plan it reports, then dispatch again with `--ship`. |
 
+## Browser extension
+
+The full table is in [guide 13](guides/13-browser-extension.md#when-it-goes-wrong). The common ones:
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `Could not establish connection. Receiving end does not exist` (older versions) | The chat tab had no Subzero script, usually because it was open before the extension was installed or reloaded. | Update the extension (0.2 reconnects tabs by itself), or refresh the tab. |
+| `Could not reach https://… Is the server running?` | Nothing answers at the paired address. The extension never falls back to another server. | Open the address plus `/healthz`; start the server. Waiting conversations are sent when it is back. |
+| `… does not know that code` | The pairing code was made against a different database than the server uses. | Run `pair-device` with the server's settings (guide 14's installer prints the command) and check its `Database:` line. |
+| `… did not accept this browser's token. Pair it again.` | The server does not know this browser. | Pair again; queued conversations are kept. |
+| `No messages found` on Gemini, Grok or Muse | Their page layout changed. | Open an issue; Claude and ChatGPT are unaffected. |

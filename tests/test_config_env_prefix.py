@@ -48,6 +48,23 @@ def test_legacy_env_names_lists_old_variables(monkeypatch: pytest.MonkeyPatch) -
     assert "PC_PORT" in legacy_env_names()
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("postgresql://postgres@/subzero?host=/srv/pg", "subzero on this computer (/srv/pg)"),
+        ("postgresql://u:secret@db.example.com:6543/postgres", "postgres on db.example.com:6543"),
+        ("postgresql://u:secret@localhost/subzero", "subzero on localhost"),
+        ("", "(no database configured)"),
+    ],
+)
+def test_database_target_names_the_database_without_credentials(url: str, expected: str) -> None:
+    from pydantic import SecretStr
+
+    target = Settings(database_url=SecretStr(url)).database_target()
+    assert target == expected
+    assert "secret" not in target
+
+
 def test_approved_bridge_key_still_reads_pc_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SUBZERO_HARNESS_API_KEY", raising=False)
     monkeypatch.setenv("PC_HARNESS_API_KEY", "bridge-test-key")

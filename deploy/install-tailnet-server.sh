@@ -113,5 +113,12 @@ echo "subzero is running on this Mac."
 echo "  Address:     $URL  (reachable by $REACH)"
 echo "  MCP URL:     $URL/mcp  (or $URL/mcp/<server id> if you set SUBZERO_SERVER_ID)"
 echo "  Sign-in:     add $URL/auth/callback to your Google or GitHub OAuth client"
+if [[ -n "$ENV_FILE" ]]; then
+  PAIR="SUBZERO_BASE_URL=$URL op run --env-file=$ENV_FILE -- .venv/bin/subzero pair-device"
+else
+  PAIR="SUBZERO_BASE_URL=$URL .venv/bin/subzero pair-device"
+fi
+echo "  Browser:     pair the extension with a code from: $PAIR"
+echo "               (run here; it must use this server's database)"
 echo "  Logs:        tail -f $LOGS/server.err.log"
 echo "  Stop:        $0 --remove"

@@ -16,8 +16,9 @@ _MAX_INPUT_CHARS = 24_000
 
 class OpenAIEmbeddingProvider:
     dimension = EMBEDDING_DIM
+    default_model = "text-embedding-3-small"
 
-    def __init__(self, api_key: str, model: str = "text-embedding-3-small") -> None:
+    def __init__(self, api_key: str, model: str = default_model) -> None:
         self._model = model
         self._client = httpx.AsyncClient(
             base_url="https://api.openai.com/v1",
@@ -47,8 +48,9 @@ class OpenAIEmbeddingProvider:
 
 class GeminiEmbeddingProvider:
     dimension = EMBEDDING_DIM
+    default_model = "gemini-embedding-001"
 
-    def __init__(self, api_key: str, model: str = "gemini-embedding-001") -> None:
+    def __init__(self, api_key: str, model: str = default_model) -> None:
         self._model = model
         self._client = httpx.AsyncClient(
             base_url="https://generativelanguage.googleapis.com/v1beta",
