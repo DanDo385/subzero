@@ -1,4 +1,4 @@
-# 6. Connect ChatGPT, Claude, Gemini, Grok and Muse
+# 6. Connect ChatGPT, Claude, Gemini and Grok
 
 Each app is connected **once, on a computer, in its website**. After that the connection also works in
 the app's phone version. Every app follows the same three steps:
@@ -23,63 +23,51 @@ which step broke; fix that before connecting any app.
 
 ## The custom instruction (same for every app)
 
-Copy the text below and paste it into each app's custom instruction field:
+Open [instructions/shared.md](../../instructions/shared.md) and copy its two
+blocks into each app's custom-instruction field:
 
-```
-Subzero (connector: subzero) is the memory shared by ChatGPT, Claude, Gemini,
-Grok, Muse, and my coding agents. For past history, preferences, projects,
-decisions, or an existing workflow, use Subzero before you answer. This app's
-memory is supplemental. Ignore a connector named personal-context-mcp.
+- **Block A: memory and tools.** Tells the app that Subzero is canonical, when
+  to call `context_bootstrap`, and what counts as saved. Required.
+- **Block B: voice and teaching.** How you want answers and explanations to
+  read. Optional, and useful on its own in an app you have not connected yet.
 
-Call context_bootstrap once with a few key terms or sigils (%project, ^lesson,
-&setup, #concept, @person, >agent). Do not paste my whole message. Skip
-Subzero for a question that stands on its own.
+That file is the only copy of the text, so the app guides cannot drift away from
+it. It is deliberately short, because the app reads it with every message: the
+detailed procedures live in Skills, MCP tool descriptions and MCP prompts, which
+load only when needed.
 
-When something should outlive this chat, checkpoint it once, with sigils or
-the project. A note to reread goes to the vault with note_write. Work for
-another agent is dispatch: say it is queued, not started. Lists live in a
-list app. Scratch files are not memory.
-
-The use-subzero guide is the procedure (prompt use_subzero, or resource
-subzero://guide/use-subzero). Say what you found. My statements are facts.
-Your conclusions are hypotheses. Never say a file was archived unless its
-bytes were stored.
-```
-
-This is the same text as [instructions/shared.md](../../instructions/shared.md). The app reads it
-with every message, so it stays short. The procedure is
-[skills/use-subzero/SKILL.md](../../skills/use-subzero/SKILL.md). Claude can take that folder as a
-skill. An app without skills can open the prompt `use_subzero` or the resource
-`subzero://guide/use-subzero`.
+For Codex setup, shared context and the initially empty MEMORY.md workflow,
+see [the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md).
 
 ## Moving from personal-context-mcp
 
 If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it
-and add a new one named **subzero** with the same server address. Then paste the instruction above
-over the old one. Old saved memories stay: they live in your database, not in the connector.
+and add a new one named **subzero** with the same server address. Then paste the two blocks from
+[instructions/shared.md](../../instructions/shared.md) over the old text. Old saved memories stay:
+they live in your database, not in the connector.
 
 ## App by app
 
 | App | Where to add it | Where the instruction goes | Needs | Full guide |
 | --- | --- | --- | --- | --- |
-| **Claude** | claude.ai → **Settings → Connectors → Add custom connector** | **Settings → Profile** → "What personal preferences should Claude consider" | any plan that offers custom connectors | [instructions/claude.md](../../instructions/claude.md) |
+| **Claude** | claude.ai → **Settings → Connectors → Add custom connector** | your initials, bottom left → **Settings → Instructions for Claude** | any plan that offers custom connectors | [instructions/claude.md](../../instructions/claude.md) |
 | **ChatGPT** | chatgpt.com → **Settings → Security and login → Developer mode** on, then **Settings → Plugins → +** | **Settings → Personalization → Custom instructions** | a plan with developer mode (Plus, Pro, Business, ...) | [instructions/chatgpt.md](../../instructions/chatgpt.md) |
-| **Gemini** | gemini.google.com **on a computer** → **Settings & help → Connected Apps → Custom apps for Spark → Add a custom app** | **Settings & help → Saved info** | **Google AI Pro or Ultra** (not Plus), a *personal* Google account, Keep Activity on | [instructions/gemini.md](../../instructions/gemini.md) |
+| **Gemini** | gemini.google.com **on a computer** → **Settings & help → Connected Apps → Custom apps for Spark → Add a custom app** | **Settings & help → Personal Intelligence → Instructions for Gemini** | **Google AI Pro or Ultra** (not Plus), a *personal* Google account, Keep Activity on | [instructions/gemini.md](../../instructions/gemini.md) |
 | **Grok** | **grok.com/connectors** (not your accounts.x.ai page) → **New Connector → Custom** | **Settings → Customize** | a paid Grok plan | [instructions/grok.md](../../instructions/grok.md) |
-| **Muse** | **Settings → Connectors → Add custom connector**, or ask Muse in a chat to add one with your server address | its own settings, or the start of a chat | US or Canada; connects from Meta's cloud, so the server must be public | the instruction above, then [guide 16](16-using-subzero.md) |
+| **Muse** | **Settings → Connectors → Add custom connector**, or ask Muse in a chat to add one with your server address | its own settings, or the start of a chat | US or Canada; connects from Meta's cloud, so the server must be public | none yet |
 
 The menus in these apps move around every few months. If a menu name doesn't match, look for
 "Connectors", "Apps" or "Integrations" in the settings, and check the full guide for the latest notes.
 
 > **Same account everywhere.** Step 2's sign-in works with any Google account, but only the email(s)
 > in `SUBZERO_ALLOWED_SUBJECTS` get in, and Gemini additionally refuses custom apps for work/school
-> (Workspace) accounts. Use one **personal** Google account for every app, and make sure it's
+> (Workspace) accounts. Use one **personal** Google account for all four apps, and make sure it's
 > the one you gave the setup wizard.
 
 ## Recommended: turn off each app's built-in memory
 
 Each app also keeps its own private memory of you. Left on, it competes with Subzero: an
-app may answer from its own stale notes instead of checking the shared record, and the apps drift
+app may answer from its own stale notes instead of checking the shared record, and the four apps drift
 apart. With it off, every app gets its memory from the same place.
 
 **First, download your history** from each app ([guide 9](09-import-your-history.md), step 1), so

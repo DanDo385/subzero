@@ -64,10 +64,6 @@ Subzero is this user's canonical memory, shared across ChatGPT, \
 Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
 named personal-context-mcp is also present, do not use it.
 
-Sigils in what the user types say where things belong: %area/project, \
-^lesson/topic, &tool, #concept, @person, and >agent for who gets a dispatched \
-job. Pass them through as written: the server reads them.
-
 Retrieve (context_bootstrap) only when the request depends on past work: a \
 project, earlier decisions, lists, "remember", "last time", a continuing task. \
 Never for standalone questions. Decide what to look for yourself, as with your \
@@ -273,6 +269,56 @@ class PathAliasMiddleware:
         if scope["type"] == "http" and scope["path"] in self.aliases:
             path = self.aliases[scope["path"]]
             scope = {**scope, "path": path, "raw_path": path.encode()}
+        await self.app(scope, receive, send)
+
+
+#: Paths an internet caller needs to connect an AI app: OAuth discovery,
+#: registration and sign-in, and the MCP endpoint itself.
+_FUNNEL_PUBLIC_PATHS = frozenset(
+    {
+        "/",
+        "/healthz",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-protected-resource",
+        "/authorize",
+        "/token",
+        "/register",
+        "/consent",
+        "/auth/callback",
+    }
+)
+
+
+class FunnelGuardMiddleware:
+    """Over Tailscale Funnel, answer only what an AI app needs to connect.
+
+    Tailscale Serve adds ``Tailscale-Funnel-Request`` to every request that
+    arrived from the internet through Funnel; tailnet requests never carry it,
+    and an internet caller cannot remove it. Those requests may reach the MCP
+    endpoint, OAuth sign-in and /healthz. Everything else (the browser
+    extension, agent, bridge, worker and artifact APIs) gets the same 404 as a
+    path that does not exist, so device tokens and the worker key are useless
+    from the internet and the surface the internet sees stays minimal. Runs
+    before path aliasing, on the path as the caller sent it.
+    """
+
+    def __init__(self, app: Any, *, mcp_path: str) -> None:
+        self.app = app
+        self.public = _FUNNEL_PUBLIC_PATHS | {
+            mcp_path,
+            f"{mcp_path}/",
+            f"/.well-known/oauth-protected-resource{mcp_path}",
+        }
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if (
+            scope["type"] == "http"
+            and scope["path"] not in self.public
+            and any(k.lower() == b"tailscale-funnel-request" for k, _ in scope.get("headers", []))
+        ):
+            response = JSONResponse({"error": "not found"}, status_code=404)
+            await response(scope, receive, send)
+            return
         await self.app(scope, receive, send)
 
 
@@ -558,17 +604,20 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 "embeddings": settings.embedding_provider,
             },
         )
-        async with (
-            mcp_app.router.lifespan_context(app),
-            background_refresh(db, services.embeddings, settings),
-            background_classify(services),
-        ):
-            try:
+        # The background loops are cancelled before the pool closes, so each one
+        # can give up its lease on the way out and a restarted server does not
+        # have to wait for that lease to expire.
+        try:
+            async with (
+                mcp_app.router.lifespan_context(app),
+                background_refresh(db, services.embeddings, settings),
+                background_classify(services),
+            ):
                 yield
-            finally:
-                await services.aclose()
-                set_services(None)
-                set_database(None)
+        finally:
+            await services.aclose()
+            set_services(None)
+            set_database(None)
 
     routes = _build_routes(settings, mcp_app)
 
@@ -578,6 +627,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
             RequestLogMiddleware,
             mcp_path=settings.mcp_path,
             log_bodies=not settings.is_prod and settings.log_level.upper() == "DEBUG",
+        ),
+        *(
+            [Middleware(FunnelGuardMiddleware, mcp_path=settings.mcp_path)]
+            if settings.funnel_mcp_only
+            else []
         ),
         Middleware(
             PathAliasMiddleware,

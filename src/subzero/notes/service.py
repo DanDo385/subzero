@@ -13,7 +13,7 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero.db.pool import Database
+from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.errors import NotFoundError
 from subzero.homes import home_metadata
@@ -164,9 +164,12 @@ class NoteService:
 
         content = content.strip()
         content_hash = sha256_text(content)
-        embedding = await self._embeddings.embed_one(
-            f"{title}\n\n{content}", sensitivity=sensitivity
-        )
+        # No embedding here on purpose. A note's vector is derived data, and
+        # computing it inline meant a network call of up to 30 s inside the
+        # caller's transaction, holding row locks and a pooled connection while
+        # a provider was slow. The refresh loop fills notes.embedding instead,
+        # and a note the privacy policy forbids is marked embedding_skipped so
+        # the loop never rescans it.
 
         if existing is None:
             note_id = await executor.fetchval(
@@ -174,9 +177,9 @@ class NoteService:
                 INSERT INTO notes (
                     slug, title, content, content_sha256, note_class, project_id,
                     vault_path, sensitivity, citations, source_provider,
-                    source_conversation_id, provenance, embedding, metadata
+                    source_conversation_id, provenance, metadata
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::pc_sensitivity,$9,$10,$11,
-                          $12::pc_provenance,$13,$14)
+                          $12::pc_provenance,$13)
                 RETURNING id
                 """,
                 slug,
@@ -191,7 +194,6 @@ class NoteService:
                 source_provider,
                 source_conversation_id,
                 provenance,
-                embedding,
                 metadata,
             )
             await self._add_version(
@@ -224,7 +226,10 @@ class NoteService:
                 vault_path = coalesce($7, vault_path),
                 citations = CASE WHEN $8::jsonb = '[]'::jsonb THEN citations ELSE $8 END,
                 version = $9,
-                embedding = coalesce($10, embedding)
+                -- The body changed, so the stored vector describes text that is
+                -- no longer there. Clearing it beats keeping a stale one: the
+                -- refresh loop recomputes it from the new content.
+                embedding = NULL
             WHERE id = $1
             """,
             existing["id"],
@@ -236,7 +241,6 @@ class NoteService:
             vault_path,
             citations or [],
             version,
-            embedding,
         )
         await self._add_version(
             executor,
@@ -303,9 +307,9 @@ class NoteService:
                 FROM notes WHERE search_tsv @@ websearch_to_tsquery('english', $1)
             ),
             vector_hits AS (
-                SELECT id, 1 - (embedding <=> $4) AS rank FROM notes
-                WHERE $4::vector IS NOT NULL AND embedding IS NOT NULL
-                ORDER BY embedding <=> $4 LIMIT 30
+                SELECT id, 1 - (embedding <=> $4::text::vector) AS rank FROM notes
+                WHERE $4::text IS NOT NULL AND embedding IS NOT NULL
+                ORDER BY embedding <=> $4::text::vector LIMIT 30
             ),
             merged AS (
                 SELECT id, max(rank) AS rank
@@ -323,7 +327,7 @@ class NoteService:
             query,
             project_id,
             note_class,
-            vector,
+            vector_literal(vector),
             limit,
         )
         return [_record(r) for r in rows]

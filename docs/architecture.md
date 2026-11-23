@@ -172,23 +172,32 @@ subzero/
 ├── instructions/             # per-provider setup + the shared instruction
 ├── skills/                   # portable workflows, including search/save/email/vault
 ├── scripts/                  # per-provider import wrappers
+├── extension/                # browser extension: capture, durable queue, pairing
 ├── src/subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── email.py              # immutable previews, AgentMail adapter, durable receipts
 │   ├── server.py             # Starlette app, routes, lifespan
 │   ├── services.py           # explicit service wiring
 │   ├── models.py             # the shapes that cross the MCP boundary
+│   ├── ingest.py             # /api/v1/ingest: the extension's write path, sync-state
+│   ├── sigils.py             # %project ^lesson &setup #concept @person >agent
+│   ├── cli.py cli_agents.py  # `subzero` commands; client.py is their HTTP side
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
 │   ├── db/                   # asyncpg pool + migration runner
 │   ├── memory/ sessions/ projects/ lists/ notes/
 │   ├── retrieval/            # hybrid search + context packages
-│   ├── artifacts/            # keys, manifests, archive guards, service
+│   ├── artifacts/            # keys, manifests, archive guards, filing, service
 │   ├── classifier/           # base, questions, rules, jev, policy, service
 │   ├── storage/              # object store: supabase | local
 │   ├── embeddings/           # provider abstraction + privacy gate
 │   ├── obsidian/             # path validation, rendering, job queue
-│   ├── importers/            # per-provider adapters + pipeline
+│   ├── importers/            # per-provider adapters + pipeline, reclassification
+│   ├── extraction/           # pass 2: deep extraction through session_checkpoint
+│   ├── wiki/                 # note graph and maps, kept in Postgres
+│   ├── agents/ board/        # coding sessions, messages, dispatch; the local board
+│   ├── bridge/               # browser session bridge to a CLI
+│   ├── memorylab/            # triage and recovery of stored sessions
 │   ├── review/ audit/
 │   └── worker_api.py         # the local worker's outbound surface
 ├── src/obsidian_sync/        # the local worker
@@ -251,8 +260,10 @@ flowchart TB
 ## Context retrieval
 
 Full-text search in Postgres, ranked in Python, packed to a token budget. No
-model, classifier or vault call happens on these paths; embeddings, when
-enabled, are used for writing and deduplication, not for reads.
+classifier or vault call happens on these paths. The one model call is
+optional: with embeddings enabled, `memory_deep_search` and bootstrap's
+semantic layer embed the query itself (one call, 2 s timeout) and fall back to
+full-text search when it fails.
 
 ```
 context_bootstrap(query=None, project=None, token_budget=1200, user_message=None)
@@ -339,11 +350,13 @@ Every returned item carries provenance:
 | `tool_result` | Output of a tool. |
 | `imported_metadata` | Derived mechanically from an import. Weakest. |
 
-**Embeddings are optional.** Retrieval runs on full-text search alone, so
-nothing leaves the process on a read. `SUBZERO_EMBEDDING_PROVIDER=none` is the
-default, so the system is useful before you have picked an embedding vendor;
-when a provider is set, vectors are stored on write and the read path still
-makes no model call.
+**Embeddings are optional.** Retrieval runs on full-text search alone, so nothing leaves the process
+on a read. `SUBZERO_EMBEDDING_PROVIDER=none` is the default, so the system is useful before you have
+picked an embedding vendor. When a provider is set, a memory's and a session summary's vectors are
+computed when they are written, before the checkpoint transaction opens, and a message's or a
+note's by the background refresh loop, because a vector is derived data and computing it inline
+would put a 30 s network call inside a database transaction. The read path still makes no model call except the query's own embedding in
+`memory_deep_search` and bootstrap's optional semantic layer.
 
 ---
 
@@ -365,13 +378,13 @@ sequenceDiagram
     Note over S: Policy engine maps answers to actions
     S->>D: BEGIN
     S->>D: conversation, summary, decisions, memories, tasks, lists, projects
-    S->>D: COMMIT
     opt promote_to_vault = yes AND not sensitive
         S->>Q: enqueue vault write
     end
     opt confidence in the review band
         S->>D: review_queue row
     end
+    S->>D: COMMIT
     S-->>M: created / updated / skipped, plus the routing that was applied
 ```
 
@@ -386,6 +399,12 @@ what it already sent:
 
 Calling `session_checkpoint` twice with the same content produces one of
 everything. The result reports what was skipped and why.
+
+The vault job and the review rows are inside that transaction, not after it. A checkpoint that
+commits always has its queued render with it, and one that rolls back leaves nothing behind, so
+there is no window where a session is stored and reported as stored but never rendered. The audit
+record is the exception and stays outside: failing to log a mutation must not roll the mutation
+back.
 
 ---
 
@@ -525,11 +544,17 @@ back onto the originating event.
 
 ### When Jev is down
 
-The database, memory, retrieval and every MCP tool keep working. Classification
-falls back to deterministic rules that are deliberately *unconfident*: they
-will save what you explicitly supplied, but they will not assign a project on a
-guess and they will not write to your vault. The object is queued for
-reclassification and the checkpoint result tells the model to say so.
+The database, memory, retrieval and every MCP tool keep working. Classification falls back to
+deterministic rules that are deliberately *unconfident*: they will save what you explicitly supplied,
+but they will not assign a project on a guess and they will not write to your vault. The object goes
+onto `reclassification_queue` with an exponential `next_attempt_at`, and the checkpoint result tells
+the model to say so.
+
+That queue is also how new captures reach the classifier: `ingest` enqueues a conversation in the
+same transaction that stores it, and the background loop claims rows from it with
+`FOR UPDATE SKIP LOCKED`. The loop used to rediscover the work by scanning every imported
+conversation on every tick, which cost the same whether or not anything was waiting, and which gave
+two running servers the same conversation to classify twice.
 
 ---
 
@@ -595,10 +620,14 @@ sequenceDiagram
 
 Properties that fall out of this:
 
-- **No inbound access to your Mac.** No port forwarding, no public SSH, no
-  Obsidian REST API, no exposed filesystem. The laptop dials out.
+- **No inbound access to your Mac.** No port forwarding, no public SSH, no Obsidian REST API, no
+  exposed filesystem. The laptop dials out.
 - **The server keeps working with the laptop off.** Only vault sync pauses.
-- **Human edits are never silently overwritten.** A mismatch is a conflict.
+- **Human edits are never silently overwritten.** A mismatch is a conflict. Notes, maps and list
+  views all carry the hash of what the worker last wrote, so all three are covered.
+- **One open job per path, and a write requested during a lease waits.** The unique index covers
+  `queued` and `approved` only, so a render asked for while the worker is mid-write queues behind it
+  instead of being dropped.
 - **Paths are validated twice.** The server builds and validates; the worker
   re-validates on arrival. The cloud service is the component most likely to be
   compromised and the worker is the one with filesystem access, so the worker
@@ -960,7 +989,7 @@ real HTTP server, and a real filesystem vault - not mocked.
 The full vertical slice, end to end over HTTP:
 
 ```
- [ 1] connected + authenticated; 48 tools advertised
+ [ 1] connected + authenticated; 53 tools advertised
  [ 2] memory_save -> created
  [ 3] memory_search -> 1 hit
  [ 4] project_create -> personal-ai
@@ -1038,15 +1067,10 @@ until a real `SUBZERO_TYPESAFE_API_KEY` is configured.
 
 Not built, deliberately:
 
-1. **Browser extension** for capturing web conversation turns and artifact
-   bytes at source — the only way to close the attachment gap for Gemini.
-   Designed for, not built; the ingestion API it would target is the same one
-   the worker uses.
-2. **Application-level encryption** for `highly_sensitive` artifacts.
-3. **Embedding backfill worker** for content saved while embeddings were off.
-4. **Classification quality review** over `classification_events` — the data is
+1. **Application-level encryption** for `highly_sensitive` artifacts.
+2. **Classification quality review** over `classification_events`: the data is
    already being collected for exactly this.
-5. **Provider API ingestion** where official conversation APIs exist, to reduce
+3. **Provider API ingestion** where official conversation APIs exist, to reduce
    reliance on manual exports.
-6. **Multi-user support.** Single-user assumptions are isolated to the auth
+4. **Multi-user support.** Single-user assumptions are isolated to the auth
    layer and the allowlist; the schema already carries the provenance needed.

@@ -37,6 +37,23 @@ def _frontmatter(fields: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _triage_fields(meta: dict[str, Any]) -> dict[str, Any]:
+    """Memory-lab triage outcome and Jev scores, flattened for frontmatter."""
+    raw_triage, raw_jev = meta.get("triage"), meta.get("jev")
+    triage: dict[str, Any] = raw_triage if isinstance(raw_triage, dict) else {}
+    jev: dict[str, Any] = raw_jev if isinstance(raw_jev, dict) else {}
+    fields: dict[str, Any] = {}
+    if triage:
+        fields["triage_outcome"] = triage.get("outcome")
+        fields["triage_reason"] = triage.get("reason")
+        fields["triage_gate"] = triage.get("gate")
+        fields["memory_candidate"] = triage.get("candidates") or None
+    for key, value in jev.items():
+        if isinstance(value, str | int | float) and not isinstance(value, bool):
+            fields[f"jev_{key}"] = value
+    return fields
+
+
 def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
     front = _frontmatter(
         {
@@ -138,6 +155,7 @@ def render_note(
             "version": note.get("version"),
             "updated": note.get("updated_at"),
             "source_date": meta.get("source_date"),
+            **_triage_fields(meta),
             "tags": tags,
         }
     )

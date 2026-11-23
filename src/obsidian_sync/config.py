@@ -6,6 +6,8 @@ inbound port, no tunnel, no public hostname and no filesystem exposure.
 
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 
 from pydantic import SecretStr
@@ -51,11 +53,28 @@ class WorkerSettings(BaseSettings):
         "profile": "85-Profiles",
         "system": "90-System",
         "archive": "99-Archive",
+        "area": "25-Areas",
+        "permanent": "Permanent",
+        "experiments": "Experiments",
     }
 
     max_file_bytes: int = 32 * 1024 * 1024
     dry_run: bool = False
+    #: Where the helper keeps its record of what it wrote, so a human edit is
+    #: still recognised after a restart. Outside the vault on purpose: a vault
+    #: synced between devices would otherwise carry one machine's record to
+    #: the others. Defaults to $XDG_STATE_HOME/subzero/obsidian-sync.
+    state_dir: Path | None = None
 
     @property
     def resolved_vault(self) -> Path:
         return self.vault_path.expanduser().resolve()
+
+    @property
+    def state_file(self) -> Path:
+        """One file per vault, so two vaults on one machine never share a record."""
+        base = self.state_dir or (
+            Path(os.environ.get("XDG_STATE_HOME") or "~/.local/state") / "subzero" / "obsidian-sync"
+        )
+        key = hashlib.sha256(str(self.resolved_vault).encode()).hexdigest()[:16]
+        return base.expanduser() / f"written-{key}.json"

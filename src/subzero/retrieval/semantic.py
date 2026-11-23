@@ -150,8 +150,14 @@ async def deep_search(
 ) -> DeepSearchResult:
     """Hybrid search over every stored message, grouped by conversation."""
     pool = max(30, limit * 6)
-    vector = await embed_query(embeddings, query)
-    text_rows = await db.fetch(_TEXT_SQL, query, pool, provider)
+    # The full-text query does not need the vector, so the two run together.
+    # Sequenced, a deep search paid the embedding call (up to
+    # QUERY_EMBED_TIMEOUT_S) plus the query round trip; together it pays
+    # whichever is slower.
+    vector, text_rows = await asyncio.gather(
+        embed_query(embeddings, query),
+        db.fetch(_TEXT_SQL, query, pool, provider),
+    )
     vector_hits = (
         await semantic_messages(db, vector, limit=pool, provider=provider) if vector else []
     )

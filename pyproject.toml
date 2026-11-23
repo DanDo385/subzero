@@ -25,6 +25,9 @@ dependencies = [
 worker = [
     "watchfiles>=1.0",
 ]
+honcho = [
+    "honcho-ai>=2.2,<3",
+]
 
 [project.scripts]
 subzero = "subzero.cli:main"

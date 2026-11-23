@@ -25,12 +25,13 @@ from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
 from subzero.classifier.service import ClassificationService
 from subzero.config import Settings
-from subzero.db.pool import Database
+from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.homes import home_metadata
 from subzero.lists.service import ListService
 from subzero.logging_setup import get_logger
 from subzero.memory.service import MemoryService
+from subzero.memorylab.triage import has_triage, triage
 from subzero.models import (
     CheckpointArtifactRef,
     CheckpointDecision,
@@ -240,8 +241,18 @@ class SessionService:
         rows = _message_rows(messages)
         if not rows:
             return 0
-        executor = conn or self._db
-        inserted = await executor.fetch(
+        if conn is None:
+            async with self._db.transaction() as own:
+                return await self.add_messages(
+                    conversation_id, messages, provider=provider, conn=own
+                )
+        # Numbering reads max(sequence), so two writers for one conversation
+        # must take turns: the second waits here, then reads the first's rows.
+        # NO KEY UPDATE serialises writers without blocking foreign-key checks.
+        await conn.execute(
+            "SELECT 1 FROM conversations WHERE id = $1 FOR NO KEY UPDATE", conversation_id
+        )
+        inserted = await conn.fetch(
             _INSERT_MESSAGES_SQL,
             conversation_id,
             provider,
@@ -250,6 +261,21 @@ class SessionService:
         return len(inserted)
 
     # -------------------------------------------------------- checkpoint
+
+    async def _memory_vectors(
+        self, items: list[tuple[str, str]]
+    ) -> dict[tuple[str, str], list[float] | None]:
+        """One vector per distinct ``(text, sensitivity)``, a batch per level."""
+        by_level: dict[str, list[str]] = {}
+        for text, level in dict.fromkeys(items):
+            by_level.setdefault(level, []).append(text)
+        vectors: dict[tuple[str, str], list[float] | None] = {}
+        for level, texts in by_level.items():
+            for text, vector in zip(
+                texts, await self._embeddings.embed(texts, sensitivity=level), strict=True
+            ):
+                vectors[(text, level)] = vector
+        return vectors
 
     async def checkpoint(
         self,
@@ -343,11 +369,30 @@ class SessionService:
             state, historical_import=historical_import
         )
 
+        # The summary's vector is computed here, outside the transaction. An
+        # embedding call is a network round trip that can take seconds, and
+        # holding row locks and a pooled connection across it is how a slow
+        # provider turns into a hung checkpoint.
+        summary_text = summary.strip() if summary else ""
+        summary_embedding = (
+            await self._embeddings.embed_one(
+                f"{title or ''}\n\n{summary_text}", sensitivity=sensitivity
+            )
+            if summary_text
+            else None
+        )
+        # Every memory this checkpoint may write, vectorised the same way and
+        # for the same reason: memories.save would otherwise embed inside it.
+        memory_vectors = await self._memory_vectors(
+            [(d.statement.strip(), sensitivity) for d in decisions]
+            + [(f.content.strip(), f.sensitivity) for f in facts]
+        )
+
         # ---- 2. everything else in one transaction ----------------------
         async with self._db.transaction() as conn:
             routed_project_id = explicit.id if explicit else None
             if routed_project_id is None and routing.project_slug:
-                routed_project_id = await self._projects.resolve(routing.project_slug)
+                routed_project_id = await self._projects.resolve(routing.project_slug, conn=conn)
             conversation_id, conv_created = await self.ensure_conversation(
                 provider=provider,
                 provider_conversation_id=provider_conversation_id,
@@ -361,7 +406,7 @@ class SessionService:
 
             # -- project updates (explicit beats inferred) ----------------
             for update in project_updates:
-                project_id = await self._projects.resolve(update.project)
+                project_id = await self._projects.resolve(update.project, conn=conn)
                 if project_id is None:
                     project_id, _ = await self._projects.create(
                         name=update.project,
@@ -467,6 +512,7 @@ class SessionService:
                     resolved_questions=resolved_all,
                     sensitivity=sensitivity,
                     needs_review=routing.needs_review,
+                    embedding=summary_embedding,
                 )
                 bump(created if summary_created else updated, "session_summaries")
             elif existing and (open_questions or resolved_questions or important_context):
@@ -491,7 +537,9 @@ class SessionService:
 
             # -- decisions ------------------------------------------------
             for decision in decisions:
-                project_id = await self._projects.resolve(decision.project) or routed_project_id
+                project_id = (
+                    await self._projects.resolve(decision.project, conn=conn) or routed_project_id
+                )
                 inserted = await conn.fetchval(
                     """
                     INSERT INTO decisions (
@@ -513,7 +561,7 @@ class SessionService:
                 # A decision is also durable memory; storing it once in each
                 # place is what makes it retrievable by both paths.
                 if inserted:
-                    saved = await self._memories.save(
+                    memory_saved = await self._memories.save(
                         content=decision.statement.strip(),
                         kind="decision",
                         subject=decision.project or routing.project_slug,
@@ -524,14 +572,17 @@ class SessionService:
                         source_provider=provider,
                         source_conversation_id=conversation_id,
                         conn=conn,
+                        embedding=memory_vectors.get((decision.statement.strip(), sensitivity)),
                     )
-                    bump(created if saved.outcome == "created" else updated, "memories")
+                    bump(created if memory_saved.outcome == "created" else updated, "memories")
 
             # -- facts / durable memory -----------------------------------
             if routing.save_memory is not Verdict.NO or facts:
                 for fact in facts:
-                    project_id = await self._projects.resolve(fact.project) or routed_project_id
-                    saved = await self._memories.save(
+                    project_id = (
+                        await self._projects.resolve(fact.project, conn=conn) or routed_project_id
+                    )
+                    memory_saved = await self._memories.save(
                         content=fact.content,
                         kind=fact.kind,
                         subject=fact.subject,
@@ -547,12 +598,13 @@ class SessionService:
                         source_conversation_id=conversation_id,
                         confidence=routing.confidence or None,
                         conn=conn,
+                        embedding=memory_vectors.get((fact.content.strip(), fact.sensitivity)),
                     )
                     bump(
                         created
-                        if saved.outcome == "created"
+                        if memory_saved.outcome == "created"
                         else skipped
-                        if saved.outcome == "duplicate"
+                        if memory_saved.outcome == "duplicate"
                         else updated,
                         "memories",
                     )
@@ -577,7 +629,7 @@ class SessionService:
 
             # -- list updates ---------------------------------------------
             for list_update in list_updates:
-                resolved_list_id = await self._lists.resolve(list_update.list_ref)
+                resolved_list_id = await self._lists.resolve(list_update.list_ref, conn=conn)
                 if resolved_list_id is None:
                     resolved_list_id, _ = await self._lists.create(
                         name=list_update.list_ref, conn=conn
@@ -597,7 +649,7 @@ class SessionService:
                     )
                     bump(created if item_created else skipped, "list_items")
                 for reference in list_update.complete:
-                    item_id = await self._lists.resolve_item(resolved_list_id, reference)
+                    item_id = await self._lists.resolve_item(resolved_list_id, reference, conn=conn)
                     if item_id:
                         await self._lists.update_item(item_id, status="done", conn=conn)
                         bump(updated, "list_items")
@@ -608,7 +660,7 @@ class SessionService:
                             "nothing was completed."
                         )
                 for reference in list_update.remove:
-                    item_id = await self._lists.resolve_item(resolved_list_id, reference)
+                    item_id = await self._lists.resolve_item(resolved_list_id, reference, conn=conn)
                     if item_id:
                         await self._lists.update_item(item_id, status="dropped", conn=conn)
                         bump(updated, "list_items")
@@ -648,45 +700,60 @@ class SessionService:
                     )
                 bump(updated, "artifacts")
 
-        # ---- 3. vault promotion, outside the transaction ----------------
-        queued = 0
-        review_items = 0
-        if (
-            summary_id
-            and queue_for_vault
-            and sensitivity == "normal"
-            and routing.promote_to_vault is Verdict.YES
-            and self._settings.obsidian_enabled
-        ):
-            queued += await self._queue_summary_note(
-                conversation_id=conversation_id,
-                summary_id=summary_id,
-                title=title or "Session summary",
-                summary=summary or "",
-                destination=routing.destination or "inbox",
-                project_slug=saved["slug"],
-                provider=provider,
-                classification_event_id=event_id,
-                open_questions=open_questions,
-                home=metadata["home"],
-                concepts=[
-                    t.removeprefix("concept/") for t in metadata["tags"] if t.startswith("concept/")
-                ],
-            )
+            # -- 3. vault promotion, reviews, reclassification --------------
+            # Inside the transaction on purpose. These used to be written
+            # after COMMIT, each on its own pooled connection, so a crash in
+            # between left a checkpoint that was saved and reported as saved
+            # but never rendered to the vault, with no row anywhere recording
+            # that a render was owed. The worker only sees a job once this
+            # commits, so queuing here cannot hand it a note that is not there.
+            queued = 0
+            review_items = 0
+            if (
+                summary_id
+                and queue_for_vault
+                and sensitivity == "normal"
+                and routing.promote_to_vault is Verdict.YES
+                and self._settings.obsidian_enabled
+            ):
+                queued += await self._queue_summary_note(
+                    conn,
+                    conversation_id=conversation_id,
+                    summary_id=summary_id,
+                    title=title or "Session summary",
+                    summary=summary or "",
+                    destination=routing.destination or "inbox",
+                    project_slug=saved["slug"],
+                    provider=provider,
+                    classification_event_id=event_id,
+                    open_questions=open_questions,
+                    home=metadata["home"],
+                    concepts=[
+                        t.removeprefix("concept/")
+                        for t in metadata["tags"]
+                        if t.startswith("concept/")
+                    ],
+                )
 
-        if routing.needs_review:
-            review_items = await self._queue_reviews(
-                routing, conversation_id=conversation_id, event_id=event_id
-            )
+            if routing.needs_review:
+                review_items = await self._queue_reviews(
+                    routing, conn=conn, conversation_id=conversation_id, event_id=event_id
+                )
 
-        if result.degraded:
-            # Classification runs before the transaction, so it had no
-            # conversation id to queue against. Now there is one.
-            await self._classification.queue_reclassification(
-                object_type="checkpoint",
-                object_id=conversation_id,
-                reason=result.error or "classifier_degraded",
-            )
+            if result.degraded:
+                # Classification runs before the transaction, so it had no
+                # conversation id to queue against. Now there is one.
+                await self._classification.queue_reclassification(
+                    object_type="checkpoint",
+                    object_id=conversation_id,
+                    reason=result.error or "classifier_degraded",
+                    conn=conn,
+                )
+
+        # The audit record stays outside the transaction, and stays
+        # best-effort: a failure to log a mutation must not roll back the
+        # mutation itself, which is why AuditService.record swallows its own
+        # errors.
 
         await self._audit.record(
             tool="session_checkpoint",
@@ -721,6 +788,7 @@ class SessionService:
                 "degraded": result.degraded,
                 **routing.as_json(),
                 **metadata,
+                **_triage_json(result),
             },
             queued_vault_jobs=queued,
             review_items=review_items,
@@ -784,10 +852,8 @@ class SessionService:
         sensitivity: str,
         needs_review: bool,
         resolved_questions: list[str] | None = None,
+        embedding: list[float] | None = None,
     ) -> tuple[UUID, bool]:
-        embedding = await self._embeddings.embed_one(
-            f"{title or ''}\n\n{summary}", sensitivity=sensitivity
-        )
         row = await conn.fetchrow(
             """
             INSERT INTO session_summaries (
@@ -795,7 +861,7 @@ class SessionService:
                 open_questions, important_context, sensitivity,
                 classification_status, embedding, metadata
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::pc_sensitivity,
-                      $10::pc_classification_status,$11,
+                      $10::pc_classification_status,$11::text::vector,
                       jsonb_build_object('resolved_questions', $12::jsonb))
             ON CONFLICT (conversation_id) DO UPDATE SET
                 -- A later checkpoint in the same session extends the record
@@ -827,7 +893,7 @@ class SessionService:
             important_context,
             sensitivity,
             "needs_review" if needs_review else "classified",
-            embedding,
+            vector_literal(embedding),
             resolved_questions or [],
         )
         await conn.execute(
@@ -845,6 +911,7 @@ class SessionService:
 
     async def _queue_summary_note(
         self,
+        conn: asyncpg.Connection,
         *,
         conversation_id: UUID,
         summary_id: UUID,
@@ -869,17 +936,22 @@ class SessionService:
             title=title,
             content=body,
             note_class=destination if destination != "archive_only" else "inbox",
-            project_id=await self._projects.resolve(project_slug) if project_slug else None,
+            project_id=(
+                await self._projects.resolve(project_slug, conn=conn) if project_slug else None
+            ),
             source_provider=provider,
             source_conversation_id=conversation_id,
             provenance="assistant_generated",
             append=True,
             home=home,
             concepts=concepts,
+            conn=conn,
         )
         vault_path = self._paths.home_note(home, title)
-        note = await self._notes.get(str(note_id))
-        await self._db.execute(
+        # Read back through the same connection: the note was written inside
+        # this transaction, so a pool read could not see it.
+        stored = await conn.fetchval("SELECT content FROM notes WHERE id = $1", note_id)
+        await conn.execute(
             "UPDATE notes SET vault_path = $2 WHERE id = $1 AND vault_path IS NULL",
             note_id,
             vault_path,
@@ -890,11 +962,12 @@ class SessionService:
             object_id=note_id,
             vault_path=vault_path,
             payload={"note_id": str(note_id), "version": version},
-            content_sha256=sha256_text(note.content or body),
+            content_sha256=sha256_text(stored or body),
             source_provider=provider,
             classification_event_id=classification_event_id,
+            conn=conn,
         )
-        await self._db.execute(
+        await conn.execute(
             """
             UPDATE session_summaries
             SET metadata = metadata || jsonb_build_object('vault_note_id', $2::text)
@@ -906,7 +979,12 @@ class SessionService:
         return 1 if job else 0
 
     async def _queue_reviews(
-        self, routing: Any, *, conversation_id: UUID, event_id: UUID | None
+        self,
+        routing: Any,
+        *,
+        conn: asyncpg.Connection,
+        conversation_id: UUID,
+        event_id: UUID | None,
     ) -> int:
         count = 0
         for reason in routing.review_reasons:
@@ -933,6 +1011,7 @@ class SessionService:
                 suggested=routing.as_json(),
                 confidence=routing.confidence,
                 classification_event_id=event_id,
+                conn=conn,
             ):
                 count += 1
         return count
@@ -990,3 +1069,21 @@ def _merge_texts(existing: list[Any] | None, new: list[str]) -> list[str]:
             seen.add(key)
             out.append(value)
     return out
+
+
+def _triage_json(result: Any) -> dict[str, Any]:
+    """The memory-lab triage outcome for this checkpoint, when Jev answered it."""
+    if not has_triage(result):
+        return {}
+    decision = triage(result)
+    return {
+        "triage": {
+            "outcome": decision.outcome,
+            "reason": decision.reason,
+            "bucket": decision.bucket,
+            "gate": decision.gate,
+            "candidates": decision.candidates,
+            "layers": decision.layers,
+            "scores": decision.scores,
+        }
+    }

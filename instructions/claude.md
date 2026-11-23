@@ -17,33 +17,20 @@ configured by hand.
 
 ## 2. Custom instructions
 
-Settings → **Profile → What personal preferences should Claude consider**.
-Paste this text:
+Your initials in the bottom left → **Settings → Instructions for Claude** (older
+UIs call it Profile → "What personal preferences should Claude consider"). Paste
+**Block A** and **Block B** from [instructions/shared.md](shared.md), the only
+copy of the text, then this Claude-specific line:
 
 ```
-Subzero (connector: subzero) is the memory shared by ChatGPT, Claude, Gemini,
-Grok, Muse, and my coding agents. For past history, preferences, projects,
-decisions, or an existing workflow, use Subzero before you answer. This app's
-memory is supplemental. Ignore a connector named personal-context-mcp.
-
-Call context_bootstrap once with a few key terms or sigils (%project, ^lesson,
-&setup, #concept, @person, >agent). Do not paste my whole message. Skip
-Subzero for a question that stands on its own.
-
-When something should outlive this chat, checkpoint it once, with sigils or
-the project. A note to reread goes to the vault with note_write. Work for
-another agent is dispatch: say it is queued, not started. Lists live in a
-list app. Scratch files are not memory.
-
-The use-subzero guide is the procedure (prompt use_subzero, or resource
-subzero://guide/use-subzero). Say what you found. My statements are facts.
-Your conclusions are hypotheses. Never say a file was archived unless its
-bytes were stored.
+When you use Subzero, say briefly what you retrieved or saved, so I can tell
+memory from inference.
 ```
 
-> ⚠️ **Also paste this extra line after the shared instruction:**
->
-> When you use Subzero, say briefly what you retrieved or saved, so I can tell memory from inference.
+Claude applies the field to every conversation. Anthropic publishes no character
+limit for it; the two blocks are about 2,700 characters together. On a Team or
+Enterprise plan, organization instructions (3,000 characters, set by an admin)
+take precedence where they conflict.
 
 ## 3. Skills
 
@@ -65,7 +52,7 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 | --- | --- |
 | Transport | Streamable HTTP |
 | Auth | OAuth 2.1 + PKCE, Dynamic Client Registration |
-| Tools | all 48 |
+| Tools | all 53 |
 | Prompts | supported, surfaced as slash-style commands |
 | Resources | supported |
 | Write approval | Claude asks before the first call to each write tool |

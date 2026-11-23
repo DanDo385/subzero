@@ -167,8 +167,8 @@ def _cost(item: ContextItem) -> int:
 #: Columns every search branch returns, in this order.
 _RANK_COLS = """
     coalesce(ts_rank_cd({tsv}, q.r), 0)::float8 AS rank,
-    (SELECT count(*) FROM unnest($3::text[]) t
-      WHERE {tsv} @@ to_tsquery('english', t))::int AS coverage,
+    (SELECT count(*) FROM unnest(q.terms) t
+      WHERE {tsv} @@ t)::int AS coverage,
     coalesce({tsv} @@ q.ph, false) AS phrase_hit,
     ({id} = ANY($5::uuid[])) AS exact
 """
@@ -196,7 +196,13 @@ WITH q AS (
     SELECT to_tsquery('english', NULLIF($1, '')) AS m,
            to_tsquery('english', NULLIF($2, '')) AS r,
            to_tsquery('english', NULLIF($4, '')) AS ph,
-           to_tsquery('english', NULLIF($11, '')) AS pn
+           to_tsquery('english', NULLIF($11, '')) AS pn,
+           -- Parsed once per statement instead of once per term per candidate
+           -- row: coverage below counts how many of the query's own words a
+           -- row matches, and re-parsing them for every row of all seven
+           -- branches was the bulk of this statement's cost.
+           (SELECT array_agg(to_tsquery('english', t))
+              FROM unnest($3::text[]) t) AS terms
 )
 SELECT u.*, p.slug AS project_slug
 FROM (

@@ -178,9 +178,13 @@ from a chat subscription (ChatGPT Plus, Claude Pro, Cursor) does not work here;
 it has to be an API key. Gemini's free tier is slow for a large backlog and lets
 Google use what it receives to improve its products; a paid key does not.
 
-Restart the server. From then on it quietly turns new messages into "meaning
-vectors" in the background, a small batch every two minutes, so a conversation
-the browser extension saves becomes searchable by meaning within a few minutes.
+Restart the server. From then on it quietly turns new messages, notes, saved
+memories and session summaries into "meaning vectors" in the background, a small batch every
+two minutes, so a conversation the browser extension saves becomes searchable by
+meaning within a few minutes. If the provider refuses the calls, the server logs
+a warning and asks again later rather than retrying every two minutes forever.
+(An out-of-credit account shows as `HTTP 429` in the server log; add credit and
+it picks up again on its own.)
 To catch up everything already stored at once, run `subzero embed-backfill`.
 
 What leaves your computer: message text, with emails, keys and card numbers

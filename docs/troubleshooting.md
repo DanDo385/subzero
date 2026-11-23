@@ -48,6 +48,7 @@ are stored through the same canonical writers as imported conversations.
 | `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
 | `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
 | `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
+| `{"error": "not found"}` from the extension or `subzero agent` on a Mac server | The device reached the Mac through its public (Funnel) address without Tailscale. Those APIs are tailnet-only. | Turn Tailscale on for that device ([guide 14](guides/14-run-on-your-mac-over-tailscale.md)). |
 | `PC_HARNESS_API_KEY is required for bridge commands` | The CLI has no capability token for the browser bridge. | Add `PC_HARNESS_API_KEY` to `.env.local`, restart the server, and run the bridge command again. |
 
 ## Browser session bridge
@@ -102,10 +103,24 @@ are stored through the same canonical writers as imported conversations.
 | `Vault directory does not exist` | The folder in `OBSIDIAN_SYNC_VAULT_PATH` isn't there. | Create it or correct the path. |
 | `worker rejected: check OBSIDIAN_SYNC_API_KEY` | Helper and server disagree on the shared key. | Make `OBSIDIAN_SYNC_API_KEY` equal `SUBZERO_WORKER_API_KEY`; push settings and redeploy if you changed the server's. |
 | An edit of mine didn't show up in the apps | The helper wasn't running when you edited. | Start it; changed notes are pushed on its next pass. If the server also changed that note, the server's update is held back as a *conflict* and your edit stays in the vault. |
+| An edit I made before upgrading the helper never came back | The helper's record of what it wrote started empty with this version. | Nothing is lost; that note is tracked from the next time the server rewrites it. |
+| `vault write not queued; another job for this path won the race` in the server log | Two writes asked for the same file at the same instant; one of them is queued and will render the current content. | Nothing to do. If the file still looks stale afterwards, `uv run subzero wiki render` queues it again. |
 
 ## Gemini digest
 
 See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#common-problems).
+
+## Memory lab
+
+**`memory-lab recover` reports `sessions_seen: 0`.** No conversation has Jev answers
+under the current question set. Run `subzero reclassify-conversations --limit 10000`.
+
+**Every session is `log` with reason `no_triage_answers`.** Same cause: the stored
+answers predate the triage questions.
+
+**Recovered notes never reach Obsidian.** The Obsidian helper rejects folders it does
+not know. Update it to this version and restart it, so it accepts `25-Areas`,
+`Permanent` and `Experiments` ([guide 16](guides/16-memory-lab.md)).
 
 ## Importing
 
@@ -113,6 +128,27 @@ See the table at the end of [guide 11](guides/11-gemini-without-custom-apps.md#c
 | --- | --- | --- |
 | `Could not identify which provider produced this archive` | Unknown file layout. | Name the app: `import gemini file.zip`. For Gemini, export **JSON**, not HTML. |
 | Many `classifier_degraded` | TypeSafe was unreachable. | Nothing is lost. `uv run subzero reclassify` later. |
+
+## Saving files
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `The uploaded bytes do not match that SHA-256` | What arrived in storage is not the file the app described, usually an interrupted or repeated upload. | Ask the app to upload the file again. The artifact stays `pending_import` until it matches, so it is never reported as saved. |
+| `Stored bytes at ... did not match the expected hash` | Storage kept something different from what Subzero sent. | Save again. The artifact is marked `failed`; check the storage service if it keeps happening. |
+| An artifact with status `failed` | A save stopped part-way, for example storage went away between two files. | Save it again; the new save gets the next version. Files from the failed one stay listed, so you can see how far it got. |
+
+## Background loops
+
+Two loops run inside the server: the embedding refresh and the classifier intake. Each holds a row in
+`background_leases` while it works, so if two servers share the database only one of them runs each
+loop. A server that dies stops renewing and another takes over within a few intervals.
+
+| You see | What it means | Fix |
+| --- | --- | --- |
+| `embedding refresh has failed N ticks running; backing off` | The embedding provider is refusing the calls: out of credit, a revoked key, or a rate limit. The loop has stopped asking every interval and is backing off, to an hour at most. | Check the key and the provider's billing. Nothing is lost: rows keep `embedding IS NULL` and are picked up once the calls succeed. Full-text search works throughout; `memory_deep_search` says it is running full-text only. |
+| `embeddings refreshed` with `"failed": 64` but no warning | The first couple of failures, before the warning threshold. | Same fix as above if it keeps repeating. |
+| Captures from the browser extension are never classified | `SUBZERO_AUTO_CLASSIFY_SECONDS` is `0` on every server that shares this database, so no loop is running. The captures are not lost: they are waiting in `reclassification_queue`. | Set it to `300` on the one server that should do the work, or run `uv run subzero reclassify-conversations` once by hand. |
+| Classification stops after a Jev outage and resumes slowly | Each failed conversation gets an exponential `next_attempt_at`, up to an hour. | Expected. `uv run subzero reclassify-conversations` retries immediately if you do not want to wait. |
 
 ## Still stuck?
 

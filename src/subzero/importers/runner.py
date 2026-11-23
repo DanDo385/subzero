@@ -169,6 +169,16 @@ async def route_conversation(
     }
     if transcript:
         state["transcript"] = transcript
+    # What is already known, so relation_to_existing has something to compare
+    # against. Titles only: cheap, local, and enough to spot a duplicate.
+    if title:
+        # A memory-lab note made from this very session is not "existing".
+        own = f"{title.strip()} ("
+        state["existing_similar_notes"] = [
+            n
+            for n in await services.notes.similar_titles(title, limit=6)
+            if not str(n.get("title", "")).startswith(own)
+        ][:5]
     result, routing, event_id = await services.classification.classify_checkpoint(
         state, object_id=conversation_id, historical_import=True, use_cache=use_cache
     )
@@ -409,33 +419,48 @@ class ImportRunner:
 
     async def _import_one(self, conversation: NormalizedConversation, report: ImportReport) -> None:
         services = self._services
-        conversation_id, created = await services.sessions.ensure_conversation(
-            provider=conversation.provider,
-            provider_conversation_id=conversation.provider_conversation_id or None,
-            title=conversation.title,
-            model=conversation.model,
-            imported=True,
-            started_at=conversation.created_at,
-        )
+        # The conversation, its messages and how current it is land together.
+        async with services.db.transaction() as conn:
+            conversation_id, created = await services.sessions.ensure_conversation(
+                provider=conversation.provider,
+                provider_conversation_id=conversation.provider_conversation_id or None,
+                title=conversation.title,
+                model=conversation.model,
+                imported=True,
+                started_at=conversation.created_at,
+                conn=conn,
+            )
+            inserted = await services.sessions.add_messages(
+                conversation_id,
+                [
+                    {
+                        "role": m.role,
+                        "content": m.content,
+                        "provenance": m.provenance,
+                        "created_at": m.created_at,
+                        "provider_message_id": m.provider_message_id,
+                        "model": m.model,
+                        "metadata": m.metadata,
+                    }
+                    for m in conversation.messages
+                ],
+                provider=conversation.provider,
+                conn=conn,
+            )
+            # What sync-state reports to the extension, so a chat imported from
+            # an export is recognised as current instead of captured again.
+            if conversation.updated_at is not None:
+                await conn.execute(
+                    """
+                    UPDATE conversations
+                    SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz)
+                    WHERE id = $1
+                    """,
+                    conversation_id,
+                    conversation.updated_at,
+                )
         report.conversations_imported += 1 if created else 0
         report.conversations_skipped += 0 if created else 1
-
-        inserted = await services.sessions.add_messages(
-            conversation_id,
-            [
-                {
-                    "role": m.role,
-                    "content": m.content,
-                    "provenance": m.provenance,
-                    "created_at": m.created_at,
-                    "provider_message_id": m.provider_message_id,
-                    "model": m.model,
-                    "metadata": m.metadata,
-                }
-                for m in conversation.messages
-            ],
-            provider=conversation.provider,
-        )
         report.messages_imported += inserted
 
         sensitivity = await screen_conversation(

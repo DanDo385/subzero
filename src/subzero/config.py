@@ -97,6 +97,11 @@ class Settings(BaseSettings):
 
     #: Hostnames the server will answer on (DNS-rebinding protection).
     allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    #: Behind Tailscale Funnel (a Mac made public), internet requests reach
+    #: only the MCP endpoint, OAuth sign-in and /healthz. The browser
+    #: extension, agent, bridge and worker APIs answer only on the tailnet.
+    #: Funnel marks each internet request, so this has no effect elsewhere.
+    funnel_mcp_only: bool = True
 
     # ------------------------------------------------------------- database
     database_url: SecretStr = SecretStr("")
@@ -266,6 +271,15 @@ class Settings(BaseSettings):
     agentmail_api_key: SecretStr = SecretStr("")
     agentmail_inbox_id: str = ""
 
+    # ---------------------------------------------------------------- honcho
+    #: Memory lab Honcho layer (subzero memory-lab honcho-sync). Empty
+    #: workspace turns it off. Use the same workspace and peer as any agent
+    #: that already talks to Honcho, so both feed one model of the person.
+    honcho_api_key: SecretStr = SecretStr("")
+    honcho_workspace: str = ""
+    honcho_peer: str = ""
+    honcho_base_url: str = ""
+
     # -------------------------------------------------------------- obsidian
     obsidian_enabled: bool = True
     obsidian_mirror_max_mb: float = 5.0
@@ -283,6 +297,9 @@ class Settings(BaseSettings):
             "profile": "85-Profiles",
             "system": "90-System",
             "archive": "99-Archive",
+            "area": "25-Areas",
+            "permanent": "Permanent",
+            "experiments": "Experiments",
         }
     )
 

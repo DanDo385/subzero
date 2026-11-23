@@ -141,7 +141,38 @@ does not support."""
 
 #: Vault folders a note can be written to (keys of DESTINATION_CRITERIA that
 #: are real notes; archive_only never reaches here).
-_NOTE_CLASSES = {"project", "research", "wiki", "concept", "resource", "daily", "inbox"}
+_NOTE_CLASSES = {
+    "project",
+    "research",
+    "wiki",
+    "concept",
+    "resource",
+    "daily",
+    "inbox",
+    "area",
+    "archive",
+    "permanent",
+}
+
+#: How to write the note for the memory-lab sections DESTINATION_CRITERIA
+#: does not describe.
+SECTION_GUIDANCE: dict[str, str] = {
+    "area": "An ongoing responsibility with no end date. Write the note as the "
+    "current state of that area: what holds now, what to keep doing, what to watch.",
+    "archive": "Finished or inactive work. Write a short record of what was done "
+    "and concluded, for someone looking it up later.",
+    "permanent": "A Zettelkasten permanent note: ONE idea, stated in the first "
+    "sentence, explained in under 300 words in plain language, standing on its own "
+    "without the conversation. No step-by-step procedures, no ## sections beyond "
+    "an optional ## Why it matters.",
+    "none": "No note will be kept from this conversation: set note_title to the "
+    "subject and note_markdown to one sentence. Put the effort into decisions, "
+    "facts and unfinished_actions.",
+}
+
+#: Destination meaning "extract structured memory only, write no vault note"
+#: (memory lab sessions routed to the structured layer but not the vault).
+NO_NOTE = "none"
 
 FOLLOWUP_LIST = "From past chats"
 
@@ -363,7 +394,7 @@ class DeepExtractor:
                     "content": (
                         f"Conversation title: {title or '(untitled)'}\n"
                         f"Vault section for the note: {destination}: "
-                        f"{DESTINATION_CRITERIA.get(destination, '')}\n"
+                        f"{DESTINATION_CRITERIA.get(destination) or SECTION_GUIDANCE.get(destination, '')}\n"
                         f"Existing projects: {known}\n\n"
                         f"<transcript>\n{transcript}\n</transcript>"
                     ),
@@ -475,17 +506,19 @@ class DeepExtractor:
         report.memories += int(created.get("memories", 0))
         report.extracted += 1
 
-        note_id = await self._write_note(
-            conversation_id, conversation, payload, destination, sensitivity
-        )
-        report.notes += 1
+        note_id: UUID | None = None
+        if destination != NO_NOTE:
+            note_id = await self._write_note(
+                conversation_id, conversation, payload, destination, sensitivity
+            )
+            report.notes += 1
         report.followups += await self._add_followups(conversation_id, conversation, payload)
 
         record.update(
             status="extracted",
             project=payload.project,
             topics=payload.topics,
-            note_id=str(note_id),
+            note_id=str(note_id) if note_id else None,
             counts={
                 "decisions": len(payload.decisions),
                 "facts": len(payload.facts),

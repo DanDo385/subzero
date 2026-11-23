@@ -255,12 +255,12 @@ def pair_device(device_name: str, agents: bool) -> None:
 
 
 @main.command(name="embed-backfill")
-@click.option("--batch-size", default=64, show_default=True, help="Messages per embedding call.")
+@click.option("--batch-size", default=64, show_default=True, help="Rows per embedding call.")
 @click.option(
     "--max-batches", default=0, help="Stop after this many batches (0: until nothing is pending)."
 )
 def embed_backfill(batch_size: int, max_batches: int) -> None:
-    """Embed stored messages that have no vector yet (newest first).
+    """Embed stored messages, notes, memories and summaries with no vector yet.
 
     The server does this by itself every few minutes; run this to catch up a
     large backlog at once. Needs SUBZERO_EMBEDDING_PROVIDER and its API key.
@@ -295,7 +295,17 @@ def embed_backfill(batch_size: int, max_batches: int) -> None:
                 if step.touched == 0 or step.failed:
                     break
             pending = await services.db.fetchval(
-                "SELECT count(*) FROM messages WHERE embedding IS NULL AND NOT embedding_skipped"
+                """
+                SELECT (SELECT count(*) FROM messages
+                        WHERE embedding IS NULL AND NOT embedding_skipped)
+                     + (SELECT count(*) FROM notes
+                        WHERE embedding IS NULL AND NOT embedding_skipped)
+                     + (SELECT count(*) FROM memories
+                        WHERE embedding IS NULL AND NOT embedding_skipped
+                          AND status = 'active')
+                     + (SELECT count(*) FROM session_summaries
+                        WHERE embedding IS NULL AND NOT embedding_skipped)
+                """
             )
             click.secho(
                 f"Done: {total['embedded']} embedded, {total['skipped']} skipped, "
@@ -577,66 +587,16 @@ def reclassify(limit: int) -> None:
     settings = get_settings()
     _configure_cli_logging(settings)
 
+    from subzero.importers.reclassify import drain_reclassification_queue
+
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            rows = await services.db.fetch(
-                """
-                SELECT object_type, object_id, reason FROM reclassification_queue
-                WHERE next_attempt_at <= now()
-                ORDER BY next_attempt_at LIMIT $1
-                """,
-                limit,
-            )
-            if not rows:
+            done, total = await drain_reclassification_queue(services, limit=limit)
+            if total == 0:
                 click.echo("Nothing queued for reclassification.")
                 return
-
-            done = 0
-            for row in rows:
-                if row["object_type"] == "checkpoint":
-                    # Imported conversations are redone from their stored
-                    # messages. A live checkpoint's state was never stored,
-                    # so only imported conversations qualify.
-                    imported = await services.db.fetchval(
-                        "SELECT imported FROM conversations WHERE id = $1", row["object_id"]
-                    )
-                    if not imported:
-                        continue
-                    report = await reclassify_conversations(services, [row["object_id"]])
-                    if not report.errors:
-                        await services.db.execute(
-                            "DELETE FROM reclassification_queue WHERE object_id = $1",
-                            row["object_id"],
-                        )
-                        done += 1
-                    continue
-                if row["object_type"] != "artifact":
-                    continue
-                record = await services.artifacts.get(row["object_id"])
-                if record is None:
-                    await services.db.execute(
-                        "DELETE FROM reclassification_queue WHERE object_id = $1",
-                        row["object_id"],
-                    )
-                    continue
-                result, _, _ = await services.classification.classify_artifact(
-                    {
-                        "title": record.title,
-                        "description": record.description or "",
-                        "artifact_type": record.artifact_type,
-                        "source_type": record.source_type,
-                        "file_paths": [f.relative_path for f in record.files],
-                        "sensitivity": "normal",
-                    },
-                    object_id=record.id,
-                )
-                if not result.degraded:
-                    await services.db.execute(
-                        "DELETE FROM reclassification_queue WHERE object_id = $1", record.id
-                    )
-                    done += 1
-            click.echo(f"Reclassified {done} of {len(rows)} queued objects.")
+            click.echo(f"Reclassified {done} of {total} queued objects.")
         finally:
             await services.aclose()
             set_services(None)
@@ -1115,3 +1075,179 @@ register_agent_commands(main)
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
+
+# ----------------------------------------------------------------- memory lab
+
+
+@main.group(name="memory-lab")
+def memory_lab() -> None:
+    """Jev triage of sessions into PARA notes, Inbox drafts and logs (guide 16)."""
+
+
+@memory_lab.command(name="recover")
+@click.option(
+    "--apply", "apply_", is_flag=True, help="Write notes and decisions (default: dry run)."
+)
+@click.option("--limit", type=int, default=None, help="Stop after this many sessions.")
+@click.option("--redo", is_flag=True, help="Decide again even when nothing changed.")
+def memory_lab_recover(apply_: bool, limit: int | None, redo: bool) -> None:
+    """Apply the triage policy to classified sessions and print the recovery report.
+
+    Run `subzero reclassify-conversations` first so sessions have answers under
+    the current question set. Without --apply nothing is written.
+    """
+    from subzero.memorylab.recover import recover
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> dict:
+        services = await _with_services(settings)
+        try:
+            report = await recover(services, dry_run=not apply_, limit=limit, redo=redo)
+            return report.as_dict()
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(json.dumps(asyncio.run(run()), indent=2))
+
+
+@memory_lab.command(name="structured")
+def memory_lab_structured() -> None:
+    """Regenerate the structured-memories note (facts, instructions, events, tasks)."""
+    from subzero.memorylab.recover import write_structured
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> int:
+        services = await _with_services(settings)
+        try:
+            return await write_structured(services)
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(f"Structured memories: {asyncio.run(run())} items queued for the vault.")
+
+
+@memory_lab.command(name="report")
+def memory_lab_report() -> None:
+    """Counts of stored triage decisions, by outcome and reason."""
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> list:
+        services = await _with_services(settings)
+        try:
+            return await services.db.fetch(
+                "SELECT outcome, reason, count(*) AS n FROM memory_triage "
+                "GROUP BY 1, 2 ORDER BY 1, 3 DESC"
+            )
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    rows = asyncio.run(run())
+    if not rows:
+        click.echo("No triage decisions yet. Run `subzero memory-lab recover --apply`.")
+    for row in rows:
+        click.echo(f"{row['outcome']:8} {row['reason']:24} {row['n']}")
+
+
+@memory_lab.command(name="extract")
+@click.option("--limit", type=int, default=25, show_default=True, help="Sessions per run.")
+@click.option("--apply", "apply_", is_flag=True, help="Call Claude (default: dry run with cost).")
+@click.option("--redo", is_flag=True, help="Also redo sessions already extracted.")
+@click.option(
+    "--concurrency", type=int, default=None, help="Default: SUBZERO_EXTRACTION_CONCURRENCY."
+)
+def memory_lab_extract(limit: int, apply_: bool, redo: bool, concurrency: int | None) -> None:
+    """Claude reads the sessions triage routed to the vault or structured layer.
+
+    Vault sessions get their note written in the PARA bucket Jev chose;
+    structured-only sessions get decisions, facts and tasks with no note. Costs
+    money: run without --apply first to see the estimate.
+    """
+    from subzero.memorylab.layers import extraction_targets, mark_extracted
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> None:
+        services = await _with_services(settings)
+        try:
+            targets = await extraction_targets(services, limit=limit, redo=redo)
+            click.echo(json.dumps(estimate_cost(targets, settings), indent=2))
+            if not apply_ or not targets:
+                for c in targets[:20]:
+                    click.echo(
+                        f"  {c.importance or 0:.2f}  {c.destination:<9} {c.chars:>8} chars  {c.title}"
+                    )
+                return
+            if settings.extraction_provider != "anthropic":
+                raise click.ClickException(
+                    "Set SUBZERO_EXTRACTION_PROVIDER=anthropic and SUBZERO_ANTHROPIC_API_KEY to run."
+                )
+            extractor = DeepExtractor(services)
+            try:
+                report = await extractor.run(
+                    [c.conversation_id for c in targets],
+                    concurrency=concurrency,
+                    destinations={c.conversation_id: c.destination for c in targets},
+                )
+            finally:
+                await extractor.aclose()
+            marked = await mark_extracted(services, [c.conversation_id for c in targets])
+            click.echo(json.dumps({**report.as_dict(), "marked_extracted": marked}, indent=2))
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    asyncio.run(run())
+
+
+@memory_lab.command(name="honcho-sync")
+@click.option("--limit", type=int, default=100, show_default=True, help="Sessions per run.")
+@click.option("--apply", "apply_", is_flag=True, help="Send to Honcho (default: dry run).")
+def memory_lab_honcho_sync(limit: int, apply_: bool) -> None:
+    """Send your own messages from preference-bearing sessions to Honcho, oldest first."""
+    from subzero.memorylab.layers import honcho_sync
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> dict:
+        services = await _with_services(settings)
+        try:
+            return (await honcho_sync(services, dry_run=not apply_, limit=limit)).as_dict()
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(json.dumps(asyncio.run(run()), indent=2))
+
+
+@memory_lab.command(name="honcho-snapshot")
+def memory_lab_honcho_snapshot() -> None:
+    """Copy Honcho's card and newest conclusions into Experiments/Analysis."""
+    from subzero.memorylab.layers import honcho_snapshot
+
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> str:
+        services = await _with_services(settings)
+        try:
+            return await honcho_snapshot(services)
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+        finally:
+            await services.aclose()
+            set_services(None)
+
+    click.echo(f"Queued {asyncio.run(run())} for the vault.")

@@ -28,29 +28,18 @@ the server is put online (docs/guides/05-put-it-online.md) rather than run local
 
 ## 3. Custom instructions
 
-**Settings → Personalization → Custom instructions**, into "Anything else
-ChatGPT should know". Paste this text:
+**Settings → Personalization → Custom instructions**. Paste **Block A** and
+**Block B** from [instructions/shared.md](shared.md): that file is the only copy
+of the text, so it cannot disagree with itself.
 
-```
-Subzero (connector: subzero) is the memory shared by ChatGPT, Claude, Gemini,
-Grok, Muse, and my coding agents. For past history, preferences, projects,
-decisions, or an existing workflow, use Subzero before you answer. This app's
-memory is supplemental. Ignore a connector named personal-context-mcp.
+Both blocks fit. The field holds 5,000 characters on Plus and up, and Free/Go
+(1,500) cannot add connectors in the first place. An edit takes effect
+immediately, including in chats that are already open.
 
-Call context_bootstrap once with a few key terms or sigils (%project, ^lesson,
-&setup, #concept, @person, >agent). Do not paste my whole message. Skip
-Subzero for a question that stands on its own.
-
-When something should outlive this chat, checkpoint it once, with sigils or
-the project. A note to reread goes to the vault with note_write. Work for
-another agent is dispatch: say it is queued, not started. Lists live in a
-list app. Scratch files are not memory.
-
-The use-subzero guide is the procedure (prompt use_subzero, or resource
-subzero://guide/use-subzero). Say what you found. My statements are facts.
-Your conclusions are hypotheses. Never say a file was archived unless its
-bytes were stored.
-```
+Two places it does **not** apply: inside a **Project**, where project
+instructions win (paste the blocks there too if you want Subzero in that
+Project), and in a temporary chat, unless you switch personalization on when
+you start it.
 
 ## Turn off built-in memory (recommended)
 
@@ -73,7 +62,7 @@ covers the same ground.
 | --- | --- |
 | Transport | standard web (works automatically) |
 | Auth | OAuth (DCR supported) |
-| Tools | all 48 |
+| Tools | all 53 |
 | Write approval | ChatGPT confirms write actions |
 | Mobile (iOS) | connectors configured on web are available in the app |
 

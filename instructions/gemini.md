@@ -42,29 +42,13 @@ again with only the URL, letting Gemini use DCR.
 
 ## 2. Instructions
 
-**Settings & help → Saved info** (Gemini's persistent instruction field).
-Paste this text:
+**Settings & help → Personal Intelligence → Instructions for Gemini** (older UIs
+call it **Saved info**). Paste **Block A** and **Block B** from
+[instructions/shared.md](shared.md), the only copy of the text.
 
-```
-Subzero (connector: subzero) is the memory shared by ChatGPT, Claude, Gemini,
-Grok, Muse, and my coding agents. For past history, preferences, projects,
-decisions, or an existing workflow, use Subzero before you answer. This app's
-memory is supplemental. Ignore a connector named personal-context-mcp.
-
-Call context_bootstrap once with a few key terms or sigils (%project, ^lesson,
-&setup, #concept, @person, >agent). Do not paste my whole message. Skip
-Subzero for a question that stands on its own.
-
-When something should outlive this chat, checkpoint it once, with sigils or
-the project. A note to reread goes to the vault with note_write. Work for
-another agent is dispatch: say it is queued, not started. Lists live in a
-list app. Scratch files are not memory.
-
-The use-subzero guide is the procedure (prompt use_subzero, or resource
-subzero://guide/use-subzero). Say what you found. My statements are facts.
-Your conclusions are hypotheses. Never say a file was archived unless its
-bytes were stored.
-```
+Gemini publishes no limit for this field. It applies to every chat, on web and
+mobile, but **not** inside a Gem, and it is unavailable on work, school and
+supervised accounts.
 
 ## 3. No Skills, and that is fine
 
@@ -87,7 +71,7 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 | --- | --- |
 | Transport | Streamable HTTP |
 | Auth | OAuth with DCR; manual credentials available as a fallback |
-| Tools | all 48 |
+| Tools | all 53 |
 | Prompts / resources | availability varies; tool descriptions carry the load |
 | Write approval | **Gemini requires manual confirmation for every write action** |
 | Mobile | available after desktop setup |

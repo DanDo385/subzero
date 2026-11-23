@@ -16,28 +16,8 @@ Connectors and the custom MCP option are on Grok's paid tiers.
 
 ## 2. Persistent instructions
 
-Grok's custom-instruction field (**Settings → Customize**). Paste this text:
-
-```
-Subzero (connector: subzero) is the memory shared by ChatGPT, Claude, Gemini,
-Grok, Muse, and my coding agents. For past history, preferences, projects,
-decisions, or an existing workflow, use Subzero before you answer. This app's
-memory is supplemental. Ignore a connector named personal-context-mcp.
-
-Call context_bootstrap once with a few key terms or sigils (%project, ^lesson,
-&setup, #concept, @person, >agent). Do not paste my whole message. Skip
-Subzero for a question that stands on its own.
-
-When something should outlive this chat, checkpoint it once, with sigils or
-the project. A note to reread goes to the vault with note_write. Work for
-another agent is dispatch: say it is queued, not started. Lists live in a
-list app. Scratch files are not memory.
-
-The use-subzero guide is the procedure (prompt use_subzero, or resource
-subzero://guide/use-subzero). Say what you found. My statements are facts.
-Your conclusions are hypotheses. Never say a file was archived unless its
-bytes were stored.
-```
+Grok's custom-instruction field (**Settings → Customize**). Paste **Block A** and
+**Block B** from [instructions/shared.md](shared.md), the only copy of the text.
 
 ## 3. Skills
 
@@ -55,7 +35,7 @@ Subzero then becomes this app's only long-term memory, shared with the other thr
 | --- | --- |
 | Transport | Streamable HTTP |
 | Auth | OAuth (your server handles sign-in automatically) |
-| Tools | all 48 |
+| Tools | all 53 |
 | Tier | paid tiers only |
 
 **Three separate products.** You only need the Grok web app connector (grok.com). The API and developer tools are separate and not covered here. xAI has more than one surface that connects to MCP servers: the Grok web app's Connectors, and the xAI API's remote MCP

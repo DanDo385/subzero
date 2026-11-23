@@ -171,6 +171,16 @@ class VaultPaths:
             f"{base}{middle}/{safe_filename(slugify(title) or 'note')}.md", self._roots
         )
 
+    #: Fixed sub-folders of the experiments root (docs/guides/16-memory-lab.md).
+    EXPERIMENT_SECTIONS = frozenset({"Memory-Logs", "Scoring", "Analysis", "Structured"})
+
+    def experiment(self, section: str, title: str) -> str:
+        """A generated memory-lab note under the experiments root."""
+        if section not in self.EXPERIMENT_SECTIONS:
+            raise PathSecurityError(f"Unknown experiments section: {section!r}")
+        filename = f"{safe_filename(slugify(title) or 'note')}.md"
+        return validate_vault_path(f"{self._root('experiments')}/{section}/{filename}", self._roots)
+
     def moc(self, title: str) -> str:
         """Maps of Content live together under the atlas root."""
         filename = f"{safe_filename(slugify(title) or 'map')}.md"

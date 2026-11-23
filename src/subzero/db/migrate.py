@@ -60,36 +60,55 @@ def load_migrations(directory: Path | None = None) -> list[Migration]:
     return migrations
 
 
+#: Held for the whole run so two machines migrating at once serialise instead of
+#: both applying the same file. Transaction-scoped, which a transaction pooler
+#: tolerates; a session-level lock would be released into the pooler's pool.
+_LOCK_KEY = "***"
+
+
 async def apply_migrations(conn: asyncpg.Connection, directory: Path | None = None) -> list[str]:
-    """Apply every unapplied migration. Returns the versions applied."""
-    await conn.execute(_BOOTSTRAP)
-    applied = {
-        row["version"]: row["sha256"]
-        for row in await conn.fetch("SELECT version, sha256 FROM schema_migrations")
-    }
+    """Apply every unapplied migration. Returns the versions applied.
 
+    The run is one transaction behind an advisory lock, so a second machine
+    migrating at the same time waits and then sees the first one's work, and a
+    failure part-way leaves the schema exactly as it was rather than
+    half-migrated. Files are applied in filename order, so two files sharing a
+    number (0009 and 0010 each have a pair) apply alphabetically; give a new
+    migration a number of its own when the order between two of them matters.
+    """
     newly_applied: list[str] = []
-    for migration in load_migrations(directory):
-        if migration.version in applied:
-            if applied[migration.version] != migration.sha256:
-                # A migration that has already run was edited afterwards. The
-                # database and the file no longer agree and silently ignoring
-                # that is how schemas drift.
-                raise RuntimeError(
-                    f"Migration {migration.version} was modified after it was applied. "
-                    "Add a new migration instead of editing an applied one."
-                )
-            continue
+    async with conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", _LOCK_KEY)
+        await conn.execute(_BOOTSTRAP)
+        applied = {
+            row["version"]: row["sha256"]
+            for row in await conn.fetch("SELECT version, sha256 FROM schema_migrations")
+        }
 
-        logger.info("applying migration", extra={"version": migration.version})
-        async with conn.transaction():
+        pending: list[Migration] = []
+        for migration in load_migrations(directory):
+            if migration.version in applied:
+                if applied[migration.version] != migration.sha256:
+                    # A migration that has already run was edited afterwards. The
+                    # database and the file no longer agree and silently ignoring
+                    # that is how schemas drift.
+                    raise RuntimeError(
+                        f"Migration {migration.version} was modified after it was applied. "
+                        "Add a new migration instead of editing an applied one."
+                    )
+                continue
+            pending.append(migration)
+
+        for migration in pending:
+            logger.info("applying migration", extra={"version": migration.version})
             await conn.execute(migration.sql)
             await conn.execute(
-                "INSERT INTO schema_migrations (version, sha256) VALUES ($1, $2)",
+                "INSERT INTO schema_migrations (version, sha256) VALUES ($1, $2) "
+                "ON CONFLICT (version) DO NOTHING",
                 migration.version,
                 migration.sha256,
             )
-        newly_applied.append(migration.version)
+            newly_applied.append(migration.version)
 
     return newly_applied
 

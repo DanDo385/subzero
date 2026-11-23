@@ -36,11 +36,17 @@ class ProjectService:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    async def resolve(self, reference: str | None) -> UUID | None:
+    async def resolve(
+        self, reference: str | None, conn: asyncpg.Connection | None = None
+    ) -> UUID | None:
         """Resolve a slug, name, or UUID string to a project id.
 
         Returns None for an unknown project rather than creating one: a typo
         in a tool argument must not silently spawn a duplicate project.
+
+        Pass the connection an open transaction is using. A pool read takes a
+        second connection from the same bounded pool, and it cannot see the
+        transaction's own uncommitted writes.
         """
         if not reference:
             return None
@@ -48,7 +54,8 @@ class ProjectService:
         if not reference:
             return None
 
-        row = await self._db.fetchrow(
+        executor = conn or self._db
+        row = await executor.fetchrow(
             """
             SELECT id FROM projects
             WHERE slug = $1

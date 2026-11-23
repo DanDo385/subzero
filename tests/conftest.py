@@ -50,6 +50,12 @@ requires_db = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_state_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the vault helper's state file out of the real home directory."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
