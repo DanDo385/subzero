@@ -36,7 +36,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Mount, Route
 
-from subzero import worker_api
 from subzero.agents.api import build_agent_routes
 from subzero.auth.kv import PostgresKeyValue
 from subzero.auth.provider import build_auth_provider
@@ -46,13 +45,14 @@ from subzero.config import Settings, get_settings
 from subzero.db.pool import Database, set_database
 from subzero.embeddings.refresh import background_refresh
 from subzero.importers.reclassify import background_classify
-from subzero.ingest import build_ingest_routes
+from subzero.ingest.api import build_ingest_routes
 from subzero.logging_setup import (
     configure_logging,
     get_logger,
     request_id_var,
 )
 from subzero.mcp import register_all
+from subzero.obsidian import api as worker_api
 from subzero.services import build_services, get_services, set_services
 from subzero.storage import build_object_store
 from subzero.storage.local import LocalObjectStore

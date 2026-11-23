@@ -15,7 +15,8 @@ from typing import Any, NoReturn
 
 import click
 
-from subzero import client, prompt, sigils
+from subzero import sigils
+from subzero.agents import client, prompt
 
 HOOK_EVENTS = {
     "SessionStart": ("session-start", 15),

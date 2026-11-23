@@ -223,7 +223,7 @@ async def extraction_candidates(
 async def vault_targets(services: Services, *, limit: int, redo: bool = False) -> list[Candidate]:
     """The conversations Jev's answers put in the vault (vault_plan), best
     first, not yet extracted unless ``redo``. Each carries the folder Jev chose."""
-    from subzero.vault_plan import vault_candidates
+    from subzero.obsidian.plan import vault_candidates
 
     chosen = await vault_candidates(services.db, services.settings)
     ids = [c.conversation_id for c in chosen]

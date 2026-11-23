@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from obsidian_sync.config import WorkerSettings
+from subzero.obsidian.config import WorkerSettings
 
 
 class SyncClient:

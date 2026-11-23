@@ -12,10 +12,10 @@ from typing import Any
 
 import httpx
 
-from obsidian_sync.client import SyncClient
-from obsidian_sync.config import WorkerSettings
-from obsidian_sync.vault import Vault
 from subzero.logging_setup import configure_logging, get_logger
+from subzero.obsidian.client import SyncClient
+from subzero.obsidian.config import WorkerSettings
+from subzero.obsidian.vault import Vault
 from subzero.util import sha256_bytes
 
 logger = get_logger(__name__)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from subzero.config import Settings
 from subzero.importers.base import NormalizedConversation, NormalizedMessage
 from subzero.importers.runner import classification_transcript
-from subzero.vault_plan import recency_bonus, score
+from subzero.obsidian.plan import recency_bonus, score
 
 
 def _settings() -> Settings:

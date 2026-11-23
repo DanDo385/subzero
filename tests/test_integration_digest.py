@@ -10,8 +10,8 @@ import pytest
 from pydantic import SecretStr
 
 from conftest import requires_db
-from subzero.digest import build_digest
-from subzero.gemini_sync import DriveSyncError, push
+from subzero.digest.gemini_sync import DriveSyncError, push
+from subzero.digest.service import build_digest
 from subzero.util import sha256_text
 
 pytestmark = requires_db

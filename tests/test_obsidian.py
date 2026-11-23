@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from obsidian_sync.vault import Vault, note_id_of, parse_list_items
 from subzero.errors import PathSecurityError
 from subzero.obsidian.render import item_marker, render_list, render_moc, render_note
+from subzero.obsidian.vault import Vault, note_id_of, parse_list_items
 from subzero.util import sha256_bytes
 
 ROOTS = {"inbox": "00-Inbox", "project": "20-Projects", "resource": "60-Resources"}
@@ -320,8 +320,8 @@ def test_resolve_refuses_absolute_paths(vault: Vault) -> None:
 
 
 def test_worker_persists_written_hashes_across_restarts(vault_dir: Path) -> None:
-    from obsidian_sync.config import WorkerSettings
-    from obsidian_sync.worker import ObsidianSyncWorker
+    from subzero.obsidian.config import WorkerSettings
+    from subzero.obsidian.worker import ObsidianSyncWorker
 
     settings = WorkerSettings(
         vault_path=str(vault_dir),

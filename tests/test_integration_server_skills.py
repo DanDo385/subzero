@@ -19,10 +19,10 @@ from fastmcp.exceptions import ToolError
 from pydantic import SecretStr
 
 from conftest import requires_db
-from obsidian_sync.config import WorkerSettings
-from obsidian_sync.worker import ObsidianSyncWorker
 from subzero.db.migrate import apply_migrations, load_migrations
 from subzero.errors import NotFoundError, ValidationError
+from subzero.obsidian.config import WorkerSettings
+from subzero.obsidian.worker import ObsidianSyncWorker
 
 pytestmark = requires_db
 

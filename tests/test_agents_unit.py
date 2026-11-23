@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from subzero import client
+from subzero.agents import client
+from subzero.agents.cli import _merge_hooks, _remove_hooks
 from subzero.agents.service import is_risky
-from subzero.cli_agents import _merge_hooks, _remove_hooks
 
 
 @pytest.mark.parametrize(

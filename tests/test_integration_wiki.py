@@ -151,7 +151,7 @@ async def test_a_human_decision_is_never_overwritten(services) -> None:
 
 
 async def test_mocs_are_assigned_rendered_and_round_trip_cleanly(services) -> None:
-    from subzero.worker_api import _render_job
+    from subzero.obsidian.api import _render_job
 
     fake = ScriptedJev({}, moc=("mcp", 0.95))
     _use(services, fake)

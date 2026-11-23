@@ -20,11 +20,11 @@ from typing import Any
 import click
 import httpx
 
-from subzero.cli_agents import register as register_agent_commands
+from subzero.agents.cli import register as register_agent_commands
 from subzero.config import Settings, get_settings, legacy_env_names
 from subzero.db.migrate import apply_migrations, migration_status
 from subzero.db.pool import Database, set_database
-from subzero.digest import build_digest
+from subzero.digest.service import build_digest
 from subzero.extraction.deep import (
     DeepExtractor,
     estimate_cost,
@@ -39,11 +39,12 @@ from subzero.importers.reclassify import (
 )
 from subzero.importers.runner import ImportRunner
 from subzero.logging_setup import configure_logging
+from subzero.obsidian.cli import register as register_obsidian_commands
+from subzero.obsidian.fill import fill_vault
+from subzero.obsidian.plan import VaultCandidate, vault_candidates
 from subzero.probe import DEFAULT_PROTOCOL_VERSION, run_probe
 from subzero.services import build_services, set_services
 from subzero.setup_wizard import Answers, build_env, next_steps
-from subzero.vault_fill import fill_vault
-from subzero.vault_plan import VaultCandidate, vault_candidates
 from subzero.wiki.service import WikiService
 
 
@@ -910,7 +911,7 @@ def gemini_sync_authorize(op_item: str | None, op_vault: str, env_file: Path) ->
     import shutil
     import subprocess
 
-    from subzero.gemini_sync import DriveSyncError, authorize
+    from subzero.digest.gemini_sync import DriveSyncError, authorize
 
     settings = get_settings()
     try:
@@ -953,7 +954,7 @@ def gemini_sync_authorize(op_item: str | None, op_vault: str, env_file: Path) ->
 @click.option("--dry-run", is_flag=True, help="Build the digest and show its size; don't upload.")
 def gemini_sync_push(dry_run: bool) -> None:
     """Build the digest and write it to the Google Doc (created the first time)."""
-    from subzero.gemini_sync import DriveSyncError, doc_url, push
+    from subzero.digest.gemini_sync import DriveSyncError, doc_url, push
 
     settings = get_settings()
     _configure_cli_logging(settings)
@@ -1061,6 +1062,7 @@ def review(limit: int) -> None:
 
 
 register_agent_commands(main)
+register_obsidian_commands(main)
 
 
 if __name__ == "__main__":  # pragma: no cover

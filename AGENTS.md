@@ -25,7 +25,7 @@ docker compose up -d db                    # Postgres 17 + pgvector on :5432
 
 uv run ruff check src tests
 uv run ruff format src tests
-uv run mypy src                            # packages subzero, obsidian_sync
+uv run mypy src                            # package subzero
 uv run pytest
 uv run pytest tests/test_paths.py::test_name -x   # single test
 ```
@@ -98,7 +98,7 @@ conversations, content hashes for decisions/memories/list items — never throug
 Preserve both properties when changing it.
 
 **The cloud never reaches the Mac.** `obsidian/queue.py` only enqueues jobs (validated path,
-rendered content, `expected_sha256`); `src/obsidian_sync/` polls `/worker/*` outbound with a shared
+rendered content, `expected_sha256`); `subzero/obsidian/worker.py` polls `/worker/*` outbound with a shared
 key, **re-validates the path itself**, compares hashes and acks `done` or `conflict`. The worker
 does not trust the server — keep the second validation. Vault paths are rejected by both layers
 (`obsidian/paths.py`): traversal, absolute paths, dotfiles, symlinks, unknown roots or extensions.
@@ -132,7 +132,7 @@ only names an existing project and never creates one.
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
 tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
 the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
-`scout`. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`) runs on each machine:
+`scout`. The CLI side (`agents/client.py`, `agents/cli.py`, `agents/prompt.py`, `board/`) runs on each machine:
 hooks must never fail the harness, and the board serves only 127.0.0.1 and never sends the device
 token to the page.
 

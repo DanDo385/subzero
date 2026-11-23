@@ -175,12 +175,11 @@ subzero/
 ├── scripts/                  # per-provider import wrappers
 ├── src/subzero/
 │   ├── config.py             # settings + startup refusals
-│   ├── email.py              # immutable previews, AgentMail adapter, durable receipts
-│   ├── ingest.py             # device-token pairing and /api/v1/ingest/* routes
 │   ├── server.py             # Starlette app, routes, lifespan
 │   ├── services.py           # explicit service wiring
 │   ├── models.py             # the shapes that cross the MCP boundary
-│   ├── agents/               # live coding-agent sessions, messages, dispatch queue
+│   ├── cli.py                # top-level CLI entrypoint (subzero)
+│   ├── agents/               # live coding-agent sessions, CLI, client, prompt, dispatch
 │   ├── bridge/               # browser side-panel session bridge
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
@@ -192,12 +191,13 @@ subzero/
 │   ├── extraction/           # pass-2 Claude deep extraction over Jev candidates
 │   ├── storage/              # object store: supabase | local
 │   ├── embeddings/           # provider abstraction, privacy gate, background refresh
-│   ├── obsidian/             # path validation, rendering, job queue
+│   ├── obsidian/             # path validation, rendering, queue, worker, CLI, fill, plan
 │   ├── wiki/                 # note_edges, MOCs, graph rendering
 │   ├── importers/            # per-provider adapters, pipeline, background reclassify
-│   ├── review/ audit/
-│   └── worker_api.py         # the local worker's outbound surface
-├── src/obsidian_sync/        # the local worker
+│   ├── ingest/               # device-token pairing and /api/v1/ingest/* routes
+│   ├── email/                # immutable previews, AgentMail adapter, durable receipts
+│   ├── digest/               # Markdown digest builder + Google Drive sync
+│   └── review/ audit/
 └── tests/
 ```
 

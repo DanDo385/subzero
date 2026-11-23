@@ -18,7 +18,7 @@ from importlib import resources
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from subzero import client
+from subzero.agents import client
 
 MAX_BODY = 16_000
 

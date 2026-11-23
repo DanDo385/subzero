@@ -20,7 +20,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from subzero.client import CONFIG_DIR
+from subzero.agents.client import CONFIG_DIR
 
 MAX_CHARS = 9000
 PERSONAL_FILES = ("MEMORY.md", "MACHINES.md")
@@ -120,7 +120,7 @@ def build(
             )
         parts.append(line)
     if agents_md:
-        from subzero.client import repo_root
+        from subzero.agents.client import repo_root
 
         root = repo_root(cwd) or Path(cwd)
         if text := _read(root / "AGENTS.md", 2500):

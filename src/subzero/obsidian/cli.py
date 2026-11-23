@@ -7,8 +7,8 @@ from pathlib import Path
 
 import click
 
-from obsidian_sync.config import WorkerSettings
-from obsidian_sync.worker import run_worker
+from subzero.obsidian.config import WorkerSettings
+from subzero.obsidian.worker import run_worker
 
 
 @click.group(invoke_without_command=True)
@@ -40,7 +40,7 @@ def run(vault: Path | None, api_url: str | None, dry_run: bool, once: bool) -> N
         )
 
     if once:
-        from obsidian_sync.worker import ObsidianSyncWorker
+        from subzero.obsidian.worker import ObsidianSyncWorker
 
         async def single() -> None:
             worker = ObsidianSyncWorker(settings)
@@ -72,7 +72,7 @@ def check() -> None:
         )
 
     async def probe() -> None:
-        from obsidian_sync.client import SyncClient
+        from subzero.obsidian.client import SyncClient
 
         # Lease zero jobs: this proves the URL and the credential work without
         # taking work off the queue or marking anything as failed.
@@ -87,6 +87,11 @@ def check() -> None:
             await client.aclose()
 
     asyncio.run(probe())
+
+
+def register(parent: click.Group) -> None:
+    """Mount the Obsidian worker commands under ``subzero obsidian``."""
+    parent.add_command(main, name="obsidian")
 
 
 if __name__ == "__main__":  # pragma: no cover
