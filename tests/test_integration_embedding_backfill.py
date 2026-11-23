@@ -48,3 +48,21 @@ async def test_refresh_fills_memories_and_summaries(services, fake) -> None:  # 
     )
     sent = [text for call in provider.calls for text in call]
     assert not any("safe combination" in text for text in sent)
+
+
+async def test_a_batch_larger_than_a_write_chunk_is_written_in_full(
+    services,
+    fake,
+    monkeypatch,  # noqa: F811
+) -> None:
+    from subzero.embeddings import refresh
+
+    _, embeddings = fake
+    monkeypatch.setattr(refresh, "WRITE_CHUNK", 2)
+    for n in range(7):
+        await services.memories.save(content=f"Distinct fact number {n} about the deploy")
+
+    result = await refresh_backlog(services.db, embeddings, batch_size=50, max_batches=1)
+
+    assert result.embedded == 7
+    assert await services.db.fetchval("SELECT count(*) FROM memories WHERE embedding IS NULL") == 0
