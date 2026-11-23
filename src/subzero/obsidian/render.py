@@ -11,7 +11,12 @@ import json
 import re
 from typing import Any
 
-SUBZERO_ID_PREFIX = "pc:id="
+SUBZERO_ID_PREFIX = "sz:id="
+#: Files already in the vault carry the old marker, and a vault is not something
+#: this code can rewrite in one pass: it is on a laptop that may be asleep. So
+#: the marker is written new and read either way, and files migrate as the
+#: worker rewrites them.
+LEGACY_ID_PREFIX = "pc:id="
 
 
 def item_marker(item_id: Any) -> str:
@@ -57,8 +62,8 @@ def _triage_fields(meta: dict[str, Any]) -> dict[str, Any]:
 def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
     front = _frontmatter(
         {
-            "pc_type": "list",
-            "pc_id": list_row["id"],
+            "sz_type": "list",
+            "sz_id": list_row["id"],
             "title": list_row["name"],
             "list_type": list_row.get("list_type"),
             "project": list_row.get("project_slug"),
@@ -98,7 +103,7 @@ def render_list(list_row: dict[str, Any], items: list[dict[str, Any]]) -> str:
     body += [
         "",
         "<!-- Managed by Subzero. Tick a box here and the change flows",
-        "     back to the canonical list; do not edit the pc:id comments. -->",
+        "     back to the canonical list; do not edit the sz:id comments. -->",
         "",
     ]
     return "\n".join(body)
@@ -143,8 +148,8 @@ def render_note(
         tags.append(type_tag)
     front = _frontmatter(
         {
-            "pc_type": "note",
-            "pc_id": note["id"],
+            "sz_type": "note",
+            "sz_id": note["id"],
             "title": note["title"],
             "note_class": note.get("note_class"),
             "home": meta.get("home"),
@@ -224,8 +229,8 @@ def render_moc(
     sorted by title. Entirely generated - a MOC has no human-owned body."""
     front = _frontmatter(
         {
-            "pc_type": "moc",
-            "pc_id": moc["id"],
+            "sz_type": "moc",
+            "sz_id": moc["id"],
             "title": moc["title"],
             "updated": moc.get("updated_at"),
             "tags": ["subzero/moc", "type/moc"],
@@ -268,8 +273,8 @@ def render_artifact_note(
 ) -> str:
     front = _frontmatter(
         {
-            "pc_type": "artifact",
-            "pc_id": artifact["id"],
+            "sz_type": "artifact",
+            "sz_id": artifact["id"],
             "title": artifact["title"],
             "artifact_type": artifact.get("artifact_type"),
             "project": artifact.get("project_slug"),
@@ -307,8 +312,8 @@ def render_artifact_note(
 def render_project(project: dict[str, Any], snapshot: dict[str, Any]) -> str:
     front = _frontmatter(
         {
-            "pc_type": "project",
-            "pc_id": project["id"],
+            "sz_type": "project",
+            "sz_id": project["id"],
             "title": project["name"],
             "status": project.get("status"),
             "updated": project.get("updated_at"),

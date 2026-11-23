@@ -50,8 +50,16 @@ def current_principal() -> Principal:
         or claims.get("sub")
         or "unknown"
     )
-    client_name = claims.get("pc_client_name")
-    provider = claims.get("pc_provider") or provider_from_client(client_name, token.client_id)
+    # Tokens minted before the rename still carry the pc_ claims, and a token
+    # outlives a deploy. Read the new name and fall back to the old one until
+    # every live token has expired; neither claim grants anything, both are
+    # audit metadata.
+    client_name = claims.get("sz_client_name") or claims.get("pc_client_name")
+    provider = (
+        claims.get("sz_provider")
+        or claims.get("pc_provider")
+        or provider_from_client(client_name, token.client_id)
+    )
 
     return Principal(
         subject=str(subject),

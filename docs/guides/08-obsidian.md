@@ -107,7 +107,8 @@ tracked path, the server refuses a second copy and asks you to relocate it first
 For a list, the app finds your existing list and asks `note_write` for its vault
 view. It appears under `Lists/` inside its home. Tick an item in Obsidian while
 the helper is running: the same item is completed in the database on the next
-poll. Keep the hidden `pc:id` comments intact so items stay linked. Ordinary
+poll. Keep the hidden `sz:id` comments intact so items stay linked; notes and
+lists rendered before the rename say `pc:id` instead, and both are read. Ordinary
 Markdown checkboxes in a prose note do not have this two-way behavior.
 
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user

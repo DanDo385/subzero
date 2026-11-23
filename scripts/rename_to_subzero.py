@@ -13,9 +13,11 @@ What it leaves alone, on purpose:
   even a comment in one makes the server refuse to boot.
 - the live Vercel address (personal-context-mcp-seven.vercel.app) and the
   stopword list in retrieval/inference.py.
-- `PC_` names inside the deliberate fallbacks (config.py, conftest.py, the
-  deploy scripts), which a second run must not turn into SUBZERO_.
-- `pc:` markers in rendered vault notes, which existing notes already carry.
+- `PC_` names in the files that report a stale variable or document the rename
+  (config.py, cli.py, the env-prefix test, troubleshooting.md, AGENTS.md), which
+  a second run must not turn into SUBZERO_.
+- `pc:` and `pc_id` markers in rendered vault notes: files already on disk carry
+  them, and the readers accept both generations.
 """
 
 from __future__ import annotations
@@ -33,16 +35,15 @@ SKIP_FILES = {"uv.lock"}
 #: Files where only package/CLI names change, not prose like "personal context".
 PROSE_EXEMPT = {"src/subzero/retrieval/inference.py", "src/personal_context_mcp/retrieval/inference.py"}
 
-#: Files that read the old PC_ names on purpose, as a fallback.
+#: Files that name the retired PC_ prefix on purpose: the startup refusal that
+#: reports a stale variable, the tests for it, and the docs that say to rename.
 ENV_EXEMPT = {
     "src/subzero/config.py",
-    "tests/conftest.py",
+    "src/subzero/cli.py",
     "tests/test_config_env_prefix.py",
-    "tests/test_ingest.py",
-    "deploy/go-live.sh",
-    "deploy/preflight.sh",
-    "deploy/vercel-env.sh",
-    "deploy/install-tailnet-server.sh",
+    "docs/troubleshooting.md",
+    "docs/ddia-audit.md",
+    "AGENTS.md",
 }
 
 #: Text that names the old project on purpose (notes about the rename, the

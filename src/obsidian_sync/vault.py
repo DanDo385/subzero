@@ -20,12 +20,17 @@ from pathlib import Path
 
 from subzero.errors import PathSecurityError
 from subzero.obsidian.paths import resolve_in_vault
-from subzero.obsidian.render import SUBZERO_ID_PREFIX
+from subzero.obsidian.render import LEGACY_ID_PREFIX, SUBZERO_ID_PREFIX
 from subzero.util import sha256_bytes
 
-_ID_MARKER = re.compile(rf"<!--\s*{re.escape(SUBZERO_ID_PREFIX)}([0-9a-fA-F-]{{36}})\s*-->")
+#: Both marker generations are read: the server writes ``sz:`` now, and files
+#: already on disk still say ``pc:`` until the worker next rewrites them.
+_ID_MARKER = re.compile(
+    rf"<!--\s*(?:{re.escape(SUBZERO_ID_PREFIX)}|{re.escape(LEGACY_ID_PREFIX)})"
+    rf"([0-9a-fA-F-]{{36}})\s*-->"
+)
 _CHECKBOX = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.*)$")
-_PC_ID_FRONTMATTER = re.compile(r"^pc_id:\s*([0-9a-fA-F-]{36})\s*$", re.M)
+_ID_FRONTMATTER = re.compile(r"^(?:sz_id|pc_id):\s*([0-9a-fA-F-]{36})\s*$", re.M)
 
 
 @dataclass(frozen=True)
@@ -144,9 +149,10 @@ class Vault:
 def parse_list_items(text: str) -> list[dict[str, object]]:
     """Extract checkbox state from a rendered list file.
 
-    Identity comes only from the ``pc:id`` marker. A line without one is
-    reported with a null id and never matched by text: ticking the wrong item
-    because two lines read similarly would be worse than doing nothing.
+    Identity comes only from the ``sz:id`` marker, or the ``pc:id`` one that
+    older files still carry. A line without either is reported with a null id
+    and never matched by text: ticking the wrong item because two lines read
+    similarly would be worse than doing nothing.
     """
     items: list[dict[str, object]] = []
     for line in text.splitlines():
@@ -167,5 +173,5 @@ def parse_list_items(text: str) -> list[dict[str, object]]:
 
 
 def note_id_of(text: str) -> str | None:
-    match = _PC_ID_FRONTMATTER.search(text)
+    match = _ID_FRONTMATTER.search(text)
     return match.group(1) if match else None

@@ -415,8 +415,8 @@ Postgres is canonical. Obsidian renders a view, with each item carrying its
 UUID so a checkbox ticked by hand flows back:
 
 ```markdown
-- [ ] Configure the Gemini connector <!-- pc:id=8f14e45f-ceea-467a-9ba3-6b5f2c3d1e7a -->
-- [x] Ship the MCP server            <!-- pc:id=c9f0f895-fb98-4b6a-a2f5-2a5d2c9e1b44 -->
+- [ ] Configure the Gemini connector <!-- sz:id=8f14e45f-ceea-467a-9ba3-6b5f2c3d1e7a -->
+- [x] Ship the MCP server            <!-- sz:id=c9f0f895-fb98-4b6a-a2f5-2a5d2c9e1b44 -->
 ```
 
 Identity comes **only** from that marker. An edited line without one is

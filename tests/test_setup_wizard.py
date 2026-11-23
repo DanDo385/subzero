@@ -88,7 +88,7 @@ def test_env_local_overrides_env(tmp_path: Path, monkeypatch) -> None:
     for name in ("SUBZERO_BASE_URL", "SUBZERO_LOG_LEVEL", "SUBZERO_DATABASE_URL"):
         monkeypatch.delenv(name, raising=False)
     (tmp_path / ".env").write_text(
-        "SUBZERO_DATABASE_URL=postgres://from-env\nPC_BASE_URL=http://from-env\nPC_LOG_LEVEL=DEBUG\n"
+        "SUBZERO_DATABASE_URL=postgres://from-env\nSUBZERO_LOG_LEVEL=DEBUG\n"
     )
     (tmp_path / ".env.local").write_text("SUBZERO_BASE_URL=https://from-env-local\n")
 

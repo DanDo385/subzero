@@ -68,7 +68,7 @@ async def _conversation(services, cid, title, messages, sensitivity="normal"):
         provider="claude", provider_conversation_id=cid, title=title, imported=True
     )
     await services.db.execute(
-        "UPDATE conversations SET sensitivity = $2::pc_sensitivity WHERE id = $1",
+        "UPDATE conversations SET sensitivity = $2::sz_sensitivity WHERE id = $1",
         conv_id,
         sensitivity,
     )

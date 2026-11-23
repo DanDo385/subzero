@@ -318,7 +318,7 @@ def build_ingest_routes(settings: Settings) -> list:
                 """
                 UPDATE conversations
                 SET provider_updated_at = greatest(provider_updated_at, $2::timestamptz),
-                    sensitivity = greatest(sensitivity, $4::pc_sensitivity),
+                    sensitivity = greatest(sensitivity, $4::sz_sensitivity),
                     metadata = metadata || $3::jsonb
                 WHERE id = $1
                 """,

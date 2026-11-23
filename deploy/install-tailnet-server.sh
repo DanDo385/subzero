@@ -34,7 +34,7 @@ esac
 LABEL="${SERVER_LABEL:-com.subzero.server}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOGS="$HOME/Library/Logs/subzero"
-PORT="${SUBZERO_PORT:-${PC_PORT:-8080}}"
+PORT="${SUBZERO_PORT:-8080}"
 
 if command -v tailscale >/dev/null; then
   TS=tailscale

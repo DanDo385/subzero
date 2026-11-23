@@ -55,8 +55,9 @@ policy is in `src/subzero/memorylab/triage.py`.
 ## Writing rules
 
 - Plain Markdown. Frontmatter for anything a script reads.
-- Notes Subzero writes carry `pc_id` in their frontmatter. Edit their body
-  freely; Subzero picks up the edit. Do not change `pc_id`.
+- Notes Subzero writes carry `sz_id` in their frontmatter; notes written before
+  the rename carry `pc_id`, and both are read. Edit their body freely; Subzero
+  picks up the edit. Do not change the id line.
 - Never delete a note to "clean up". Move it to `99-Archive/` or leave it in
   the Inbox with a comment.
 - Nothing sensitive (health, money, legal, credentials) goes in the vault

@@ -1,4 +1,4 @@
-"""Settings read SUBZERO_ names first and the pre-rename PC_ names as a fallback."""
+"""Settings are read as SUBZERO_ names only, and a stale PC_ name is refused."""
 
 from __future__ import annotations
 
@@ -13,7 +13,14 @@ from subzero.config import Settings, legacy_env_names
 def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # No .env/.env.local from the developer's checkout, no stray settings.
     monkeypatch.chdir(tmp_path)
-    for name in ("SUBZERO_LOG_LEVEL", "PC_LOG_LEVEL", "SUBZERO_PORT", "PC_PORT"):
+    for name in (
+        "SUBZERO_LOG_LEVEL",
+        "PC_LOG_LEVEL",
+        "SUBZERO_PORT",
+        "PC_PORT",
+        "SUBZERO_HARNESS_API_KEY",
+        "PC_HARNESS_API_KEY",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -22,30 +29,38 @@ def test_new_prefix_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings().port == 9001
 
 
-def test_old_prefix_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_old_prefix_is_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pre-rename variable is ignored rather than quietly honoured.
+
+    Honouring it is what let a deployment keep running on a name that nothing
+    documented, so the day the fallback was removed no deployment would have
+    noticed until it lost a setting. Ignoring it and refusing to boot says so
+    out loud instead.
+    """
     monkeypatch.setenv("PC_PORT", "9002")
-    assert Settings().port == 9002
+    assert Settings().port != 9002
 
 
-def test_new_prefix_wins_over_old(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PC_PORT", "9002")
-    monkeypatch.setenv("SUBZERO_PORT", "9003")
-    assert Settings().port == 9003
-
-
-def test_old_names_in_env_local_still_work(tmp_path: Path) -> None:
+def test_old_names_in_env_local_are_not_read(tmp_path: Path) -> None:
     (tmp_path / ".env.local").write_text("PC_LOG_LEVEL=DEBUG\n")
-    assert Settings().log_level == "DEBUG"
-
-
-def test_new_name_in_env_local_wins_over_old(tmp_path: Path) -> None:
-    (tmp_path / ".env.local").write_text("PC_LOG_LEVEL=DEBUG\nSUBZERO_LOG_LEVEL=WARNING\n")
-    assert Settings().log_level == "WARNING"
+    assert Settings().log_level != "DEBUG"
 
 
 def test_legacy_env_names_lists_old_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PC_PORT", "1")
     assert "PC_PORT" in legacy_env_names()
+
+
+def test_startup_names_a_stale_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The refusal has to say which variable, on a machine nobody is watching."""
+    monkeypatch.setenv("PC_HARNESS_API_KEY", "bridge-test-key")
+    problems = Settings().validate_startup()
+    assert any("PC_HARNESS_API_KEY" in problem for problem in problems)
+
+
+def test_bridge_key_reads_the_new_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SUBZERO_HARNESS_API_KEY", "bridge-test-key")
+    assert Settings().harness_api_key.get_secret_value() == "bridge-test-key"
 
 
 @pytest.mark.parametrize(
@@ -63,15 +78,3 @@ def test_database_target_names_the_database_without_credentials(url: str, expect
     target = Settings(database_url=SecretStr(url)).database_target()
     assert target == expected
     assert "secret" not in target
-
-
-def test_approved_bridge_key_still_reads_pc_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SUBZERO_HARNESS_API_KEY", raising=False)
-    monkeypatch.setenv("PC_HARNESS_API_KEY", "bridge-test-key")
-    assert Settings().harness_api_key.get_secret_value() == "bridge-test-key"
-
-
-def test_bridge_key_obeys_new_prefix_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PC_HARNESS_API_KEY", "legacy-test-key")
-    monkeypatch.setenv("SUBZERO_HARNESS_API_KEY", "new-test-key")
-    assert Settings().harness_api_key.get_secret_value() == "new-test-key"
