@@ -104,6 +104,8 @@ function enqueue(payload) {
     if (at >= 0) {
       const older = await readBody(entry._key);
       entry.messages = mergeMessages(older?.messages, entry.messages);
+      const attachments = mergeAttachments(older?.attachments, entry.attachments);
+      if (attachments.length) entry.attachments = attachments;
       if (!String(entry.title || '').trim()) entry.title = index[at].title;
       index[at] = headerOf(entry);
     } else {
@@ -125,6 +127,25 @@ function mergeMessages(older = [], newer = []) {
   const missing = older.filter((m) => id(m) && !newerIds.has(id(m)));
   return missing.length ? [...missing, ...newer] : newer;
 }
+
+/**
+ * Attachment references of both captures. A re-capture that shows fewer
+ * (a file card scrolled out of view) must not drop one still waiting to be sent.
+ */
+function mergeAttachments(older = [], newer = []) {
+  const key = (a) => a.provider_attachment_id || `${a.file_name}:${a.file_size}`;
+  const seen = new Set();
+  const merged = [];
+  for (const item of [...(newer || []), ...(older || [])]) {
+    if (!item || typeof item !== 'object' || seen.has(key(item))) continue;
+    seen.add(key(item));
+    merged.push(item);
+  }
+  return merged;
+}
+
+/** Statuses that say the server as a whole is unavailable, not this conversation. */
+const UNAVAILABLE = new Set([0, 502, 503, 504]);
 
 const inFlight = new Set();
 
@@ -215,8 +236,9 @@ async function recordFailure(item, err) {
 }
 
 /**
- * Deliver one due item. Returns 'sent', 'failed', 'blocked' (token rejected:
- * stop until re-paired), or 'idle' (nothing due).
+ * Deliver one due item. Returns 'sent', 'failed' (this conversation failed),
+ * 'unreachable' (the server is down or unavailable), 'blocked' (token
+ * rejected: stop until re-paired), or 'idle' (nothing due).
  */
 async function processOne() {
   const item = await claimNext();
@@ -240,7 +262,7 @@ async function processOne() {
       return 'blocked';
     }
     await recordFailure(item, err);
-    return 'failed';
+    return UNAVAILABLE.has(err.status || 0) ? 'unreachable' : 'failed';
   } finally {
     inFlight.delete(item._key);
   }
@@ -249,9 +271,11 @@ async function processOne() {
 let draining = null;
 /**
  * Deliver everything that is due, a few conversations at a time. Concurrent
- * callers share the same run. A worker stops when nothing is due, on a
- * rejected token, or when the server is unreachable (the next alarm tries
- * again); a rejected token stops them all.
+ * callers share the same run. A worker moves past a conversation that failed
+ * (it is backed off, so it is not picked again this run). It stops when
+ * nothing is due, or when the server is unreachable, so an outage does not
+ * spend an attempt of every queued item; the next alarm tries again. A
+ * rejected token stops them all.
  */
 function drain() {
   if (!draining) {
@@ -263,7 +287,7 @@ function drain() {
         while (!blocked) {
           const outcome = await processOne();
           if (outcome === 'blocked') blocked = true;
-          if (outcome !== 'sent') return;
+          if (outcome !== 'sent' && outcome !== 'failed') return;
         }
       };
       await Promise.all(Array.from({ length: DELIVERY_CONCURRENCY }, worker));

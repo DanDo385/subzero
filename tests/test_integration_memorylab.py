@@ -139,12 +139,36 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
             "LEFT JOIN notes n ON n.id = t.note_id"
         )
     }
+    # Stored as real JSON objects, not JSON text (a double-encoding bug once
+    # made every score unreadable and every draft unrenderable).
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM memory_triage WHERE jsonb_typeof(scores) <> 'object'"
+        )
+        == 0
+    )
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM notes WHERE jsonb_typeof(metadata) <> 'object'"
+        )
+        == 0
+    )
+    from subzero.obsidian.render import render_note
+
+    draft = await services.db.fetchrow(
+        "SELECT n.*, NULL AS project_slug FROM notes n WHERE vault_path LIKE '00-Inbox/%'"
+    )
+    rendered = render_note(dict(draft))
+    assert "triage_outcome: inbox" in rendered and "jev_worth_processing: 0.85" in rendered
+
     # The vault note is Claude's to write; only the Inbox draft exists now.
     assert rows["Deploy runbook"]["vault_path"] is None
     assert rows["Which project is this"]["vault_path"].startswith("00-Inbox/")
     assert rows["Small talk"]["layers"] == []
 
-    targets = {t.title: t.destination for t in await extraction_targets(services, limit=10)}
+    ranked = await extraction_targets(services, limit=10)
+    assert [t.importance for t in ranked] == [0.95, 0.85, 0.7]  # worth is readable
+    targets = {t.title: t.destination for t in ranked}
     assert targets == {
         "Deploy runbook": "resource",
         "Which project is this": NO_NOTE,
@@ -172,5 +196,20 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
 
     again = await recover(services, dry_run=False)
     assert again.seen == 0 and again.skipped_unchanged == 4
+
+    # A later run that decides only one session still reports the whole history.
+    await services.db.execute(
+        "UPDATE memory_triage SET classification_event_id = NULL WHERE conversation_id = "
+        "(SELECT id FROM conversations WHERE title = 'Small talk')"
+    )
+    assert (await recover(services, dry_run=False)).seen == 1
+    report_text = await services.db.fetchval(
+        "SELECT content FROM notes WHERE vault_path LIKE 'Experiments/Analysis/recovery-report%'"
+    )
+    assert "All 4 triaged sessions" in report_text and "decided 1 of them" in report_text
+    candidates = await services.db.fetchval(
+        "SELECT content FROM notes WHERE vault_path = 'Experiments/Analysis/hot-memory-candidates.md'"
+    )
+    assert "Editor habits" in candidates
 
     assert await write_structured(services) >= 0

@@ -260,7 +260,7 @@ def pair_device(device_name: str, agents: bool) -> None:
     "--max-batches", default=0, help="Stop after this many batches (0: until nothing is pending)."
 )
 def embed_backfill(batch_size: int, max_batches: int) -> None:
-    """Embed stored messages and notes that have no vector yet (newest first).
+    """Embed stored messages, notes, memories and summaries with no vector yet.
 
     The server does this by itself every few minutes; run this to catch up a
     large backlog at once. Needs SUBZERO_EMBEDDING_PROVIDER and its API key.
@@ -299,6 +299,11 @@ def embed_backfill(batch_size: int, max_batches: int) -> None:
                 SELECT (SELECT count(*) FROM messages
                         WHERE embedding IS NULL AND NOT embedding_skipped)
                      + (SELECT count(*) FROM notes
+                        WHERE embedding IS NULL AND NOT embedding_skipped)
+                     + (SELECT count(*) FROM memories
+                        WHERE embedding IS NULL AND NOT embedding_skipped
+                          AND status = 'active')
+                     + (SELECT count(*) FROM session_summaries
                         WHERE embedding IS NULL AND NOT embedding_skipped)
                 """
             )
@@ -582,66 +587,16 @@ def reclassify(limit: int) -> None:
     settings = get_settings()
     _configure_cli_logging(settings)
 
+    from subzero.importers.reclassify import drain_reclassification_queue
+
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            rows = await services.db.fetch(
-                """
-                SELECT object_type, object_id, reason FROM reclassification_queue
-                WHERE next_attempt_at <= now()
-                ORDER BY next_attempt_at LIMIT $1
-                """,
-                limit,
-            )
-            if not rows:
+            done, total = await drain_reclassification_queue(services, limit=limit)
+            if total == 0:
                 click.echo("Nothing queued for reclassification.")
                 return
-
-            done = 0
-            for row in rows:
-                if row["object_type"] == "checkpoint":
-                    # Imported conversations are redone from their stored
-                    # messages. A live checkpoint's state was never stored,
-                    # so only imported conversations qualify.
-                    imported = await services.db.fetchval(
-                        "SELECT imported FROM conversations WHERE id = $1", row["object_id"]
-                    )
-                    if not imported:
-                        continue
-                    report = await reclassify_conversations(services, [row["object_id"]])
-                    if not report.errors:
-                        await services.db.execute(
-                            "DELETE FROM reclassification_queue WHERE object_id = $1",
-                            row["object_id"],
-                        )
-                        done += 1
-                    continue
-                if row["object_type"] != "artifact":
-                    continue
-                record = await services.artifacts.get(row["object_id"])
-                if record is None:
-                    await services.db.execute(
-                        "DELETE FROM reclassification_queue WHERE object_id = $1",
-                        row["object_id"],
-                    )
-                    continue
-                result, _, _ = await services.classification.classify_artifact(
-                    {
-                        "title": record.title,
-                        "description": record.description or "",
-                        "artifact_type": record.artifact_type,
-                        "source_type": record.source_type,
-                        "file_paths": [f.relative_path for f in record.files],
-                        "sensitivity": "normal",
-                    },
-                    object_id=record.id,
-                )
-                if not result.degraded:
-                    await services.db.execute(
-                        "DELETE FROM reclassification_queue WHERE object_id = $1", record.id
-                    )
-                    done += 1
-            click.echo(f"Reclassified {done} of {len(rows)} queued objects.")
+            click.echo(f"Reclassified {done} of {total} queued objects.")
         finally:
             await services.aclose()
             set_services(None)

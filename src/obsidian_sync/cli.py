@@ -44,8 +44,8 @@ def run(vault: Path | None, api_url: str | None, dry_run: bool, once: bool) -> N
 
         async def single() -> None:
             worker = ObsidianSyncWorker(settings)
-            processed = await worker._tick()
-            click.echo(f"Processed {processed} job(s).")
+            lease = await worker._tick()
+            click.echo(f"Processed {len(lease.jobs)} job(s).")
             await worker._client.aclose()
 
         asyncio.run(single())

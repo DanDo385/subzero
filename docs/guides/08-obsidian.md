@@ -5,8 +5,9 @@
 lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
-your server "anything new to write?" every 30 seconds. Nothing on the internet can reach into your
-computer: the helper only ever calls out.
+your server "anything new to write?" and follows the server's suggested delay: quickly while work
+is arriving, less often when the vault is idle. Nothing on the internet can reach into your
+computer: the helper only ever calls out. Older servers use the helper's configured poll interval.
 
 ## Step 1: Choose where the vault lives
 
@@ -55,6 +56,9 @@ not, nothing is written yet, and that's fine.
 
 To see what it *would* write without writing anything: `uv run obsidian-sync run --once --dry-run`.
 
+To verify the vault location and server credential without leasing any queued work:
+`uv run obsidian-sync check`. It reports `server: reachable and credential accepted` on success.
+
 ## Step 3: Keep it running in the background
 
 **Mac:**
@@ -82,6 +86,13 @@ systemctl --user enable --now obsidian-sync.timer
 
 The timer runs the helper every 5 minutes. To stop: `systemctl --user disable --now obsidian-sync.timer`.
 Logs: `journalctl --user -u obsidian-sync -f`.
+
+**Your edits go back too.** When you change a note the helper wrote, the helper sends your version
+to the database on its next run, even after a restart or on the Linux timer. It keeps a small record
+of what it wrote in `~/.local/state/subzero/obsidian-sync/` (outside the vault, so a vault synced to
+another device does not carry it along). A note written before this record existed is tracked from
+the next time the server rewrites it. To keep the record somewhere else, set
+`OBSIDIAN_SYNC_STATE_DIR`.
 
 ## Send a note or list from any chat
 

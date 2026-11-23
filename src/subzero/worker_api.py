@@ -57,7 +57,8 @@ async def lease_jobs(request: Request, services: Services) -> Response:
         return _unauthorized()
     body = _json_body(await request.body())
     worker_id = str(body.get("worker_id") or "unknown")
-    limit = min(int(body.get("limit") or 10), 50)
+    requested_limit = body.get("limit")
+    limit = 10 if requested_limit is None else max(0, min(int(requested_limit), 50))
 
     jobs = await services.sync_queue.lease(worker_id=worker_id, limit=limit)
 

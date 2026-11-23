@@ -13,7 +13,7 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero.db.pool import Database
+from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.errors import NotFoundError
 from subzero.homes import home_metadata
@@ -307,9 +307,9 @@ class NoteService:
                 FROM notes WHERE search_tsv @@ websearch_to_tsquery('english', $1)
             ),
             vector_hits AS (
-                SELECT id, 1 - (embedding <=> $4) AS rank FROM notes
-                WHERE $4::vector IS NOT NULL AND embedding IS NOT NULL
-                ORDER BY embedding <=> $4 LIMIT 30
+                SELECT id, 1 - (embedding <=> $4::text::vector) AS rank FROM notes
+                WHERE $4::text IS NOT NULL AND embedding IS NOT NULL
+                ORDER BY embedding <=> $4::text::vector LIMIT 30
             ),
             merged AS (
                 SELECT id, max(rank) AS rank
@@ -327,7 +327,7 @@ class NoteService:
             query,
             project_id,
             note_class,
-            vector,
+            vector_literal(vector),
             limit,
         )
         return [_record(r) for r in rows]

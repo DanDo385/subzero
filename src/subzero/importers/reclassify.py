@@ -222,8 +222,8 @@ async def due_conversations(services: Services, *, limit: int) -> list[UUID]:
     return [row["object_id"] for row in rows]
 
 
-async def clear_classified(services: Services, conversation_ids: list[UUID]) -> None:
-    """Drop the queue rows that now have a usable classification.
+async def clear_classified(services: Services, conversation_ids: list[UUID]) -> int:
+    """Drop the queue rows that now have a usable classification; return how many.
 
     Only a non-degraded event clears a row, so a conversation Jev could not
     answer stays queued and the backoff ``queue_reclassification`` recorded
@@ -233,8 +233,8 @@ async def clear_classified(services: Services, conversation_ids: list[UUID]) -> 
     tick and appended an event each time.
     """
     if not conversation_ids:
-        return
-    await services.db.execute(
+        return 0
+    status = await services.db.execute(
         """
         DELETE FROM reclassification_queue q
         WHERE q.object_type = 'checkpoint'
@@ -246,6 +246,64 @@ async def clear_classified(services: Services, conversation_ids: list[UUID]) -> 
         """,
         conversation_ids,
     )
+    return int(status.rsplit(" ", 1)[-1])
+
+
+async def drain_reclassification_queue(services: Services, *, limit: int = 50) -> tuple[int, int]:
+    """Retry what a classifier outage left queued: ``(classified, claimed)``.
+
+    The manual twin of the background loop, and it claims the same way, so the
+    two never classify one row twice. A checkpoint is redone from what was
+    stored, imported or live alike: a live checkpoint's summary and messages
+    are in the database too. An artifact is filed exactly as a fresh one would
+    be, with its stored sensitivity, so the privacy check before any external
+    call sees the real level.
+    """
+    from subzero.artifacts.filing import classify_and_file
+
+    async with services.db.transaction() as conn:
+        rows = await conn.fetch(
+            """
+            WITH due AS (
+                SELECT id FROM reclassification_queue
+                WHERE object_type IN ('checkpoint', 'artifact') AND next_attempt_at <= now()
+                ORDER BY next_attempt_at
+                LIMIT $1
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE reclassification_queue q
+            SET next_attempt_at = now() + make_interval(mins => $2)
+            FROM due
+            WHERE q.id = due.id
+            RETURNING q.object_type, q.object_id
+            """,
+            limit,
+            CLAIM_MINUTES,
+        )
+
+    checkpoints = [row["object_id"] for row in rows if row["object_type"] == "checkpoint"]
+    artifacts = [row["object_id"] for row in rows if row["object_type"] == "artifact"]
+    done = 0
+
+    if checkpoints:
+        await reclassify_conversations(services, checkpoints)
+        # Only a usable classification clears a row; a degraded one was
+        # re-queued with its backoff by the classification service.
+        done += await clear_classified(services, checkpoints)
+
+    for artifact_id in artifacts:
+        record = await services.artifacts.get(artifact_id)
+        if record is not None:
+            filed = await classify_and_file(services, record, stated_project=record.project)
+            if filed["degraded"]:
+                continue
+            done += 1
+        await services.db.execute(
+            "DELETE FROM reclassification_queue WHERE object_type = 'artifact' AND object_id = $1",
+            artifact_id,
+        )
+
+    return done, len(rows)
 
 
 async def classify_forever(services: Services) -> None:
