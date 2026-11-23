@@ -122,6 +122,13 @@ answers predate the triage questions.
 not know. Update it to this version and restart it, so it accepts `25-Areas`,
 `Permanent` and `Experiments` ([guide 16](guides/16-memory-lab.md)).
 
+**`memory-lab extract` reports sessions under `failed` and `errors`.** Claude answered
+for those sessions but writing the result to the database did not finish, usually a
+`TimeoutError` on a slow connection. The rest of the batch still landed. Those sessions
+are not marked as extracted, so the next run offers them again, which means paying for
+them a second time. If several fail in one batch, run a smaller `--limit` or set
+`SUBZERO_EXTRACTION_CONCURRENCY=1` before retrying.
+
 ## Importing
 
 | You see | What it means | Fix |

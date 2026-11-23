@@ -32,7 +32,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 import anthropic
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 from subzero.auth.principal import Principal
 from subzero.classifier.questions import DESTINATION_CRITERIA
@@ -657,18 +657,22 @@ class DeepExtractor:
                         report,
                         (destinations or {}).get(conversation_id, "inbox"),
                     )
-                except (anthropic.APIError, ValidationError, ValueError, RuntimeError) as exc:
+                except PermissionError as exc:
+                    report.errors.append(f"{conversation_id}: skipped: {exc}")
+                except Exception as exc:
+                    # Every session in flight has already been paid for, so one
+                    # failure costs that session and never the rest of the batch.
+                    # Anything the model or the database can raise belongs here.
                     report.failed += 1
                     report.errors.append(f"{conversation_id}: {type(exc).__name__}: {exc}")
                     logger.warning(
                         "deep extraction failed",
+                        exc_info=True,
                         extra={
                             "conversation_id": str(conversation_id),
                             "error": type(exc).__name__,
                         },
                     )
-                except PermissionError as exc:
-                    report.errors.append(f"{conversation_id}: skipped: {exc}")
 
         await asyncio.gather(*(one(cid) for cid in conversation_ids))
         return report

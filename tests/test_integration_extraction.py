@@ -191,6 +191,47 @@ async def test_a_refusal_is_recorded_not_written(services, tmp_path: Path) -> No
     assert await services.db.fetchval("SELECT count(*) FROM decisions") == 0
 
 
+async def test_one_failed_write_does_not_abort_the_batch(services, tmp_path: Path) -> None:
+    """The model has been paid for before anything is written, so a database
+    error on one session must cost that session alone."""
+    await _import(
+        services,
+        tmp_path,
+        [_conversation("a", "Where should memory live?"), _conversation("b", "More on memory.")],
+    )
+    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
+    assert len(ids) == 2
+
+    real_execute = services.db.execute
+    failed_once = False
+
+    async def flaky_execute(query: str, *args: Any) -> Any:
+        nonlocal failed_once
+        if "UPDATE session_summaries" in query and not failed_once:
+            failed_once = True
+            raise TimeoutError
+        return await real_execute(query, *args)
+
+    services.db.execute = flaky_execute  # type: ignore[method-assign]
+    try:
+        extractor = DeepExtractor(services, client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
+        report = await extractor.run(ids, concurrency=1)
+    finally:
+        services.db.execute = real_execute  # type: ignore[method-assign]
+
+    assert failed_once
+    assert report.attempted == 2
+    assert report.extracted == 1
+    assert report.failed == 1
+    assert report.errors == [f"{ids[0]}: TimeoutError: "]
+    # The session that failed is not marked, so it is offered again.
+    statuses = await services.db.fetch(
+        "SELECT metadata->'extraction'->>'status' AS status FROM conversations ORDER BY id"
+    )
+    assert sorted(s["status"] or "none" for s in statuses) == ["extracted", "none"]
+    assert len(await extraction_candidates(services, limit=10)) == 1
+
+
 async def test_same_subject_notes_merge_and_projects_are_created(services, tmp_path: Path) -> None:
     await _import(
         services,
