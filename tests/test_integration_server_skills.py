@@ -70,9 +70,7 @@ async def client(services, live_server):
 async def test_named_prompts_and_tool_contracts(client):
     tools = {tool.name: tool for tool in await client.list_tools()}
     assert {"context_search", "session_checkpoint", "email"} <= tools.keys()
-    assert {"home", "concepts", "queue_for_vault"} <= tools["session_checkpoint"].inputSchema[
-        "properties"
-    ].keys()
+    assert {"home", "concepts"} <= tools["session_checkpoint"].inputSchema["properties"].keys()
     assert tools["email"].inputSchema["properties"]["dry_run"]["default"] is True
     assert {"search", "save", "email"} <= {prompt.name for prompt in await client.list_prompts()}
     for action, tool in (
@@ -92,7 +90,6 @@ async def test_save_and_search_reuse_existing_tools(client, services):
         "summary": "Neovim uses Lua for configuration and LSP for completion.",
         "home": "setup/neovim",
         "concepts": ["Lua", "LSP"],
-        "queue_for_vault": False,
     }
     first = (await client.call_tool("session_checkpoint", args)).data
     second = (await client.call_tool("session_checkpoint", args)).data
@@ -119,7 +116,6 @@ async def test_project_home_resolves_existing_project(client, services):
                 "summary": "Shared memory handoff",
                 "home": "projects/shared-memory",
                 "concepts": ["handoff"],
-                "queue_for_vault": False,
             },
         )
     ).data

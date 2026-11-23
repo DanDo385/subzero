@@ -69,7 +69,6 @@ before referring to it)
    - `home` - exactly one of `projects/{existing-project-slug}`,
      `lesson/{category}`, `setup/{tool}` or `other`
    - `concepts` - concept names covered; these become `concept/{name}` tags
-   - `queue_for_vault=false` - save shared memory only
 
 3. **Read the result.** It reports exactly what was created, updated and
    skipped, plus how the content was classified. If `notes` is non-empty, it is
@@ -84,14 +83,16 @@ before referring to it)
 - Do not split one checkpoint into several calls. It is one transaction.
 - Do not set `sensitivity` to `normal` for medical, financial, legal or
   credential-adjacent content; use `private` or `highly_sensitive`, which
-  suppresses external classification and vault writes.
+  suppresses external classification.
 
 ## Failure behaviour
 
 If the call fails, tell the user the checkpoint did not save and what was in
 it, so they can decide whether to retry. Do not claim it saved. If the result
-says the classifier was degraded, relay that nothing was promoted to their
-vault but the data itself was stored.
+says the classifier was degraded, relay that routing fell back to
+deterministic rules but the data itself was stored. A checkpoint never writes
+a vault note: vault notes come from memory-lab triage
+(`subzero memory-lab recover`), not from a checkpoint.
 
 ## Example
 

@@ -276,12 +276,6 @@ def register(mcp: FastMCP) -> None:
                 description="Concept names covered in the session. Stored as concept/{name} tags; omit to keep existing tags."
             ),
         ] = None,
-        queue_for_vault: Annotated[
-            bool,
-            Field(
-                description="Allow classifier-approved vault promotion. Set false to save shared memory only."
-            ),
-        ] = True,
     ) -> CheckpointResult:
         """Persist everything durable this session established, in one call.
 
@@ -316,7 +310,6 @@ def register(mcp: FastMCP) -> None:
             sensitivity=sensitivity,
             home=home,
             concepts=concepts,
-            queue_for_vault=queue_for_vault,
         )
 
     @mcp.tool(

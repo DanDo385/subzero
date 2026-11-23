@@ -79,7 +79,6 @@ async def test_a_checkpoint_embeds_its_memories_outside_the_transaction(services
         summary="Decided where the helper keeps its record of what it wrote.",
         decisions=[CheckpointDecision(statement="The helper keeps a state file")],
         facts=[CheckpointFact(content="Dan runs the helper from a timer on Linux")],
-        queue_for_vault=False,
     )
 
     assert provider.texts, "the fake provider was never called"

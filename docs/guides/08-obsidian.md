@@ -93,10 +93,11 @@ the next time the server rewrites it. To keep the record somewhere else, set
 ## How notes and lists reach the vault
 
 Chat apps no longer write vault notes directly: the note tools were removed in
-the cutover. The vault fills from what the server queues: a checkpoint the
-classifier promotes, an artifact queued with `artifact_queue_for_vault`, and
-the lists this helper renders. "Queued" means the helper still needs to pick
-the job up; "written" means it landed.
+the cutover, and a checkpoint does not write one either. The vault fills from
+what the server queues: session notes routed by memory-lab triage
+(`subzero memory-lab recover`), an artifact queued with
+`artifact_queue_for_vault`, and the lists this helper renders. "Queued" means
+the helper still needs to pick the job up; "written" means it landed.
 
 Each queued note has one home. Existing numbered folders stay in use:
 

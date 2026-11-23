@@ -52,7 +52,8 @@ You can also just talk normally. The apps figure out when to use their tools fro
   conversations with short excerpts. It needs embeddings turned on (see below);
   without them it matches exact words only and says so.
 - **save**: "save this" uses `session_checkpoint`, choosing one home and concept
-  tags. It sets `queue_for_vault=false` to save shared memory only.
+  tags. A checkpoint saves shared memory only; vault notes come from
+  memory-lab triage.
 - **email**: "email this to reader@example.com" prepares exactly the requested
   content and shows the sender, recipients, subject, body and requested send time.
   It sends or schedules only after your next confirmation.

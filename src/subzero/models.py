@@ -422,7 +422,6 @@ class CheckpointResult(Base):
     updated: dict[str, int]
     skipped: dict[str, int]
     classification: dict[str, Any] | None = None
-    queued_vault_jobs: int = 0
     review_items: int = 0
     notes: list[str] = Field(default_factory=list)
 

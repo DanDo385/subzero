@@ -369,7 +369,6 @@ sequenceDiagram
     participant S as subzero
     participant J as Jev
     participant D as Postgres
-    participant Q as sync_jobs
 
     M->>S: session_checkpoint(summary, decisions, facts, tasks, …)
     S->>J: one request, all questions, over compact state
@@ -377,9 +376,6 @@ sequenceDiagram
     Note over S: Policy engine maps answers to actions
     S->>D: BEGIN
     S->>D: conversation, summary, decisions, memories, tasks, projects
-    opt promote_to_vault = yes AND not sensitive
-        S->>Q: enqueue vault write
-    end
     opt confidence in the review band
         S->>D: review_queue row
     end
@@ -399,11 +395,15 @@ what it already sent:
 Calling `session_checkpoint` twice with the same content produces one of
 everything. The result reports what was skipped and why.
 
-The vault job and the review rows are inside that transaction, not after it. A checkpoint that
-commits always has its queued render with it, and one that rolls back leaves nothing behind, so
-there is no window where a session is stored and reported as stored but never rendered. The audit
-record is the exception and stays outside: failing to log a mutation must not roll the mutation
-back.
+The review rows are inside that transaction, not after it. A checkpoint that
+commits always has its queued reviews with it, and one that rolls back leaves
+nothing behind. The audit record is the exception and stays outside: failing
+to log a mutation must not roll the mutation back.
+
+A checkpoint never writes a vault note. Session notes come from memory-lab
+triage: `subzero memory-lab recover --apply` routes stored sessions to a PARA
+bucket or the Inbox, and `subzero memory-lab extract` has Claude write the
+full note for the sessions triage selected.
 
 ---
 

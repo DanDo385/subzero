@@ -15,5 +15,7 @@ stores `concept/{name}` tags. Supply `project` for a project home. If uncertain,
 use `other` rather than inventing a project. Keep an existing session's home
 unless the user changes its subject.
 
-Set `queue_for_vault=false` for shared-memory saving. Report the checkpoint
-result, including any degraded classification or unresolved project match.
+A checkpoint saves shared memory only; vault notes come from memory-lab
+triage (`subzero memory-lab recover`), not from a checkpoint. Report the
+checkpoint result, including any degraded classification or unresolved
+project match.

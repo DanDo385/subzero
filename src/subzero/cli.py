@@ -27,12 +27,7 @@ from subzero.config import Settings, get_settings, legacy_env_names
 from subzero.db.migrate import apply_migrations, migration_status
 from subzero.db.pool import Database, set_database
 from subzero.digest import build_digest
-from subzero.extraction.deep import (
-    DeepExtractor,
-    estimate_cost,
-    extraction_candidates,
-    vault_targets,
-)
+from subzero.extraction.deep import DeepExtractor, estimate_cost
 from subzero.importers.adapters import IMPORTERS
 from subzero.importers.reclassify import (
     reclassify_conversations,
@@ -45,7 +40,6 @@ from subzero.probe import DEFAULT_PROTOCOL_VERSION, run_probe
 from subzero.services import build_services, set_services
 from subzero.setup_wizard import Answers, build_env, next_steps
 from subzero.vault_fill import fill_vault
-from subzero.vault_plan import VaultCandidate, vault_candidates
 from subzero.wiki.service import WikiService
 
 
@@ -845,81 +839,6 @@ def reclassify_conversations_cmd(
     asyncio.run(run())
 
 
-@main.command()
-@click.option("--limit", type=int, default=25, show_default=True)
-@click.option(
-    "--legacy-triage",
-    is_flag=True,
-    help="Select by the deep_extraction threshold instead of Jev's vault plan.",
-)
-@click.option(
-    "--min-importance",
-    type=float,
-    default=0.0,
-    show_default=True,
-    help="With --legacy-triage: pass-1 importance (0-1) below which a conversation is skipped.",
-)
-@click.option("--redo", is_flag=True, help="Also redo conversations already extracted.")
-@click.option(
-    "--concurrency", type=int, default=None, help="Default: SUBZERO_EXTRACTION_CONCURRENCY."
-)
-@click.option("--dry-run", is_flag=True, help="Show what would run and its estimated cost.")
-def extract(
-    limit: int,
-    legacy_triage: bool,
-    min_importance: float,
-    redo: bool,
-    concurrency: int | None,
-    dry_run: bool,
-) -> None:
-    """Claude reads the conversations Jev put in the vault plan and writes their notes.
-
-    For each: a summary, decisions, facts, open questions and topics (written
-    through session_checkpoint), plus the Obsidian note itself in the folder
-    Jev chose, its project, tags, and any unfinished actions on the shared
-    "From past chats" list. Conversations whose sensitivity is in
-    SUBZERO_NO_EXTERNAL_SENSITIVITY are never sent. Start with --dry-run.
-    """
-    settings = get_settings()
-    _configure_cli_logging(settings)
-
-    async def run() -> None:
-        services = await _with_services(settings)
-        try:
-            if legacy_triage:
-                candidates = await extraction_candidates(
-                    services, limit=limit, min_importance=min_importance, redo=redo
-                )
-            else:
-                candidates = await vault_targets(services, limit=limit, redo=redo)
-            click.echo(json.dumps(estimate_cost(candidates, settings), indent=2))
-            if dry_run or not candidates:
-                for c in candidates[:20]:
-                    click.echo(
-                        f"  {c.importance or 0:.2f}  {c.destination:<9} {c.chars:>8} chars  {c.title}"
-                    )
-                return
-            if settings.extraction_provider != "anthropic":
-                raise click.ClickException(
-                    "Set SUBZERO_EXTRACTION_PROVIDER=anthropic and SUBZERO_ANTHROPIC_API_KEY to run."
-                )
-            extractor = DeepExtractor(services)
-            try:
-                report = await extractor.run(
-                    [c.conversation_id for c in candidates],
-                    concurrency=concurrency,
-                    destinations={c.conversation_id: c.destination for c in candidates},
-                )
-            finally:
-                await extractor.aclose()
-            click.echo(json.dumps(report.as_dict(), indent=2))
-        finally:
-            await services.aclose()
-            set_services(None)
-
-    asyncio.run(run())
-
-
 @main.command(name="vault-fill")
 def vault_fill_command() -> None:
     """Write session indexes and maps from rows already stored.
@@ -1152,52 +1071,6 @@ def gemini_sync_push(dry_run: bool) -> None:
         )
 
     asyncio.run(run())
-
-
-@main.command(name="vault-plan")
-@click.option("--top", type=int, default=25, show_default=True, help="How many to list.")
-def vault_plan_cmd(top: int) -> None:
-    """Show which imported conversations Jev's answers put in the vault, and where."""
-    import collections
-
-    settings = get_settings()
-    _configure_cli_logging(settings)
-
-    async def run() -> list[VaultCandidate]:
-        services = await _with_services(settings)
-        try:
-            return await vault_candidates(services.db, settings)
-        finally:
-            await services.aclose()
-            set_services(None)
-
-    chosen = asyncio.run(run())
-    if not chosen:
-        click.echo("No conversations qualify yet. Import and classify some first.")
-        return
-
-    def ages(c: VaultCandidate) -> str:
-        return (
-            "last 30 days" if c.age_days <= 30 else "1-6 months" if c.age_days <= 182 else "older"
-        )
-
-    click.echo(
-        f"{len(chosen)} conversations would become notes "
-        f"(min score {settings.vault_min_score}, recency bonus {settings.vault_recency_bonus} "
-        f"halving every {settings.vault_recency_halflife_days:g} days)."
-    )
-    for label, counter in (
-        ("folder", collections.Counter(c.destination for c in chosen)),
-        ("app", collections.Counter(c.provider for c in chosen)),
-        ("age", collections.Counter(ages(c) for c in chosen)),
-        ("project", collections.Counter(c.project or "(none)" for c in chosen)),
-    ):
-        click.echo(f"  by {label}: " + ", ".join(f"{k} {v}" for k, v in counter.most_common()))
-    click.echo("")
-    for c in chosen[:top]:
-        click.echo(
-            f"  {c.score:.2f}  {c.destination:<9} {c.provider:<7} {c.age_days:>5.0f}d  {c.title}"
-        )
 
 
 @main.command()

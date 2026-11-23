@@ -24,7 +24,6 @@ from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
 from subzero.classifier.service import ClassificationService
-from subzero.config import Settings
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.homes import home_metadata
@@ -39,9 +38,6 @@ from subzero.models import (
     CheckpointResult,
     CheckpointTask,
 )
-from subzero.notes.service import NoteService
-from subzero.obsidian.paths import VaultPaths
-from subzero.obsidian.queue import SyncQueue
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference
 from subzero.tasks import upsert_task
@@ -134,25 +130,17 @@ class SessionService:
         self,
         db: Database,
         *,
-        settings: Settings,
         memories: MemoryService,
         projects: ProjectService,
-        notes: NoteService,
         classification: ClassificationService,
         embeddings: EmbeddingService,
-        sync_queue: SyncQueue,
-        vault_paths: VaultPaths,
         audit: AuditService,
     ) -> None:
         self._db = db
-        self._settings = settings
         self._memories = memories
         self._projects = projects
-        self._notes = notes
         self._classification = classification
         self._embeddings = embeddings
-        self._queue = sync_queue
-        self._paths = vault_paths
         self._audit = audit
 
     # ------------------------------------------------------ conversations
@@ -296,7 +284,6 @@ class SessionService:
         historical_import: bool = False,
         home: str | None = None,
         concepts: list[str] | None = None,
-        queue_for_vault: bool = True,
     ) -> CheckpointResult:
         decisions = decisions or []
         facts = facts or []
@@ -659,40 +646,14 @@ class SessionService:
                     )
                 bump(updated, "artifacts")
 
-            # -- 3. vault promotion, reviews, reclassification --------------
+            # -- 3. reviews, reclassification --------------------------------
             # Inside the transaction on purpose. These used to be written
             # after COMMIT, each on its own pooled connection, so a crash in
             # between left a checkpoint that was saved and reported as saved
-            # but never rendered to the vault, with no row anywhere recording
-            # that a render was owed. The worker only sees a job once this
-            # commits, so queuing here cannot hand it a note that is not there.
-            queued = 0
+            # but never queued for review, with no row anywhere recording
+            # that a review was owed. The worker only sees a job once this
+            # commits, so queuing here cannot hand it work that is not there.
             review_items = 0
-            if (
-                summary_id
-                and queue_for_vault
-                and sensitivity == "normal"
-                and routing.promote_to_vault is Verdict.YES
-                and self._settings.obsidian_enabled
-            ):
-                queued += await self._queue_summary_note(
-                    conn,
-                    conversation_id=conversation_id,
-                    summary_id=summary_id,
-                    title=title or "Session summary",
-                    summary=summary or "",
-                    destination=routing.destination or "inbox",
-                    project_slug=saved["slug"],
-                    provider=provider,
-                    classification_event_id=event_id,
-                    open_questions=open_questions,
-                    home=metadata["home"],
-                    concepts=[
-                        t.removeprefix("concept/")
-                        for t in metadata["tags"]
-                        if t.startswith("concept/")
-                    ],
-                )
 
             if routing.needs_review:
                 review_items = await self._queue_reviews(
@@ -730,9 +691,8 @@ class SessionService:
         if result.degraded:
             notes_out.append(
                 "The semantic classifier was unavailable, so routing fell back to "
-                "deterministic rules and nothing was promoted to the vault. The "
-                "checkpoint itself was saved in full and is queued for "
-                "reclassification."
+                "deterministic rules. The checkpoint itself was saved in full and "
+                "is queued for reclassification."
             )
 
         return CheckpointResult(
@@ -749,7 +709,6 @@ class SessionService:
                 **metadata,
                 **_triage_json(result),
             },
-            queued_vault_jobs=queued,
             review_items=review_items,
             notes=notes_out,
         )
@@ -861,75 +820,6 @@ class SessionService:
             truncate_for_budget(summary, 400),
         )
         return row["id"], bool(row["created"])
-
-    async def _queue_summary_note(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        conversation_id: UUID,
-        summary_id: UUID,
-        title: str,
-        summary: str,
-        destination: str,
-        project_slug: str | None,
-        provider: str,
-        classification_event_id: UUID | None,
-        open_questions: list[str],
-        home: str,
-        concepts: list[str],
-    ) -> int:
-        if destination == "archive_only":
-            return 0
-
-        body = summary.strip()
-        if open_questions:
-            body += "\n\n## Open questions\n\n" + "\n".join(f"- {q}" for q in open_questions)
-
-        note_id, _, version = await self._notes.upsert(
-            title=title,
-            content=body,
-            note_class=destination if destination != "archive_only" else "inbox",
-            project_id=(
-                await self._projects.resolve(project_slug, conn=conn) if project_slug else None
-            ),
-            source_provider=provider,
-            source_conversation_id=conversation_id,
-            provenance="assistant_generated",
-            append=True,
-            home=home,
-            concepts=concepts,
-            conn=conn,
-        )
-        vault_path = self._paths.home_note(home, title)
-        # Read back through the same connection: the note was written inside
-        # this transaction, so a pool read could not see it.
-        stored = await conn.fetchval("SELECT content FROM notes WHERE id = $1", note_id)
-        await conn.execute(
-            "UPDATE notes SET vault_path = $2 WHERE id = $1 AND vault_path IS NULL",
-            note_id,
-            vault_path,
-        )
-        job = await self._queue.enqueue(
-            job_type="write_note",
-            object_type="note",
-            object_id=note_id,
-            vault_path=vault_path,
-            payload={"note_id": str(note_id), "version": version},
-            content_sha256=sha256_text(stored or body),
-            source_provider=provider,
-            classification_event_id=classification_event_id,
-            conn=conn,
-        )
-        await conn.execute(
-            """
-            UPDATE session_summaries
-            SET metadata = metadata || jsonb_build_object('vault_note_id', $2::text)
-            WHERE id = $1
-            """,
-            summary_id,
-            str(note_id),
-        )
-        return 1 if job else 0
 
     async def _queue_reviews(
         self,

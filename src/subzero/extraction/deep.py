@@ -250,42 +250,6 @@ async def extraction_candidates(
     ]
 
 
-async def vault_targets(services: Services, *, limit: int, redo: bool = False) -> list[Candidate]:
-    """The conversations Jev's answers put in the vault (vault_plan), best
-    first, not yet extracted unless ``redo``. Each carries the folder Jev chose."""
-    from subzero.vault_plan import vault_candidates
-
-    chosen = await vault_candidates(services.db, services.settings)
-    ids = [c.conversation_id for c in chosen]
-    rows = await services.db.fetch(
-        """
-        SELECT c.id, c.metadata ? 'extraction' AS done,
-               (SELECT coalesce(sum(length(m.content)), 0)
-                  FROM messages m WHERE m.conversation_id = c.id) AS chars
-        FROM conversations c WHERE c.id = ANY($1::uuid[])
-        """,
-        ids,
-    )
-    info = {row["id"]: row for row in rows}
-    out: list[Candidate] = []
-    for c in chosen:
-        row = info.get(c.conversation_id)
-        if row is None or (row["done"] and not redo):
-            continue
-        out.append(
-            Candidate(
-                conversation_id=c.conversation_id,
-                title=c.title,
-                chars=int(row["chars"]),
-                importance=c.score,
-                destination=c.destination,
-            )
-        )
-        if len(out) >= limit:
-            break
-    return out
-
-
 def estimate_cost(candidates: list[Candidate], settings: Settings) -> dict[str, Any]:
     """Rough estimate, for deciding whether to run. ~3.5 chars per token;
     ~7k output tokens per conversation (measured: the note itself is most of

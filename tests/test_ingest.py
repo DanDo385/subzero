@@ -291,7 +291,6 @@ async def test_handoff_contains_a_saved_checkpoint(client, device_token, service
         principal=Principal(subject="tester@example.com", provider="claude"),
         title="Editor project handoff",
         summary="Next step: configure the editor language server.",
-        queue_for_vault=False,
     )
     response = await client.get(
         "/api/v1/handoff", headers={"Authorization": f"Bearer {device_token}"}

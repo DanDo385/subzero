@@ -81,14 +81,10 @@ async def build_services(settings: Settings, db: Database) -> Services:
     sync_queue = SyncQueue(db, settings.obsidian_vault_roots)
     sessions = SessionService(
         db,
-        settings=settings,
         memories=memories,
         projects=projects,
-        notes=notes,
         classification=classification,
         embeddings=embeddings,
-        sync_queue=sync_queue,
-        vault_paths=vault_paths,
         audit=audit,
     )
     bridge = BridgeService(db)

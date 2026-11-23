@@ -95,24 +95,25 @@ anything.
 ## Step 5 (optional): Close reading of the important ones
 
 The sorting pass flags conversations that are worth reading closely: ones with decisions, findings or
-plans. This step sends only those, never *highly sensitive* ones, to Claude, which writes a proper
-summary and pulls out decisions, facts, open questions and topics.
+plans. `memory-lab recover --apply` records that routing, and `memory-lab extract` sends only the
+sessions it selected, never *highly sensitive* ones, to Claude, which writes a proper summary and
+pulls out decisions, facts, open questions and topics.
 
 It costs money, so **always look at the estimate first**:
 
 ```bash
-uv run subzero extract --dry-run --limit 500
+uv run subzero memory-lab extract --limit 500
 ```
 
-✅ It shows how many conversations qualify, the estimated tokens, an estimated cost in US dollars, and
+✅ It shows how many sessions qualify, the estimated tokens, an estimated cost in US dollars, and
 the titles of the first twenty. When you're happy:
 
 ```bash
-uv run subzero extract --limit 50        # start small, then raise the limit
+uv run subzero memory-lab extract --limit 50 --apply   # start small, then raise the limit
 ```
 
-To reduce cost, set `SUBZERO_EXTRACTION_MODEL=claude-sonnet-5` in `.env.local` (cheaper, still good), or raise
-`--min-importance` (default 0.5) to only read the most important conversations.
+To reduce cost, set `SUBZERO_EXTRACTION_MODEL=claude-sonnet-5` in `.env.local` (cheaper, still good),
+or keep `--limit` low to read only the best sessions per run.
 
 Old to-dos found in old chats are kept as context ("Unfinished at the time: ...") rather than added to
 your task lists, because most of them are long done.

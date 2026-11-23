@@ -27,7 +27,6 @@ are stored through the same canonical writers as imported conversations.
 | `This sensitivity level cannot be sent to AgentMail` | The content's privacy level is blocked by `SUBZERO_NO_EXTERNAL_SENSITIVITY`. Keep it local; do not lower the level just to send it. |
 | `A project home must match an existing project` | Use `project_search` to find the existing project slug or select `other`. |
 | `This object already has a different vault path` | No second copy was queued. Keep the original home, or relocate the managed file and update its tracked path before retrying. Files are not auto-moved. |
-| Vault result is `not_queued` | Check `SUBZERO_OBSIDIAN_ENABLED`, the request's `queue_for_vault` flag and sensitivity. Only normal notes are queued. |
 | Vault result is `busy`, `failed` or `conflict` | The note is not confirmed written. Inspect `sync_status` and the helper's log; preserve human edits when resolving conflicts. |
 
 ## Installing
