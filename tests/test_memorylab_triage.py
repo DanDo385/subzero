@@ -22,6 +22,7 @@ def result(
     gate: float = 2.0,
     bucket: str = "resource",
     bucket_confidence: float = 0.8,
+    runner_up: str = "archive",
     relation: str = "new",
     atomicity: float = 1.0,
     preference: float = 0.1,
@@ -41,7 +42,12 @@ def result(
             confidence=0.7,
             probabilities={"2": max(0.0, atomicity - 1.0), "1": 1.0 - max(0.0, atomicity - 1.0)},
         ),
-        "para_bucket": Answer("choice", bucket, confidence=bucket_confidence),
+        "para_bucket": Answer(
+            "choice",
+            bucket,
+            confidence=bucket_confidence,
+            probabilities={bucket: bucket_confidence, runner_up: 1.0 - bucket_confidence},
+        ),
         "relation_to_existing": Answer("choice", relation, confidence=0.7),
         "confidence_gate": Answer("score", gate, confidence=0.7),
     }
@@ -78,15 +84,41 @@ def test_high_confidence_clear_bucket_becomes_a_note() -> None:
 
 def test_ready_permanent_goes_to_permanent() -> None:
     assert triage(result(atomicity=2.0)).note_class == "permanent"
+    # A procedure is a skill or a resource, not a Zettel idea.
+    assert triage(result(atomicity=2.0, procedure=0.9)).note_class == "resource"
     # An expected value of 1.76 is "mostly ready", not ready.
     assert triage(result(atomicity=1.76)).note_class == "resource"
     # Project material stays with the project however tidy it is.
     assert triage(result(atomicity=2.0, bucket="project")).note_class == "project"
 
 
-def test_an_unsure_bucket_is_only_a_suggestion() -> None:
-    decision = triage(result(bucket="area", bucket_confidence=0.4))
-    assert (decision.outcome, decision.bucket) == ("inbox", "area")
+def test_torn_between_interchangeable_homes_is_settled_in_code() -> None:
+    from subzero.memorylab.recover import decide
+
+    torn = triage(result(bucket="resource", bucket_confidence=0.5, runner_up="project"))
+    assert (torn.outcome, torn.reason, torn.tentative) == ("note", "tentative_home", True)
+
+    def row(project_slug: str | None) -> dict[str, Any]:
+        answers = {
+            k: v.as_json()
+            for k, v in result(
+                bucket="resource", bucket_confidence=0.5, runner_up="project"
+            ).answers.items()
+        }
+        return {
+            "answers": answers,
+            "sensitivity": "normal",
+            "summary_sensitivity": "normal",
+            "project_slug": project_slug,
+        }
+
+    assert decide(row("subzero")).bucket == "project"
+    assert decide(row(None)).bucket == "resource"
+
+
+def test_torn_towards_discard_is_logged() -> None:
+    decision = triage(result(bucket="resource", bucket_confidence=0.5, runner_up="discard"))
+    assert (decision.outcome, decision.reason) == ("log", "maybe_disposable")
 
 
 @pytest.mark.parametrize(
@@ -119,6 +151,11 @@ def test_middling_sessions_stay_out_of_the_vault_and_the_inbox() -> None:
     with_decision = triage(result(worth=0.7, decision=0.9))
     assert with_decision.outcome == "log"
     assert with_decision.layers == ["structured", "hot"]
+
+
+def test_honcho_takes_leaning_preferences_but_user_md_only_clear_ones() -> None:
+    leaning = triage(result(preference=0.65))
+    assert "honcho" in leaning.layers and "preference" not in leaning.candidates
 
 
 def test_each_layer_gets_what_it_is_for() -> None:

@@ -154,6 +154,22 @@ _NOTE_CLASSES = {
     "permanent",
 }
 
+#: How to write the note for the memory-lab sections DESTINATION_CRITERIA
+#: does not describe.
+SECTION_GUIDANCE: dict[str, str] = {
+    "area": "An ongoing responsibility with no end date. Write the note as the "
+    "current state of that area: what holds now, what to keep doing, what to watch.",
+    "archive": "Finished or inactive work. Write a short record of what was done "
+    "and concluded, for someone looking it up later.",
+    "permanent": "A Zettelkasten permanent note: ONE idea, stated in the first "
+    "sentence, explained in under 300 words in plain language, standing on its own "
+    "without the conversation. No step-by-step procedures, no ## sections beyond "
+    "an optional ## Why it matters.",
+    "none": "No note will be kept from this conversation: set note_title to the "
+    "subject and note_markdown to one sentence. Put the effort into decisions, "
+    "facts and unfinished_actions.",
+}
+
 #: Destination meaning "extract structured memory only, write no vault note"
 #: (memory lab sessions routed to the structured layer but not the vault).
 NO_NOTE = "none"
@@ -378,7 +394,7 @@ class DeepExtractor:
                     "content": (
                         f"Conversation title: {title or '(untitled)'}\n"
                         f"Vault section for the note: {destination}: "
-                        f"{DESTINATION_CRITERIA.get(destination, '')}\n"
+                        f"{DESTINATION_CRITERIA.get(destination) or SECTION_GUIDANCE.get(destination, '')}\n"
                         f"Existing projects: {known}\n\n"
                         f"<transcript>\n{transcript}\n</transcript>"
                     ),

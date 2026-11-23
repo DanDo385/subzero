@@ -74,7 +74,7 @@ decides where it goes; only then do the expensive or external layers see it.
 | --- | --- | --- | --- |
 | **Vault** | PARA notes and `Permanent/` | Claude, from the full transcript | Worth 0.8 or more, and Jev at least 70% sure of the folder |
 | **Structured** | Facts, events (decisions), instructions (preferences), tasks | Claude, into Subzero's memories, decisions and lists | Every vault session, plus any worthwhile session with a decision, procedure or preference |
-| **Honcho** | A model of you that tracks how your preferences change | Honcho, from your own messages with their original dates | Sessions with a stable preference or working pattern |
+| **Honcho** | A model of you that tracks how your preferences change | Honcho, from your own messages with their original dates | Sessions that lean towards a preference or working pattern (60% or more) |
 | **Hot memory** | `MEMORY.md`, `USER.md`, skills | You, weekly, from a ranked candidates list | Decisions on active projects, preferences, repeated procedures |
 | **Inbox** | Drafts that need a person | Jev triage | Only valuable sessions whose folder is unclear or that contradict what you know |
 
@@ -86,9 +86,9 @@ uv run subzero memory-lab recover --apply    # records the routing, writes Inbox
 The output is the recovery report:
 
 ```json
-{ "sessions_seen": 50, "vault_notes_planned": 12, "parked_in_inbox": 3,
-  "logged_only": 26, "discarded": 9,
-  "layers": { "vault": 12, "structured": 25, "honcho": 6, "hot": 19, "inbox": 3 } }
+{ "sessions_seen": 3191, "vault_notes_planned": 1681, "parked_in_inbox": 9,
+  "logged_only": 1370, "discarded": 131,
+  "layers": { "vault": 1681, "structured": 1787, "honcho": 354, "hot": 855, "inbox": 9 } }
 ```
 
 How each session's place in the vault is decided (first rule that matches wins):
@@ -98,8 +98,11 @@ How each session's place in the vault is decided (first rule that matches wins):
 | Jev was unreachable | log only, asked again later |
 | `worth_processing` under 0.6, or bucket `discard` | discard if Jev was sure, otherwise log only |
 | `confidence_gate` low, or it duplicates something you have | log only |
-| worth 0.8 or more, Jev 70% sure of the folder, relation `new` or `extends` | **vault note** in that folder; a resource Jev is 90% sure stands alone goes to `Permanent/` |
-| worth 0.8 or more, but the folder is unclear, or it contradicts or relates unclearly to what you have | **draft in `00-Inbox/`** |
+| worth 0.8 or more, Jev 70% sure of the folder, relation `new` or `extends` | **vault note** in that folder |
+| the same, but Jev torn between project, area and resource | **vault note**: in the project if the session belongs to a known Subzero project, otherwise in Resources (code decides, not you) |
+| a clear resource that is one idea (a comparison, decision or research finding, not a procedure) and Jev is 95% sure stands alone | **`Permanent/` note**, written short and atomic |
+| worth 0.8 or more but torn towards `discard` | log only |
+| worth 0.8 or more, but Jev itself chose "inbox", or it contradicts or relates unclearly to what you have | **draft in `00-Inbox/`** |
 | anything else worth processing | log only (it can still feed the structured, Honcho and hot layers) |
 
 Sessions marked private or highly sensitive never reach the vault, Honcho or a

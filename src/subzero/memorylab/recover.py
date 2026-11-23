@@ -239,6 +239,21 @@ def decide(row: Any) -> Triage:
         return Triage(
             "log", decision.bucket, "sensitive_withheld", decision.gate, [], decision.scores, layers
         )
+    if decision.tentative:
+        # Jev was torn between interchangeable homes. Code answers what code
+        # can: a session tied to a known project is project work, anything
+        # else is reference material.
+        bucket = "project" if row["project_slug"] else "resource"
+        return Triage(
+            decision.outcome,
+            bucket,
+            decision.reason,
+            decision.gate,
+            decision.candidates,
+            decision.scores,
+            decision.layers,
+            True,
+        )
     return decision
 
 

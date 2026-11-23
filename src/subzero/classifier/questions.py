@@ -262,7 +262,19 @@ TRIAGE_NOTE_WORTH = 0.80
 #: bucket is only a suggestion on an inbox draft.
 TRIAGE_BUCKET_MIN = 0.70
 #: Probability of the top atomicity level for a resource to go to Permanent.
-TRIAGE_PERMANENT_MIN = 0.90
+#: Jev rates most valuable sessions "ready", so this is a floor, not the
+#: filter: Permanent also requires an insight-type intent and no procedure.
+TRIAGE_PERMANENT_MIN = 0.95
+#: Intents whose outcome is an idea rather than a procedure (Zettelkasten).
+TRIAGE_PERMANENT_INTENTS = frozenset({"comparison", "decision", "research"})
+#: has_preference at or above this sends a session's own messages to Honcho.
+#: Lower than the candidate line: Honcho is built to infer patterns from
+#: leaning evidence, while USER.md takes only what is clearly stated.
+TRIAGE_HONCHO_MIN = 0.60
+#: PARA buckets that are interchangeable homes for reference-like material.
+#: When Jev is torn between two of these, code decides (project link or not)
+#: instead of asking a person.
+TRIAGE_INTERCHANGEABLE = frozenset({"project", "area", "resource"})
 TRIAGE_GATE_MEDIUM = 0.75
 
 
