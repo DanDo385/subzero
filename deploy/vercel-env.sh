@@ -20,10 +20,16 @@ FILE="${1:-}"
 if [[ -z "$FILE" ]]; then
   if [[ -f deploy/production.env.op ]]; then FILE=deploy/production.env.op; else FILE=.env.local; fi
 fi
-[[ -f "$FILE" ]] || { echo "No settings file at $FILE. See docs/guides/05-put-it-online.md." >&2; exit 1; }
+if [[ ! -f "$FILE" ]]; then
+  echo "No settings file at $FILE. See docs/guides/05-put-it-online.md." >&2
+  echo "deploy/*.env.op is Git-ignored, so it exists only in the checkout that holds" >&2
+  echo "your deployment files (~/Code/subzero), not in a worktree. Run this from there," >&2
+  echo "or pass the file: deploy/vercel-env.sh /abs/path/deploy/production.env.op" >&2
+  exit 1
+fi
 # The Vercel project may still be named personal-context-mcp: set
 # SUBZERO_VERCEL_PROJECT=personal-context-mcp in deploy/local.env until you rename it.
-PROJECT="${SUBZERO_VERCEL_PROJECT:-${PC_VERCEL_PROJECT:-subzero}}"
+PROJECT="${SUBZERO_VERCEL_PROJECT:-subzero}"
 
 if [[ -z "${VERCEL_TOKEN:-}" && -n "${VERCEL_TOKEN_REF:-}" ]]; then
   VERCEL_TOKEN="$(op read "$VERCEL_TOKEN_REF")"
@@ -31,7 +37,7 @@ fi
 [[ -n "${VERCEL_TOKEN:-}" ]] && export VERCEL_TOKEN
 
 PUSH=$(cat <<'PY'
-import os, re, subprocess, sys
+import os, re, subprocess, sys, time
 path, project, resolved = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 values = {}
 for line in open(path, encoding="utf-8"):
@@ -49,17 +55,27 @@ for name, value in values.items():
     if name.startswith("OBSIDIAN_SYNC_"):
         continue  # the worker's settings stay on your computer
     kind = "--sensitive" if secret.search(name) else "--no-sensitive"
-    try:
-        subprocess.run(
+    # The CLI fails intermittently while retrieving the project, and its real
+    # error goes to the stdout this discards. One flaky call must not abort a
+    # push of twenty-odd variables, so retry before giving up.
+    for attempt in range(1, 6):
+        proc = subprocess.run(
             ["vercel", "env", "add", name, "production", "--force", kind,
              "--project", project, "--yes", "--non-interactive", *token],
-            input=value.encode(), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            input=value.encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-    except subprocess.CalledProcessError as err:
-        # Never print argv: with a token flag it would leak the credential.
-        sys.stderr.write(f"vercel env add {name} failed ({err.returncode}):\n")
-        sys.stderr.write((err.stderr or b"").decode(errors="replace"))
-        sys.exit(err.returncode)
+        if proc.returncode == 0:
+            break
+        # Never print argv: with a token flag it would leak the credential. The
+        # value travels on stdin, so neither captured stream can contain it.
+        detail = (proc.stdout + proc.stderr).decode(errors="replace").strip().splitlines()
+        sys.stderr.write(
+            f"vercel env add {name} failed ({proc.returncode}), attempt {attempt}/5: "
+            f"{detail[-1] if detail else 'no output'}\n"
+        )
+        time.sleep(3 * attempt)
+    else:
+        sys.exit(1)
     print(f"  set {name} ({kind.lstrip('-')})")
 PY
 )

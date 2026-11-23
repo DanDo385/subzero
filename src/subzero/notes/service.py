@@ -178,8 +178,8 @@ class NoteService:
                     slug, title, content, content_sha256, note_class, project_id,
                     vault_path, sensitivity, citations, source_provider,
                     source_conversation_id, provenance, metadata
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::pc_sensitivity,$9,$10,$11,
-                          $12::pc_provenance,$13)
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::sz_sensitivity,$9,$10,$11,
+                          $12::sz_provenance,$13)
                 RETURNING id
                 """,
                 slug,
@@ -208,7 +208,7 @@ class NoteService:
             return note_id, True, 1
 
         await executor.execute(
-            "UPDATE notes SET metadata = metadata || $2::jsonb, sensitivity = $3::pc_sensitivity WHERE id = $1",
+            "UPDATE notes SET metadata = metadata || $2::jsonb, sensitivity = $3::sz_sensitivity WHERE id = $1",
             existing["id"],
             metadata,
             sensitivity,

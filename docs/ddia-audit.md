@@ -538,10 +538,19 @@ re-fetched. `LIMIT $2` is also `None` when the client omits `recent`, which is a
 7. **Reconcile derived data** (chapter 11): a `subzero reconcile` command that reports and repairs
    stale embeddings, unrendered notes, orphaned classification events and open review items. This is
    the missing piece that makes the rest of the architecture safe to leave unbundled.
-8. **Delete or park what is not live** (chapter 1): the empty agent subsystem, `extension/lib/dedup.js`,
-   the redundant and never-scanned indexes, and the write-only `device_tokens.last_used_at` update.
-9. **Rewrite the stale chapters of `docs/architecture.md`** (chapter 1): deployment, the extension,
-   the test count, and the `pc_` naming.
+8. **Delete what is not live** (chapter 1): `extension/lib/dedup.js`, the redundant and
+   never-scanned indexes, and the write-only `device_tokens.last_used_at` update. The agent
+   subsystem is not on that list, and this recommendation is withdrawn for it: those tables are
+   empty because nothing dispatches to them yet, and dispatch from browser and mobile sessions is
+   the plan. The missing piece is a runner on the Mac that claims a `dispatch_jobs` row and starts
+   the session under the same device-token auth.
+9. **Rewrite the stale chapters of `docs/architecture.md`** (chapter 1): the deployment target, the
+   extension, and the test count.
+10. **Finish the `pc_` rename** (chapter 4): four enum types, the `updated_at` trigger function, the
+   `PC_` environment fallback, the vault markers and three JWT claims. Three of those are already
+   persisted somewhere (a live database, the vault on disk, issued access tokens), so the rename has
+   to write the new name and read both, and the environment cutover has to fail loudly rather than
+   silently drop a setting.
 
 ---
 

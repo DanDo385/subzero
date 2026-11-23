@@ -110,11 +110,11 @@ class _PolicyMixin:
         )
 
         claims = dict(token.claims or {})
-        claims["pc_client_name"] = client_name
+        claims["sz_client_name"] = client_name
         # Audit only: the verified app when there is one, else a best-effort
         # guess from the name, which grants nothing.
-        claims["pc_provider"] = app or provider_from_client(client_name, client_id)
-        claims["pc_upstream_scopes"] = list(token.scopes)
+        claims["sz_provider"] = app or provider_from_client(client_name, client_id)
+        claims["sz_upstream_scopes"] = list(token.scopes)
 
         # Capability scopes come only from the server-side policy; any the
         # token itself claims are discarded. Identity scopes (openid,
@@ -187,7 +187,7 @@ class PolicyJWTVerifier(_PolicyMixin, JWTVerifier):
         # cannot inject a scope this server does not understand.
         granted = expand(list(verified.scopes)) or set()
         claims = dict(verified.claims or {})
-        claims["pc_provider"] = provider_from_client(claims.get("client_name"), verified.client_id)
+        claims["sz_provider"] = provider_from_client(claims.get("client_name"), verified.client_id)
         return verified.model_copy(update={"scopes": sorted(granted), "claims": claims})
 
 
@@ -205,7 +205,7 @@ class PolicyStaticVerifier(_PolicyMixin, StaticTokenVerifier):
             return None
 
         claims = dict(verified.claims or {})
-        claims.setdefault("pc_provider", "cli")
+        claims.setdefault("sz_provider", "cli")
         policied = await self._apply_policy(verified.model_copy(update={"claims": claims}))
         if policied is None:
             return None

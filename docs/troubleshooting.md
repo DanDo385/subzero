@@ -46,16 +46,16 @@ are stored through the same canonical writers as imported conversations.
 | `Refusing to start. Fix the configuration problems above` | A setting is missing or unsafe. | The lines above it say exactly which; `check` shows them too. |
 | `SUBZERO_AUTH_MODE=static is refused when SUBZERO_ENVIRONMENT=prod` | Test settings are being used online. | Run `init` again and choose `online`. |
 | `SUBZERO_ALLOWED_SUBJECTS must list the account(s)...` | No email is allowed in. | Add your email to `SUBZERO_ALLOWED_SUBJECTS` in `.env.local`. |
-| `still use the old PC_ prefix` from `check` | This project was called personal-context-mcp; its settings started with `PC_`. They still work. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment and Vercel. If a name is set both ways, the `SUBZERO_` one wins. |
+| `PC_ environment variables are no longer read` from `check`, or the server refuses to start | This project was called personal-context-mcp and its settings started with `PC_`. That prefix is gone rather than silently ignored, so a stale name cannot quietly drop a setting. | Rename each `PC_NAME` to `SUBZERO_NAME` in `.env.local`, your 1Password Environment, `deploy/*.env.op` and Vercel. The message names every variable it found. |
 | `command not found: personal-context-mcp` | The command is now `subzero`. | Use `uv run subzero ...`. Re-run `deploy/install-worker.sh` and `deploy/install-gemini-sync.sh` so background jobs use the new name. |
 | `{"error": "not found"}` from the extension or `subzero agent` on a Mac server | The device reached the Mac through its public (Funnel) address without Tailscale. Those APIs are tailnet-only. | Turn Tailscale on for that device ([guide 14](guides/14-run-on-your-mac-over-tailscale.md)). |
-| `PC_HARNESS_API_KEY is required for bridge commands` | The CLI has no capability token for the browser bridge. | Add `PC_HARNESS_API_KEY` to `.env.local`, restart the server, and run the bridge command again. |
+| `SUBZERO_HARNESS_API_KEY is required for bridge commands` | The CLI has no capability token for the browser bridge. | Add `SUBZERO_HARNESS_API_KEY` to `.env.local`, restart the server, and run the bridge command again. |
 
 ## Browser session bridge
 
 | You see | What it means | Fix |
 | --- | --- | --- |
-| `Bridge request failed with status 401` | The harness token is missing or does not match the server. | Check that `PC_HARNESS_API_KEY` is identical in the CLI and server environment. |
+| `Bridge request failed with status 401` | The harness token is missing or does not match the server. | Check that `SUBZERO_HARNESS_API_KEY` is identical in the CLI and server environment. |
 | The Bridge tab says `Not paired` | The browser has no device token. | Pair the extension with `uv run subzero pair-device`, then paste the code into the extension popup. |
 | The Bridge tab stays empty | The session has no messages, or the server has not applied the bridge migration. | Run `uv run subzero migrate`, then append a message with `bridge-message`. |
 

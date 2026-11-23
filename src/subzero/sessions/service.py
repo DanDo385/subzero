@@ -76,7 +76,7 @@ INSERT INTO messages (
     content, content_sha256, provenance, sequence, created_at, metadata
 )
 SELECT $1, $2, f.provider_message_id, f.model, f.role,
-       f.content, f.content_sha256, f.provenance::pc_provenance,
+       f.content, f.content_sha256, f.provenance::sz_provenance,
        next_free.n + row_number() OVER (ORDER BY f.ord) - 1,
        coalesce(f.created_at, now()), f.metadata::jsonb
 FROM fresh f, next_free
@@ -545,7 +545,7 @@ class SessionService:
                     INSERT INTO decisions (
                         statement, statement_sha256, rationale, project_id,
                         source_provider, source_conversation_id, provenance
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7::pc_provenance)
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7::sz_provenance)
                     ON CONFLICT (statement_sha256) DO NOTHING
                     RETURNING id
                     """,
@@ -685,7 +685,7 @@ class SessionService:
                     """
                     INSERT INTO artifact_relationships (
                         artifact_id, relation, target_type, target_id, provenance
-                    ) VALUES ($1,$2,'conversation',$3,'assistant_generated'::pc_provenance)
+                    ) VALUES ($1,$2,'conversation',$3,'assistant_generated'::sz_provenance)
                     ON CONFLICT DO NOTHING
                     """,
                     artifact_ref.artifact_id,
@@ -860,8 +860,8 @@ class SessionService:
                 conversation_id, provider, project_id, title, summary, summary_sha256,
                 open_questions, important_context, sensitivity,
                 classification_status, embedding, metadata
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::pc_sensitivity,
-                      $10::pc_classification_status,$11::text::vector,
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::sz_sensitivity,
+                      $10::sz_classification_status,$11::text::vector,
                       jsonb_build_object('resolved_questions', $12::jsonb))
             ON CONFLICT (conversation_id) DO UPDATE SET
                 -- A later checkpoint in the same session extends the record

@@ -5,8 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f deploy/local.env ]] && source deploy/local.env
-VAULT="${SUBZERO_OP_VAULT:-${PC_OP_VAULT:-Private}}"
-ITEM="${SUBZERO_OP_ITEM:-${PC_OP_ITEM:-}}"
+VAULT="${SUBZERO_OP_VAULT:-Private}"
+ITEM="${SUBZERO_OP_ITEM:-}"
 if [[ -z "$ITEM" ]]; then
   echo "preflight: SUBZERO_OP_ITEM is not set in deploy/local.env; skipping the 1Password check."
   exit 0

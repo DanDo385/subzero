@@ -1,6 +1,6 @@
 """Integration tests for the browser extension ingest endpoint.
 
-These tests run against a real database (PC_TEST_DATABASE_URL).
+These tests run against a real database (SUBZERO_TEST_DATABASE_URL).
 They verify idempotent upsert, message dedup, and device token auth.
 """
 

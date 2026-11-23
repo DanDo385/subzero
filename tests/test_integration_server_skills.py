@@ -199,7 +199,7 @@ async def test_ticking_temporary_vault_list_completes_same_database_item(
     await worker._tick()
     path = vault / result["vault_path"]
     body = path.read_text()
-    assert f"pc:id={item_id}" in body and "concept/editors" in body
+    assert f"sz:id={item_id}" in body and "concept/editors" in body
     path.write_text(body.replace("- [ ] Configure Neovim", "- [x] Configure Neovim"))
     await worker._tick()
     done = await services.lists.items(str(list_id), status="done")
@@ -366,7 +366,7 @@ async def test_scheduled_email_stays_local_until_confirmation(services, inbox):
     )
     assert receipt["status"] == "scheduled"
     assert requests[0][1]["send_at"] == when.isoformat()
-    assert requests[0][1]["client_id"].startswith("pc-")
+    assert requests[0][1]["client_id"].startswith("sz-")
     assert not deliveries  # No immediate send endpoint was called.
 
 

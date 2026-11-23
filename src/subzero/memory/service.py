@@ -159,7 +159,7 @@ class MemoryService:
                 content, content_sha256, kind, subject, project_id, source_provider,
                 source_conversation_id, provenance, sensitivity, importance,
                 confidence, embedding
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::pc_provenance,$9::pc_sensitivity,
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::sz_provenance,$9::sz_sensitivity,
                       $10,$11,$12::text::vector)
             ON CONFLICT (content_sha256, coalesce(subject, '')) DO NOTHING
             RETURNING id
@@ -194,7 +194,7 @@ class MemoryService:
             """
             INSERT INTO memory_revisions (memory_id, version, content, provenance,
                                           changed_by_provider)
-            VALUES ($1, 1, $2, $3::pc_provenance, $4)
+            VALUES ($1, 1, $2, $3::sz_provenance, $4)
             """,
             memory_id,
             content,
@@ -284,7 +284,7 @@ class MemoryService:
             """
             INSERT INTO memory_revisions (memory_id, version, content, provenance,
                                           changed_by_provider)
-            VALUES ($1,$2,$3,$4::pc_provenance,$5)
+            VALUES ($1,$2,$3,$4::sz_provenance,$5)
             ON CONFLICT (memory_id, version) DO NOTHING
             """,
             previous["id"],
@@ -301,8 +301,8 @@ class MemoryService:
                 kind = $4,
                 subject = coalesce($5, subject),
                 project_id = coalesce($6, project_id),
-                provenance = $7::pc_provenance,
-                sensitivity = $8::pc_sensitivity,
+                provenance = $7::sz_provenance,
+                sensitivity = $8::sz_sensitivity,
                 importance = greatest(importance, $9),
                 confidence = coalesce($10, confidence),
                 source_provider = coalesce($11, source_provider),

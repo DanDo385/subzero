@@ -57,7 +57,7 @@ async def connected(services, live_server, home):
 
 async def test_connect_saves_a_private_config_and_templates(connected) -> None:
     saved = json.loads((client.CONFIG_DIR / "client.json").read_text())
-    assert saved["machine"] == "mbp" and saved["token"].startswith("pcd_")
+    assert saved["machine"] == "mbp" and saved["token"].startswith("szd_")
     assert oct((client.CONFIG_DIR / "client.json").stat().st_mode)[-3:] == "600"
     assert (client.CONFIG_DIR / "MEMORY.md").is_file()
     assert (client.CONFIG_DIR / "MACHINES.md").is_file()

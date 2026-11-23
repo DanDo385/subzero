@@ -121,7 +121,7 @@ async def screen_conversation(services: Services, conversation_id: Any, texts: l
     stored = await services.db.fetchval(
         """
         UPDATE conversations
-        SET sensitivity = GREATEST(sensitivity, $2::pc_sensitivity),
+        SET sensitivity = GREATEST(sensitivity, $2::sz_sensitivity),
             metadata = metadata || jsonb_build_object('sensitivity_screen', $3::jsonb)
         WHERE id = $1
         RETURNING sensitivity::text
@@ -194,8 +194,8 @@ async def route_conversation(
             """
             UPDATE session_summaries
             SET project_id = coalesce($2, project_id),
-                sensitivity = GREATEST(sensitivity, $3::pc_sensitivity),
-                classification_status = $4::pc_classification_status,
+                sensitivity = GREATEST(sensitivity, $3::sz_sensitivity),
+                classification_status = $4::sz_classification_status,
                 updated_at = now()
             WHERE conversation_id = $1
             RETURNING id
