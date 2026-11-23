@@ -56,6 +56,18 @@ WARN_AFTER = 3
 LEASE_NAME = "embedding-refresh"
 
 
+def _store_sql(table: str) -> str:
+    """One statement per batch; a row another writer filled first is left alone.
+
+    Built once at import from the fixed table names below, never from input.
+    """
+    return (
+        f"UPDATE {table} t SET embedding = v.vector::vector "  # noqa: S608
+        "FROM unnest($1::uuid[], $2::text[]) AS v(id, vector) "
+        "WHERE t.id = v.id AND t.embedding IS NULL"
+    )
+
+
 @dataclass(frozen=True)
 class _Source:
     """One table whose ``embedding`` column this loop maintains."""
@@ -96,7 +108,7 @@ _SOURCES: tuple[_Source, ...] = (
             LIMIT $1
             """,
         skip_sql="UPDATE messages SET embedding_skipped = true WHERE id = ANY($1::uuid[])",
-        store_sql="UPDATE messages SET embedding = $2::text::vector WHERE id = $1",
+        store_sql=_store_sql("messages"),
         text=_message_text,
         min_chars=MIN_CHARS,
     ),
@@ -110,7 +122,7 @@ _SOURCES: tuple[_Source, ...] = (
             LIMIT $1
             """,
         skip_sql="UPDATE notes SET embedding_skipped = true WHERE id = ANY($1::uuid[])",
-        store_sql="UPDATE notes SET embedding = $2::text::vector WHERE id = $1",
+        store_sql=_store_sql("notes"),
         text=_note_text,
         min_chars=0,
     ),
@@ -124,7 +136,7 @@ _SOURCES: tuple[_Source, ...] = (
             LIMIT $1
             """,
         skip_sql="UPDATE memories SET embedding_skipped = true WHERE id = ANY($1::uuid[])",
-        store_sql="UPDATE memories SET embedding = $2::text::vector WHERE id = $1",
+        store_sql=_store_sql("memories"),
         text=_memory_text,
         min_chars=0,
     ),
@@ -141,7 +153,7 @@ _SOURCES: tuple[_Source, ...] = (
         skip_sql=(
             "UPDATE session_summaries SET embedding_skipped = true WHERE id = ANY($1::uuid[])"
         ),
-        store_sql="UPDATE session_summaries SET embedding = $2::text::vector WHERE id = $1",
+        store_sql=_store_sql("session_summaries"),
         text=_note_text,
         min_chars=0,
     ),
@@ -184,9 +196,14 @@ async def _refresh_source(
     pairs = [(r["id"], vector_literal(v)) for r, v in zip(todo, vectors, strict=True) if v]
     result.failed = len(todo) - len(pairs)
     if pairs:
-        async with db.acquire() as conn:
-            await conn.executemany(source.store_sql, pairs)
-        result.embedded = len(pairs)
+        # One statement for the batch. executemany sent one UPDATE per row
+        # inside one transaction, so over a remote pooler a batch held its row
+        # locks for dozens of round trips, and a second writer working the same
+        # newest rows (the server's loop beside a manual backfill) waited on
+        # them until the command timed out.
+        ids, literals = zip(*pairs, strict=True)
+        status = await db.execute(source.store_sql, list(ids), list(literals))
+        result.embedded = int(status.rsplit(" ", 1)[-1])
     return result
 
 
