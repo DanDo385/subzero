@@ -64,10 +64,6 @@ Subzero is this user's canonical memory, shared across ChatGPT, \
 Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
 named personal-context-mcp is also present, do not use it.
 
-Sigils in what the user types say where things belong: %area/project, \
-^lesson/topic, &tool, #concept, @person, and >agent for who gets a dispatched \
-job. Pass them through as written: the server reads them.
-
 Retrieve (context_bootstrap) only when the request depends on past work: a \
 project, earlier decisions, lists, "remember", "last time", a continuing task. \
 Never for standalone questions. Decide what to look for yourself, as with your \
