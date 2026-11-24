@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One command from "settings filled in" to "live and verified":
-#   preflight -> migrate -> check -> push settings to Vercel -> deploy -> health check
+#   preflight -> export lists -> migrate -> check -> push settings to Vercel -> deploy -> health
 #
 #   deploy/go-live.sh            uses deploy/admin.env.op + deploy/production.env.op (1Password)
 #                                if they exist, otherwise .env.local for everything
@@ -24,6 +24,13 @@ else
 fi
 [[ "$URL" == https://* ]] || { echo "SUBZERO_BASE_URL must be an https:// address (got: ${URL:-nothing})." >&2; exit 1; }
 
+echo "==> Exporting lists before migration 0020 drops them"
+LIST_EXPORT="exports/lists-$(date +%Y%m%d-%H%M%S)"
+if run uv run subzero export-lists --out "$LIST_EXPORT"; then
+  echo "    wrote $LIST_EXPORT (git-ignored)"
+else
+  echo "    nothing to export: the list tables are already gone, or never existed"
+fi
 echo "==> Creating/updating the database tables"
 run uv run subzero migrate
 echo "==> Checking settings, database, storage and classifier"

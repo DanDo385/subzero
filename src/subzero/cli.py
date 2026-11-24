@@ -602,7 +602,7 @@ def import_export(
     help="What to write per list.",
 )
 def export_lists(out: Path, fmt: str) -> None:
-    """Export every list and item before migration 0018 drops the tables.
+    """Export every list and item before migration 0020 drops the tables.
 
     Task items are copied into the new tasks table by the migration; every
     other list (shopping, reading, ideas) exists only in this export
@@ -637,7 +637,7 @@ async def _fetch_lists(db: Database) -> list[dict[str, Any]]:
         )
     except asyncpg.UndefinedTableError as exc:
         raise click.ClickException(
-            "The lists tables are gone; migration 0018 already dropped them. "
+            "The lists tables are gone; migration 0020 already dropped them. "
             "export-lists must run before `subzero migrate` applies it."
         ) from exc
 
@@ -729,7 +729,7 @@ def _index_markdown(index: list[dict[str, Any]], fmt: str) -> str:
     lines = [
         "# Lists export",
         "",
-        "Written by `subzero export-lists` before migration 0018 dropped the",
+        "Written by `subzero export-lists` before migration 0020 dropped the",
         "lists tables. Task items were copied into the tasks table; everything",
         "else lives only in these files.",
         "",

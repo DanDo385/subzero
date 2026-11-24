@@ -199,7 +199,7 @@ are old enough. Active, pinned, and unknown runs stay.
   the device token. Hooks must never fail the harness.
 - Lists are not Subzero state. Do not add list tools, list tables, or list
   instructions; the `lists` and `list_items` tables were exported with
-  `subzero export-lists` and dropped in migration 0018. Project next steps
+  `subzero export-lists` and dropped in migration 0020. Project next steps
   are `tasks` rows (`src/subzero/tasks.py`); shopping lists and errands live
   in the user's own apps.
 

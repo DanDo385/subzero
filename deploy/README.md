@@ -5,7 +5,7 @@ Helpers for putting the server online and keeping the Obsidian helper running. N
 
 | File | What it does |
 | --- | --- |
-| `go-live.sh [FILE]` | One command from filled-in settings to a verified live server: preflight, migrate, check, push settings, deploy, then confirm `/healthz` says `ok` and an unauthenticated request gets 401. |
+| `go-live.sh [FILE]` | One command from filled-in settings to a verified live server: preflight, export lists, migrate, check, push settings, deploy, then confirm `/healthz` says `ok` and an unauthenticated request gets 401. |
 | `vercel-env.sh [FILE]` | Copies settings into Vercel's Production environment, one value at a time over stdin, marking secrets *sensitive*. `FILE` is a plain `.env.local`-style file, or an `op://` reference file resolved with the 1Password CLI. Default: `deploy/production.env.op` if present, else `.env.production`. Skips `OBSIDIAN_SYNC_*`. |
 | `preflight.sh` | 1Password users: fails if any field of your deployment's item is empty or `REPLACE_ME`. Needs `SUBZERO_OP_ITEM` (and `SUBZERO_OP_VAULT`) in `deploy/local.env`; otherwise it's skipped. |
 | `install-worker.sh` | macOS: installs the Obsidian helper as a LaunchAgent (starts at login, restarts on failure). Reads `deploy/worker.env.op` through `op run` if present, else `.env.local`. |
@@ -49,7 +49,7 @@ plus separate items for the TypeSafe and Anthropic API keys (field `credential`)
 ```bash
 deploy/preflight.sh                                                         # 1Password users
 # On a database from before the tasks cutover, first: uv run subzero export-lists --out DIR
-# (migration 0018 drops lists/list_items; only task items are carried over).
+# (migration 0020 drops lists/list_items; only task items are carried over).
 op run --env-file=deploy/admin.env.op -- uv run subzero migrate  # or: uv run ... migrate
 deploy/vercel-env.sh                                                        # or: deploy/vercel-env.sh .env.local
 vercel deploy --prod
