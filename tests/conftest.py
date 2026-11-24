@@ -61,6 +61,11 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         environment="dev",
         database_url=_test_dsn() or "postgres://unused",
+        # Every test drops and rebuilds the whole schema, and the production
+        # 15 s statement timeout is not what a test measures: under load the
+        # rebuild alone can exceed it, which surfaces as a random TimeoutError
+        # in whichever test happens to be running.
+        db_statement_timeout_ms=120_000,
         auth_mode="static",
         static_tokens={"test-token": "tester@example.com"},
         allowed_subjects=["tester@example.com"],
