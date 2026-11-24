@@ -475,8 +475,9 @@ class DeepExtractor:
                 conversation_id, conversation, payload, destination, sensitivity
             )
             report.notes += 1
-        report.followups += await self._add_followups(conversation_id, conversation, payload)
 
+        # Mark before followups. A followup write must never leave a paid
+        # Claude call unmarked, or the next run pays for the same session again.
         record.update(
             status="extracted",
             project=payload.project,
@@ -490,6 +491,18 @@ class DeepExtractor:
             },
         )
         await self._mark(conversation_id, record)
+        try:
+            report.followups += await self._add_followups(conversation_id, conversation, payload)
+        except Exception as exc:
+            report.errors.append(f"{conversation_id}: followups {type(exc).__name__}: {exc}")
+            logger.warning(
+                "deep extraction followups failed",
+                exc_info=True,
+                extra={
+                    "conversation_id": str(conversation_id),
+                    "error": type(exc).__name__,
+                },
+            )
 
     async def _write_note(
         self,

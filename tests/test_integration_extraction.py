@@ -232,6 +232,32 @@ async def test_one_failed_write_does_not_abort_the_batch(services, tmp_path: Pat
     assert len(await extraction_candidates(services, limit=10)) == 1
 
 
+async def test_followup_failure_still_marks_the_session_extracted(
+    services, tmp_path: Path, monkeypatch
+) -> None:
+    """Claude has already been paid and the note written; a followup insert
+    must not leave the session unmarked."""
+    from subzero.extraction import deep as deep_mod
+
+    await _import(services, tmp_path, [_conversation("a", "Where should memory live?")])
+    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
+
+    async def boom(*_args: Any, **_kwargs: Any) -> tuple[Any, bool]:
+        raise RuntimeError("tasks table missing a column")
+
+    monkeypatch.setattr(deep_mod, "upsert_task", boom)
+    extractor = DeepExtractor(services, client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
+    report = await extractor.run(ids)
+
+    assert report.extracted == 1 and report.failed == 0
+    assert report.followups == 0
+    assert any("followups RuntimeError" in e for e in report.errors)
+    meta = await services.db.fetchval("SELECT metadata->'extraction' FROM conversations")
+    assert meta["status"] == "extracted"
+    assert await services.db.fetchval("SELECT count(*) FROM notes") == 1
+    assert await extraction_candidates(services, limit=10) == []
+
+
 async def test_same_subject_notes_merge_and_projects_are_created(services, tmp_path: Path) -> None:
     await _import(
         services,
