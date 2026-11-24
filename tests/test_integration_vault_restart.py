@@ -9,8 +9,8 @@ so it never noticed an edit and never pushed one upstream.
 from __future__ import annotations
 
 from conftest import requires_db
-from obsidian_sync.config import WorkerSettings
-from obsidian_sync.worker import ObsidianSyncWorker
+from subzero.obsidian.sync.config import WorkerSettings
+from subzero.obsidian.sync.worker import ObsidianSyncWorker
 
 pytestmark = requires_db
 

@@ -25,7 +25,7 @@ docker compose up -d db                    # Postgres 17 + pgvector on :5432
 
 uv run ruff check src tests
 uv run ruff format src tests
-uv run mypy src                            # packages subzero, obsidian_sync
+uv run mypy src                            # package subzero (the Obsidian worker is subzero.obsidian.sync)
 uv run pytest
 uv run pytest tests/test_paths.py::test_name -x   # single test
 ```
@@ -99,7 +99,7 @@ conversations, content hashes for decisions/memories, normalized text per projec
 never through caller bookkeeping. Preserve both properties when changing it.
 
 **The cloud never reaches the Mac.** `obsidian/queue.py` only enqueues jobs (validated path,
-rendered content, `expected_sha256`); `src/obsidian_sync/` polls `/worker/*` outbound with a shared
+rendered content, `expected_sha256`); `subzero/obsidian/sync/` (the `obsidian-sync` command) polls `/worker/*` outbound with a shared
 key, **re-validates the path itself**, compares hashes and acks `done` or `conflict`. The worker
 does not trust the server — keep the second validation. Vault paths are rejected by both layers
 (`obsidian/paths.py`): traversal, absolute paths, dotfiles, symlinks, unknown roots or extensions.

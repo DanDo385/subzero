@@ -34,7 +34,7 @@ subzero = "subzero.cli:main"
 # Old command name, kept so launchd agents installed before the rename still
 # start. Remove once deploy/install-*.sh has been re-run on every machine.
 personal-context-mcp = "subzero.cli:main"
-obsidian-sync = "obsidian_sync.cli:main"
+obsidian-sync = "subzero.obsidian.sync.cli:main"
 
 [dependency-groups]
 dev = [
@@ -56,7 +56,7 @@ entrypoint = "main:app"
 
 [tool.uv.build-backend]
 module-root = "src"
-module-name = ["subzero", "obsidian_sync"]
+module-name = "subzero"
 
 [tool.ruff]
 line-length = 100
@@ -82,7 +82,7 @@ filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.mypy]
 python_version = "3.12"
-packages = ["subzero", "obsidian_sync"]
+packages = ["subzero"]
 mypy_path = "src"
 warn_unused_configs = true
 disallow_untyped_defs = false

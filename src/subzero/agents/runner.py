@@ -11,7 +11,7 @@ the wrapped command failed, so the command's code is read from the body's
 Trust model: the server stores intent, the runner executes, and neither trusts
 the other's validation. Every job's ``cwd`` is re-validated here against the
 local ``SUBZERO_EXEC_ROOTS`` with the same :func:`exec_paths.resolve_cwd`
-discipline the server applied, mirroring ``obsidian_sync``, which re-validates
+discipline the server applied, mirroring ``subzero.obsidian.sync``, which re-validates
 vault paths for the same reason. A job the runner cannot place is finished as
 ``failed`` and nothing runs.
 

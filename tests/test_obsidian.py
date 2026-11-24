@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from obsidian_sync.vault import Vault, note_id_of
 from subzero.errors import PathSecurityError
 from subzero.obsidian.render import (
     extract_note_body,
@@ -15,6 +14,7 @@ from subzero.obsidian.render import (
     render_next_steps,
     render_note,
 )
+from subzero.obsidian.sync.vault import Vault, note_id_of
 from subzero.util import sha256_bytes
 
 ROOTS = {"inbox": "00-Inbox", "project": "20-Projects", "resource": "60-Resources"}

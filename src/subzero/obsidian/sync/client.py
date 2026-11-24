@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from obsidian_sync.config import WorkerSettings
+from subzero.obsidian.sync.config import WorkerSettings
 
 
 @dataclass(frozen=True)

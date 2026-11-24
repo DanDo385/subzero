@@ -192,6 +192,7 @@ subzero/
 │   ├── storage/              # object store: supabase | local
 │   ├── embeddings/           # provider abstraction + privacy gate
 │   ├── obsidian/             # path validation, rendering, job queue
+│   │   └── sync/             # the local worker (obsidian-sync): polls, re-validates, writes
 │   ├── importers/            # per-provider adapters + pipeline, reclassification
 │   ├── extraction/           # pass 2: deep extraction through session_checkpoint
 │   ├── wiki/                 # note graph and maps, kept in Postgres
@@ -200,7 +201,6 @@ subzero/
 │   ├── memorylab/            # triage and recovery of stored sessions
 │   ├── review/ audit/
 │   └── worker_api.py         # the local worker's outbound surface
-├── src/obsidian_sync/        # the local worker
 └── tests/
 ```
 
