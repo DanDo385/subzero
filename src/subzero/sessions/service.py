@@ -306,6 +306,10 @@ class SessionService:
         # ---- 0. sigils the user typed beat any model judgement -----------
         # %project only names a project (matched below, never created); a
         # ^lesson or &setup home is used as is; #concepts and @people tag.
+        # Every sigil typed is kept: the first home-kind one files the session
+        # and the rest tag it in the metadata build below, so a session about
+        # two lessons, or a project and a setup, is not narrowed to whichever
+        # sigil came first.
         marks = sigils.parse_all(title, summary)
         people: list[str] | None = list(marks.people) or None
         if marks.any:
@@ -447,8 +451,24 @@ class SessionService:
             previous = saved["metadata"] or {}
             # An explicit project can replace the initial unassigned home.
             default_home = None if (explicit and not home) else previous.get("home")
+            chosen_home = home or default_home
+            # The homes sigils named beyond the one this session is filed
+            # under. A named project has to exist to tag anything, the same
+            # rule as routing; lessons and setups are names, not rows.
+            extra_homes: list[str] = []
+            for path in marks.homes:
+                if chosen_home and path == chosen_home:
+                    continue
+                if path.startswith("projects/"):
+                    slug = path.removeprefix("projects/")
+                    if await self._projects.resolve(slug, conn=conn) is None:
+                        notes_out.append(
+                            f"No project matches %{slug}; it was read but tags nothing."
+                        )
+                        continue
+                extra_homes.append(path)
             metadata = home_metadata(
-                home or default_home,
+                chosen_home,
                 saved["slug"],
                 concepts
                 if concepts is not None
@@ -460,6 +480,7 @@ class SessionService:
                 people
                 if people is not None
                 else [t for t in previous.get("tags", []) if t.startswith("person/")],
+                extra_homes=extra_homes or None,
             )
             await conn.execute(
                 "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",

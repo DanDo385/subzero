@@ -14,13 +14,27 @@ def test_lesson_topic_becomes_a_concept() -> None:
     assert s.concepts == ("fixed-income",)
 
 
-def test_first_home_sigil_wins_others_still_tag() -> None:
+def test_every_home_sigil_is_kept_and_the_first_files() -> None:
     s = parse("&tailscale then %Code/subzero #acl @someone #ACL")
     assert s.home == "setup/tailscale"
     assert s.project == "subzero"  # still read, for project resolution
+    assert s.homes == ("setup/tailscale", "projects/subzero")
     assert s.concepts == ("acl",)
     assert s.people == ("someone",)
-    assert s.tags() == ["setup/tailscale", "concept/acl", "person/someone"]
+    assert s.tags() == [
+        "setup/tailscale",
+        "projects/subzero",
+        "concept/acl",
+        "person/someone",
+    ]
+
+
+def test_repeated_kinds_are_all_collected() -> None:
+    s = parse("^cfa2/fixed-income then ^cfa2/convexity and ^ifoa/bonds %ab %ab #acl")
+    assert s.lessons == ("cfa2", "ifoa")
+    assert s.projects == ("ab",)
+    assert s.concepts == ("fixed-income", "convexity", "bonds", "acl")
+    assert s.homes == ("lesson/cfa2", "lesson/ifoa", "projects/ab")
 
 
 def test_targets_are_collected() -> None:

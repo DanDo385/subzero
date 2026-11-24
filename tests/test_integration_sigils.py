@@ -93,3 +93,40 @@ async def test_bootstrap_continues_a_lesson_from_its_sigil(services) -> None:
     assert handoff[0].open_questions
     assert any(r.name == "handoff" and r.status == "ran" for r in package.layers)
     assert any("Sigils read: ^cfa2" in n for n in package.notes)
+
+
+async def test_a_session_keeps_every_home_it_names(services) -> None:
+    """One session, three homes: filed under the first, tagged with all."""
+    await services.projects.create(name="Portfolio Site")
+    await services.sessions.checkpoint(
+        provider="claude",
+        principal=ME,
+        provider_conversation_id="multi-1",
+        title="%portfolio-site ^cfa2/fixed-income &tailscale #duration",
+        summary="Tunnelling the dev server while pricing the bond page.",
+    )
+    metadata = await _home_and_tags(services, "multi-1")
+    assert metadata["home"] == "projects/portfolio-site"
+    assert set(metadata["tags"]) >= {
+        "projects/portfolio-site",
+        "lesson/cfa2",
+        "setup/tailscale",
+        "concept/fixed-income",
+        "concept/duration",
+    }
+
+
+async def test_an_unknown_extra_project_tags_nothing(services) -> None:
+    """A second % that names no project is reported, not invented, not tagged."""
+    await services.projects.create(name="Alpha")
+    result = await services.sessions.checkpoint(
+        provider="claude",
+        principal=ME,
+        provider_conversation_id="multi-2",
+        title="%alpha ^cfa2/bonds %ghost",
+        summary="Two projects named, one of them a typo.",
+    )
+    metadata = await _home_and_tags(services, "multi-2")
+    assert "lesson/cfa2" in metadata["tags"]
+    assert "projects/ghost" not in metadata["tags"]
+    assert any("No project matches %ghost" in n for n in result.notes)

@@ -1,4 +1,4 @@
-"""One logical home and concept tags, independent of vault folder names."""
+"""One logical home, the other homes typed with it, and concept tags."""
 
 from __future__ import annotations
 
@@ -19,8 +19,14 @@ def home_metadata(
     project_slug: str | None,
     concepts: list[str] | None = None,
     people: list[str] | None = None,
+    extra_homes: list[str] | None = None,
 ) -> dict:
-    """Validate caller-selected semantics; code never guesses a lesson or tool."""
+    """Validate caller-selected semantics; code never guesses a lesson or tool.
+
+    ``extra_homes`` are the other places a sigil pointed at: a session can be
+    about a project and a lesson and a setup at once, even though it is filed
+    under one of them. They become tags, validated like the home itself.
+    """
     chosen = home or (f"projects/{project_slug}" if project_slug else "other")
     if not re.fullmatch(HOME_PATTERN, chosen):
         raise ValidationError(
@@ -30,7 +36,12 @@ def home_metadata(
         raise ValidationError(
             "A project home must match an existing project. Use project_search first."
         )
-    tags = []
+    tags = [extra for extra in (extra_homes or []) if extra != chosen]
+    for extra in tags:
+        if not re.fullmatch(HOME_PATTERN, extra):
+            raise ValidationError(
+                "Extra homes must be projects/{slug}, lesson/{category}, setup/{tool}, or other."
+            )
     for concept in concepts or []:
         name = slugify(concept.removeprefix("concept/"))
         if not name or len(name) > 80:

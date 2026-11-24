@@ -41,6 +41,14 @@ class Sigils:
     concepts: tuple[str, ...] = ()
     people: tuple[str, ...] = ()
     targets: tuple[str, ...] = ()
+    #: Every home-kind path that was typed, in order. The first is ``home``,
+    #: because a note can only live in one folder and a conversation routes to
+    #: one project; the rest still tag the object, since a session that names
+    #: two lessons or a project and a setup belongs to all of them.
+    homes: tuple[str, ...] = ()
+    projects: tuple[str, ...] = ()
+    lessons: tuple[str, ...] = ()
+    setups: tuple[str, ...] = ()
     #: The text with each sigil replaced by its plain words, for search.
     plain: str = ""
     found: tuple[str, ...] = field(default=())
@@ -50,7 +58,7 @@ class Sigils:
         return bool(self.found)
 
     def tags(self) -> list[str]:
-        out = [self.home] if self.home else []
+        out = list(self.homes) or ([self.home] if self.home else [])
         out += [f"concept/{c}" for c in self.concepts]
         out += [f"person/{p}" for p in self.people]
         return out
@@ -61,11 +69,21 @@ def _clean(word: str) -> str:
 
 
 def parse(text: str | None) -> Sigils:
-    """Read every sigil in ``text``. Never raises; unknown shapes are ignored."""
+    """Read every sigil in ``text``. Never raises; unknown shapes are ignored.
+
+    Every sigil that is recognised is kept. The first ``%``, ``^`` or ``&``
+    chooses the home, because a file lives in one folder and a conversation
+    routes to one project; the others are recorded just the same, so nothing a
+    person typed is silently dropped.
+    """
     if not text:
         return Sigils(plain=text or "")
     home: str | None = None
+    homes: list[str] = []
     project = lesson = setup = None
+    projects: list[str] = []
+    lessons: list[str] = []
+    setups: list[str] = []
     concepts: list[str] = []
     people: list[str] = []
     targets: list[str] = []
@@ -73,6 +91,12 @@ def parse(text: str | None) -> Sigils:
 
     def plain_words(match: re.Match[str]) -> str:
         return _clean(match.group(2)).replace("/", " ").replace("-", " ").replace("_", " ")
+
+    def add_home(path: str) -> None:
+        nonlocal home
+        if path not in homes:
+            homes.append(path)
+        home = home or path
 
     for match in _SIGIL.finditer(text):
         symbol, raw = match.group(1), _clean(match.group(2))
@@ -86,23 +110,32 @@ def parse(text: str | None) -> Sigils:
         found.append(f"{symbol}{raw}")
         if symbol == "%":
             slug = slugify(parts[-1])
-            if slug and project is None:
-                project = slug
-                home = home or f"projects/{slug}"
+            if slug:
+                if slug not in projects:
+                    projects.append(slug)
+                if project is None:
+                    project = slug
+                add_home(f"projects/{slug}")
         elif symbol == "^":
             slug = slugify(parts[0])
-            if slug and lesson is None:
-                lesson = slug
-                home = home or f"lesson/{slug}"
+            if slug:
+                if slug not in lessons:
+                    lessons.append(slug)
+                if lesson is None:
+                    lesson = slug
+                add_home(f"lesson/{slug}")
             # ^cfa2/fixed-income: the topic is a concept within the lesson.
             for topic in parts[1:]:
                 if (name := slugify(topic)) and name not in concepts:
                     concepts.append(name)
         elif symbol == "&":
             slug = slugify(parts[0])
-            if slug and setup is None:
-                setup = slug
-                home = home or f"setup/{slug}"
+            if slug:
+                if slug not in setups:
+                    setups.append(slug)
+                if setup is None:
+                    setup = slug
+                add_home(f"setup/{slug}")
         elif symbol == "#":
             name = slugify(raw.replace("/", "-"))
             if name and name not in concepts:
@@ -124,6 +157,10 @@ def parse(text: str | None) -> Sigils:
         concepts=tuple(c[:80] for c in concepts),
         people=tuple(people),
         targets=tuple(targets),
+        homes=tuple(homes),
+        projects=tuple(projects),
+        lessons=tuple(lessons),
+        setups=tuple(setups),
         plain=_SIGIL.sub(plain_words, text),
         found=tuple(found),
     )

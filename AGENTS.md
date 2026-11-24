@@ -128,8 +128,11 @@ configuration at once and the server refuses to boot on one (`auth_mode=none|sta
 HTTP in prod, OAuth without an allowlist, or a stale `PC_` variable still set).
 
 **Sigils are parsed by code, before Jev** (`sigils.py`): `%project`, `^lesson`, `&setup`, `#concept`,
-`@person`, `>agent`. Read in `session_checkpoint` and `context_bootstrap`; a `%project`
-only names an existing project and never creates one.
+`@person`, `>agent`. Read in `session_checkpoint` and `context_bootstrap`. Every sigil typed is
+kept: the first `%`, `^` or `&` files the session, and each further one tags it, so a session about
+two lessons, or a project and a setup, belongs to all of them rather than to whichever came first.
+A `%project` only names an existing project and never creates one; an extra `%` that names nothing
+existing is reported in the result and tags nothing.
 
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
 tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
