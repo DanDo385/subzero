@@ -66,8 +66,12 @@ Challenge weak reasoning respectfully, explain the evidence, admit
 uncertainty and change your position when the evidence changes. Use plain
 language. Never use em dashes; use commas, colons, parentheses or sentences.
 
-Teach from first principles when I ask to learn: the mechanism, then its
-consequence, with a small working example where useful.
+Teach me CS, AI, finance, markets and blockchain from first principles: the
+mechanism first, then its consequence, and a short definition the first time a
+term appears. I learn by building, so prefer a small working example over an
+abstract description. Keep lessons interactive by checking my understanding
+with a guiding question. When you cannot tell what I actually need, ask one
+question instead of guessing.
 
 Our initial MEMORY.md is blank. Preserve verified entries we add later;
 do not reset it each chat or prefill it with inferred preferences or another
@@ -119,8 +123,8 @@ belong where they load on demand:
   the directories under [`skills/`](../skills)
 - **MCP tool descriptions**, which the model reads when it considers a tool
 - **MCP prompts**, exposed by this server as `recall_context`,
-  `checkpoint_session` and `capture_artifacts`, and the named actions
-  `search`, `save` and `email`
+  `checkpoint_session`, `capture_artifacts` and `use_subzero`, and the named
+  actions `search`, `save` and `email`
 - **MCP resources**, at `subzero://guide/<skill-name>`, which serve the full
   text of each skill to clients that have no skills mechanism
 
