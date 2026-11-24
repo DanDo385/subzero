@@ -257,12 +257,39 @@ def decide(row: Any) -> Triage:
     return decision
 
 
+#: Decisions written per round trip; one row at a time made a full --redo
+#: take longer than 15 minutes over the session pooler.
+TRIAGE_WRITE_BATCH = 500
+
+_STORE_SQL = """
+INSERT INTO memory_triage (
+    conversation_id, classification_event_id, questions_version, outcome,
+    bucket, reason, gate, candidates, scores, note_id, layers, decided_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11, now())
+ON CONFLICT (conversation_id) DO UPDATE SET
+    classification_event_id = EXCLUDED.classification_event_id,
+    questions_version = EXCLUDED.questions_version,
+    outcome = EXCLUDED.outcome, bucket = EXCLUDED.bucket,
+    reason = EXCLUDED.reason, gate = EXCLUDED.gate,
+    candidates = EXCLUDED.candidates, scores = EXCLUDED.scores,
+    note_id = coalesce(EXCLUDED.note_id, memory_triage.note_id),
+    layers = EXCLUDED.layers,
+    decided_at = now()
+"""
+
+
+async def _store(services: Services, rows: list[tuple[Any, ...]]) -> None:
+    async with services.db.acquire() as conn:
+        await conn.executemany(_STORE_SQL, rows)
+
+
 async def recover(
     services: Services, *, dry_run: bool = True, limit: int | None = None, redo: bool = False
 ) -> RecoveryReport:
     report = RecoveryReport(dry_run=dry_run)
     rows = await services.db.fetch(_EVENTS_SQL, QUESTIONS_VERSION)
     decided: list[tuple[Any, Triage]] = []
+    pending: list[tuple[Any, ...]] = []
     for row in rows:
         if limit is not None and report.seen >= limit:
             break
@@ -290,34 +317,26 @@ async def recover(
         note_id = await _apply(services, row, decision)
         if note_id:
             report.notes_written += 1
-        await services.db.execute(
-            """
-            INSERT INTO memory_triage (
-                conversation_id, classification_event_id, questions_version, outcome,
-                bucket, reason, gate, candidates, scores, note_id, layers, decided_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11, now())
-            ON CONFLICT (conversation_id) DO UPDATE SET
-                classification_event_id = EXCLUDED.classification_event_id,
-                questions_version = EXCLUDED.questions_version,
-                outcome = EXCLUDED.outcome, bucket = EXCLUDED.bucket,
-                reason = EXCLUDED.reason, gate = EXCLUDED.gate,
-                candidates = EXCLUDED.candidates, scores = EXCLUDED.scores,
-                note_id = coalesce(EXCLUDED.note_id, memory_triage.note_id),
-                layers = EXCLUDED.layers,
-                decided_at = now()
-            """,
-            row["conversation_id"],
-            row["event_id"],
-            QUESTIONS_VERSION,
-            decision.outcome,
-            decision.bucket,
-            decision.reason,
-            decision.gate,
-            decision.candidates,
-            decision.scores,
-            note_id,
-            decision.layers,
+        pending.append(
+            (
+                row["conversation_id"],
+                row["event_id"],
+                QUESTIONS_VERSION,
+                decision.outcome,
+                decision.bucket,
+                decision.reason,
+                decision.gate,
+                decision.candidates,
+                decision.scores,
+                note_id,
+                decision.layers,
+            )
         )
+        if len(pending) >= TRIAGE_WRITE_BATCH:
+            await _store(services, pending)
+            pending = []
+    if pending:
+        await _store(services, pending)
     if not dry_run and report.seen:
         await write_run_notes(services, report, decided)
     return report
