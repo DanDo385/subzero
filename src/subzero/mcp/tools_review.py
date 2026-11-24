@@ -25,13 +25,19 @@ async def _file_note(
     *,
     destination: str | None,
     project: str | None,
-) -> None:
+) -> str | None:
     """Move a reviewed note out of the Inbox into its filed folder.
 
     Refuses a destination of ``inbox`` (that is a no-op filing) and refuses to
     move a note whose sensitivity keeps it out of the vault. Recomputes the
     vault path and queues exactly one ``write_note`` job so the file lands in
-    its new folder.
+    its new folder; queueing also cancels that note's still-unwritten job at
+    the old path.
+
+    Returns a message for the user when the old file already reached the vault,
+    because nothing here deletes vault files: the worker has no delete job, and
+    the vault's own rule is that a person moves or archives a note. ``None``
+    when there is nothing for the user to do.
     """
     if destination == "inbox":
         raise ValidationError(
@@ -46,7 +52,7 @@ async def _file_note(
             + f". Got {destination!r}."
         )
     note_row = await services.db.fetchrow(
-        "SELECT id, title, sensitivity, project_id FROM notes WHERE id = $1",
+        "SELECT id, title, sensitivity, project_id, vault_path FROM notes WHERE id = $1",
         item["object_id"],
     )
     if note_row is None:
@@ -75,6 +81,7 @@ async def _file_note(
         project_id,
         vault_path,
     )
+    old_path = note_row["vault_path"]
     if services.settings.obsidian_enabled:
         await services.sync_queue.enqueue(
             job_type="write_note",
@@ -83,6 +90,19 @@ async def _file_note(
             vault_path=vault_path,
             payload={"note_id": str(note_row["id"]), "reason": "review_reclassify"},
         )
+    if not old_path or old_path == vault_path:
+        return None
+    already_written = await services.db.fetchval(
+        "SELECT count(*) FROM sync_jobs WHERE vault_path = $1 AND status = 'done'",
+        old_path,
+    )
+    if not already_written:
+        return None
+    return (
+        f"The note is filed under {vault_path}. Its earlier copy at {old_path} "
+        "already reached your vault, and nothing here deletes vault files: move "
+        "or remove that one in Obsidian yourself."
+    )
 
 
 def register(mcp: FastMCP) -> None:
@@ -185,6 +205,7 @@ def register(mcp: FastMCP) -> None:
         services = get_services()
         item = await services.review.get(review_id)
         resolution = {"project": project, "destination": destination, "note": note}
+        filed_note: str | None = None
 
         if project and item["object_type"] == "artifact":
             project_id = await services.projects.require(project)
@@ -197,7 +218,7 @@ def register(mcp: FastMCP) -> None:
                 project_id,
             )
         elif item["object_type"] == "note" and (destination or project):
-            await _file_note(services, item, destination=destination, project=project)
+            filed_note = await _file_note(services, item, destination=destination, project=project)
 
         result = await services.review.resolve(
             review_id,
@@ -215,6 +236,8 @@ def register(mcp: FastMCP) -> None:
             resulting_version=resolution,
             classification_event_id=item.get("classification_event_id"),
         )
+        if filed_note:
+            result["tell_the_user"] = filed_note
         return result
 
     @mcp.tool(

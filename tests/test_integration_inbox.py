@@ -181,11 +181,17 @@ async def test_review_reclassify_files_the_note_out_of_the_inbox(client, service
     assert not note["vault_path"].startswith("00-Inbox/")
 
     jobs = await services.db.fetch(
-        "SELECT job_type, vault_path FROM sync_jobs WHERE object_type = 'note' ORDER BY created_at"
+        "SELECT job_type, vault_path, status FROM sync_jobs "
+        "WHERE object_type = 'note' ORDER BY created_at"
     )
     assert len(jobs) == 2, "filing queues a second write for the new folder"
+    assert jobs[0]["status"] == "cancelled", (
+        "the unwritten Inbox job must not survive filing: the worker would "
+        "otherwise create the file again at the old path"
+    )
     assert jobs[1]["job_type"] == "write_note"
     assert jobs[1]["vault_path"] == note["vault_path"]
+    assert jobs[1]["status"] == "approved"
 
     assert (
         await services.db.fetchval(
@@ -219,3 +225,41 @@ async def test_review_reclassify_refuses_inbox_as_a_destination(client, services
         )
     ) == "open"
     assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 1
+
+
+async def test_filing_a_note_whose_inbox_file_reached_the_vault_says_so(client, services) -> None:
+    parked = (
+        await client.call_tool(
+            "inbox_add",
+            {"title": "Already written", "content": "The worker got to this one first."},
+        )
+    ).data
+    # The worker ran, so the Inbox file is on disk and its job is done. Nothing
+    # deletes vault files, so filing has to tell the person to move it.
+    await services.db.execute(
+        "UPDATE sync_jobs SET status = 'done', completed_at = now() WHERE vault_path = $1",
+        parked["vault_path"],
+    )
+
+    filed = (
+        await client.call_tool(
+            "review_reclassify",
+            {"review_id": parked["review_id"], "destination": "resource"},
+        )
+    ).data
+
+    assert parked["vault_path"] in filed["tell_the_user"]
+    assert "move or remove" in filed["tell_the_user"]
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM sync_jobs "
+            "WHERE vault_path = $1 AND status IN ('queued', 'approved', 'leased')",
+            parked["vault_path"],
+        )
+    ) == 0
+    assert (
+        await services.db.fetchval(
+            "SELECT count(*) FROM sync_jobs "
+            "WHERE vault_path LIKE '60-Resources/%' AND status = 'approved'"
+        )
+    ) == 1

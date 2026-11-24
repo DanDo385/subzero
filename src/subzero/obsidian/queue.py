@@ -72,14 +72,23 @@ class SyncQueue:
         if expected_sha256 is None and object_type in _SYNCED_HASH_SQL:
             expected_sha256 = await executor.fetchval(_SYNCED_HASH_SQL[object_type], object_id)
 
-        # Supersede any open job for the same path: the newest content wins
-        # and the queue stays one-deep per file.
+        # Supersede any open job for the same path, or for the same object and
+        # the same job type: the newest content wins, the queue stays one-deep
+        # per file, and a note that moved folder does not leave a live write
+        # behind at its old path, which the worker would happily create again.
+        # The job type is part of the match because one artifact legitimately
+        # has a write_artifact_note and a mirror_artifact_files job open at once.
         await executor.execute(
             """
             UPDATE sync_jobs SET status = 'cancelled', completed_at = now()
-            WHERE vault_path = $1 AND status IN ('queued', 'approved')
+            WHERE status IN ('queued', 'approved')
+              AND (vault_path = $1
+                   OR (object_type = $2 AND object_id = $3 AND job_type = $4))
             """,
             vault_path,
+            object_type,
+            object_id,
+            job_type,
         )
         job_id = await executor.fetchval(
             """
