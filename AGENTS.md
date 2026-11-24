@@ -134,14 +134,24 @@ only names an existing project and never creates one.
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
 tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
 the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
-`scout`. `dispatch_jobs` also carries executable intent (`kind='command'|'session'`, queued by the
-`agents:exec` MCP tools `agent_run` and `agent_open`): the server never executes anything and
-nothing in `src/subzero/` shells out. The runner on the user's machine is the only piece that
-touches a shell, working in a `cwd` that `agents/exec_paths.py` resolved inside
-`SUBZERO_EXEC_ROOTS`. For `kind='session'`, `goal` is a description and `first_command` is the
-text the runner types into the session for the human to review, never executing it; for
+`scout`. `dispatch_jobs` also carries executable intent (`kind='command'|'session'|'goal'`,
+queued by the `agents:exec` MCP tools `agent_run` and `agent_open`): the server never
+executes anything, and the only code in `src/subzero/` that touches a shell is the runner on
+the user's machine. `agents/runner.py` (`subzero agent run`) claims over `/api/v1/dispatch/claim`
+and acts only by calling `tmux-axi` or `herdr-axi` with argv lists (`--json`), never
+`shell=True`, never raw `tmux`/`herdr`, never as root. It re-validates every job's `cwd`
+against the runner machine's own `SUBZERO_EXEC_ROOTS` (the server resolved it with
+`agents/exec_paths.py`; the laptop does not trust that word), and a job it cannot place is
+finished `failed` with the reason, nothing run. A command that ran is `done` with its real
+`exit_code` even when non-zero; only a command that could not run (tool missing, refused
+`cwd`, timeout, unparseable output) is `failed`. For `kind='session'`, `goal` is a
+description and `first_command` is the text the runner types into the session for the human
+to review, never executing it, with Enter sent only when the text ends with a newline; for
 `kind='command'`, `command` is what runs and `first_command` is NULL (a schema CHECK enforces
-both). `agents:exec` is granted by name only: neither `DEFAULT_SCOPES` nor the
+both). A `kind='goal'` job is never executed: the runner prints it for a human (optionally
+opening the repo with `herdr-axi open`) or submits the text to the one herdr pane holding an
+agent, surfacing an `FM_TASK_ID` refusal verbatim rather than retrying.
+`agents:exec` is granted by name only: neither `DEFAULT_SCOPES` nor the
 `"*"` policy shorthand includes it (see `EXEC_SCOPES`), so a wildcard policy cannot hand a chat
 app a shell. Executable jobs skip sigils and Jev (a command is user content, not
 classifier input), and a runner's `output` is user content too: stored as a tail capped at

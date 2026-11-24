@@ -144,8 +144,8 @@ facts, and your projects' next steps.
 
 Paste the [short custom instruction](instructions/shared.md) into each app, and install the
 [use-subzero](skills/use-subzero/SKILL.md) skill where the app accepts one. That skill is the
-map. Ten more folders in [skills/](skills/) cover one job each (`search`, `save`,
-`email`, and the rest). There are 11 skills and 41 tools. The tools are what the apps call.
+map. Fourteen more folders in [skills/](skills/) cover one job each (`search`, `save`,
+`email`, and the rest). There are 15 skills and 43 tools. The tools are what the apps call.
 The full walkthrough, including every name, is
 [How to use it](docs/guides/16-using-subzero.md). Email setup and the permission prompts
 each app shows are in [daily use](docs/guides/12-daily-use.md).

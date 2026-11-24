@@ -190,6 +190,9 @@ skills are files and resources only: `project-artifacts`, `session-capture`,
 | `project-artifacts` | Several files that belong together as one versioned artifact. |
 | `update-project` | Status, goals, decisions, and the activity log of a project. |
 | `daily-review` | Open tasks, unresolved questions, and whether the vault helper is keeping up. |
+| `run-command` | Run one exact command on your machine and report its exit code honestly. |
+| `open-session` | Open an interactive terminal session on your machine; the first command is typed for you to review, never executed. |
+| `dispatch-work` | Hand a described piece of work to your coding agents as a queued goal job. |
 
 `use-subzero` is the map. Install that one. Add another only when you want
 the app to follow that job's longer procedure.

@@ -131,6 +131,38 @@ deliberately excludes it, so a wildcard policy can never hand a chat app a shell
 back through the same finish path as any job: an exit code plus the last 16 KB of output, and a
 non-zero exit is a failure even when the output looks fine.
 
+**Running the queued jobs (the runner).** `agent_run` and `agent_open` jobs are executed by
+the runner on the target machine:
+
+```bash
+subzero agent run --as crew --once                 # claim at most one job, then exit
+subzero agent run --as crew --loop --interval 2    # keep claiming until Ctrl-C
+subzero agent run --as crew --pane w5W:p2          # where goal jobs with a space go
+subzero agent run --as crew --open                 # goal jobs also open the repo via herdr-axi
+subzero agent run --as crew --dry-run              # show the plan for queued jobs; claim nothing
+```
+
+The machine needs `tmux-axi` and `herdr-axi` on its PATH: every shell interaction goes
+through those two CLIs, and the runner itself never invokes `tmux`, `herdr` or a raw shell.
+It refuses to claim without `tmux-axi` installed, refuses to run as root, and needs a
+registered session (`subzero agent start`) to claim with.
+
+What each job kind does:
+
+| Kind | The runner |
+| --- | --- |
+| `command` | Runs the command with `tmux-axi run` in the job's `cwd` and finishes with the real exit code plus the labelled output tail. A non-zero exit is `done` with that code: it is data, not a runner failure. Only a command that could not be run at all (tool missing, refused folder, timeout, unparseable output) is `failed`. |
+| `session` | Opens `tmux-axi open` in a terminal window, session `subzero-<first 8 of the job id>`; when no window could be launched the detached session stays and the result says so. `first_command` is *typed* into the session for the human to review: Enter is sent only when the text ends with a newline, and the runner never executes it. |
+| `goal` | Never executed. Without a `space` the runner prints the job for a human (and with `--open` opens the repo with `herdr-axi open`). With a `space` it submits the goal text to the one herdr pane holding an agent (`--pane` wins; an ambiguous pane list fails naming the panes rather than guessing). An `FM_TASK_ID` refusal from herdr-axi is surfaced verbatim. |
+
+**Local re-validation.** The server resolved the `worktree` into a `cwd` under its own
+`SUBZERO_EXEC_ROOTS`; the runner does not trust that word and re-validates the `cwd` on
+arrival against its own `SUBZERO_EXEC_ROOTS` (set them on the runner machine too): it must
+exist, be a directory, resolve inside a root, and not escape through a symlink. Cloud and
+laptop do not trust each other's validation, the same discipline the Obsidian sync worker
+applies to vault paths. A job the runner cannot place is finished `failed` with the reason,
+and nothing runs.
+
 ## 6. Lessons where you type the important part
 
 In a lesson folder (`^zig`, `^cfa2`, ...) the master prompt tells the agent to write the
