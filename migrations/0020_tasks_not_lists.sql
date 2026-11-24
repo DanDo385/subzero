@@ -1,4 +1,4 @@
--- 0018_tasks_not_lists.sql
+-- 0020_tasks_not_lists.sql
 -- Lists leave Subzero: shopping lists, errands and personal todos live in the
 -- user's own apps through those apps' connectors. Project next steps stay.
 -- The tasks VIEW over list_items becomes a real table, task items are copied
@@ -18,7 +18,7 @@
 --       FROM list_items li
 --       JOIN lists l ON l.id = li.list_id
 --       WHERE l.list_type = 'task';
---   DELETE FROM schema_migrations WHERE version = '0018_tasks_not_lists';
+--   DELETE FROM schema_migrations WHERE version = '0020_tasks_not_lists';
 
 DROP VIEW IF EXISTS tasks;
 
@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     home         TEXT,                            -- projects/{slug} | lesson/{cat} | setup/{tool} | other
     source_provider TEXT REFERENCES providers(id),
     source_conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
-    provenance   pc_provenance NOT NULL DEFAULT 'user_statement',
-    sensitivity  pc_sensitivity NOT NULL DEFAULT 'normal',
+    provenance   sz_provenance NOT NULL DEFAULT 'user_statement',
+    sensitivity  sz_sensitivity NOT NULL DEFAULT 'normal',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS tasks_search_idx ON tasks USING GIN (search_tsv);
 CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks (status, updated_at DESC);
 DROP TRIGGER IF EXISTS tasks_touch ON tasks;
 CREATE TRIGGER tasks_touch BEFORE UPDATE ON tasks
-    FOR EACH ROW EXECUTE FUNCTION pc_touch_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION sz_touch_updated_at();
 
 -- Carry the task items over, ids preserved so existing references in
 -- metadata, digests and tests keep working. A task list named {slug}-tasks

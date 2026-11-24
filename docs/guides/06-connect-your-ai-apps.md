@@ -36,6 +36,9 @@ it. It is deliberately short, because the app reads it with every message: the
 detailed procedures live in Skills, MCP tool descriptions and MCP prompts, which
 load only when needed.
 
+For Codex setup, shared context and the initially empty MEMORY.md workflow,
+see [the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md).
+
 ## Moving from personal-context-mcp
 
 If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it

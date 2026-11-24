@@ -23,7 +23,7 @@ from subzero.memorylab.triage import BUCKET_NOTE_CLASS
 from subzero.services import get_services
 from subzero.util import slugify
 
-#: The sensitivity levels the notes table accepts (pc_sensitivity).
+#: The sensitivity levels the notes table accepts (sz_sensitivity).
 SENSITIVITIES = ("normal", "private", "highly_sensitive")
 
 

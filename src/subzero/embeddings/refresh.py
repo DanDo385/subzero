@@ -45,6 +45,13 @@ MIN_CHARS = 20
 #: round trip; the provider caps input anyway.
 MAX_CHARS = 8000
 
+#: Rows written per UPDATE. Each new vector is inserted into an HNSW index,
+#: which is CPU-bound and costs tens of milliseconds a row at 1536 dimensions:
+#: measured on production, 64 rows took 6 s and more while another writer was
+#: busy, past the 15 s client timeout under load. 16 keeps a statement near a
+#: second and a half, and a slow one loses only its own rows.
+WRITE_CHUNK = 16
+
 #: Consecutive all-failed ticks after which the interval starts doubling, the
 #: ceiling it doubles to, and when the failure becomes a warning.
 BACKOFF_AFTER = 1
@@ -57,7 +64,7 @@ LEASE_NAME = "embedding-refresh"
 
 
 def _store_sql(table: str) -> str:
-    """One statement per batch; a row another writer filled first is left alone.
+    """One statement per chunk; a row another writer filled first is left alone.
 
     Built once at import from the fixed table names below, never from input.
     """
@@ -196,14 +203,13 @@ async def _refresh_source(
     pairs = [(r["id"], vector_literal(v)) for r, v in zip(todo, vectors, strict=True) if v]
     result.failed = len(todo) - len(pairs)
     if pairs:
-        # One statement for the batch. executemany sent one UPDATE per row
-        # inside one transaction, so over a remote pooler a batch held its row
-        # locks for dozens of round trips, and a second writer working the same
-        # newest rows (the server's loop beside a manual backfill) waited on
-        # them until the command timed out.
-        ids, literals = zip(*pairs, strict=True)
-        status = await db.execute(source.store_sql, list(ids), list(literals))
-        result.embedded = int(status.rsplit(" ", 1)[-1])
+        # A few statements per batch, each one round trip (executemany sent an
+        # UPDATE per row inside one transaction) and small enough that its
+        # HNSW index inserts finish well inside the statement timeout.
+        for start in range(0, len(pairs), WRITE_CHUNK):
+            ids, literals = zip(*pairs[start : start + WRITE_CHUNK], strict=True)
+            status = await db.execute(source.store_sql, list(ids), list(literals))
+            result.embedded += int(status.rsplit(" ", 1)[-1])
     return result
 
 

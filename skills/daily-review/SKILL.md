@@ -18,8 +18,9 @@ description: >
 
 ## Required tools
 
-`context_recent`, `project_list`, `review_list`, `review_approve`,
-`review_reclassify`, `review_dismiss`, `sync_status`, `session_recent`
+`context_recent`, `project_list`, `project_get`, `review_list`,
+`review_approve`, `review_reclassify`, `review_dismiss`, `sync_status`,
+`session_recent`
 
 ## Procedure
 
@@ -29,10 +30,14 @@ description: >
 2. **Active projects.** `project_list(status="active")` - each row carries its
    open task count and live decision count.
 
-3. **Unresolved questions.** `session_recent` returns each summary's
+3. **Open work.** Read open tasks from `project_get` on the active projects:
+   they are that project's next steps. Shopping and errand lists are not here,
+   they live in my own list apps.
+
+4. **Unresolved questions.** `session_recent` returns each summary's
    `open_questions`. These are the things most likely to be quietly dropped.
 
-4. **Clear the review queue.** `review_list` returns items whose routing the
+5. **Clear the review queue.** `review_list` returns items whose routing the
    classifier declined to guess at - an ambiguous project, an uncertain vault
    destination, a sensitive artifact. Least confident first. For each:
    - `review_approve` if the suggestion was right
@@ -43,7 +48,7 @@ description: >
    which is how the classifier's accuracy is measured over time. It is worth
    doing properly.
 
-5. **Check the sync.** `sync_status`. If `last_worker_activity` is stale, the
+6. **Check the sync.** `sync_status`. If `last_worker_activity` is stale, the
    local worker is not running and nothing has reached the vault - say that
    plainly rather than assuming the files are there.
 

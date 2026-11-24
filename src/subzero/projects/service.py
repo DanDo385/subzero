@@ -221,7 +221,7 @@ class ProjectService:
             INSERT INTO project_events (
                 project_id, event_type, summary, detail, source_provider,
                 source_conversation_id, provenance, event_sha256
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7::pc_provenance,$8)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7::sz_provenance,$8)
             ON CONFLICT (project_id, event_sha256) DO NOTHING
             RETURNING id
             """,

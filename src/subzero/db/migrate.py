@@ -63,7 +63,7 @@ def load_migrations(directory: Path | None = None) -> list[Migration]:
 #: Held for the whole run so two machines migrating at once serialise instead of
 #: both applying the same file. Transaction-scoped, which a transaction pooler
 #: tolerates; a session-level lock would be released into the pooler's pool.
-_LOCK_KEY = "***"
+_LOCK_KEY = "subzero-migrations"
 
 
 async def apply_migrations(conn: asyncpg.Connection, directory: Path | None = None) -> list[str]:

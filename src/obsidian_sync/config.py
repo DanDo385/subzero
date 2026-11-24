@@ -33,7 +33,13 @@ class WorkerSettings(BaseSettings):
     worker_id: str = "macbook"
 
     vault_path: Path = Path("~/Obsidian/Vault")
+    #: Fallback wait, used when the server does not say how long to wait. The
+    #: server normally answers with a cadence of its own: quick while work is
+    #: arriving, quiet once the vault has been idle for a while.
     poll_interval_seconds: float = 20.0
+    #: Ceiling on the server's answer, so a server that asks for an hour cannot
+    #: stall the worker, and a broken answer cannot make it hammer.
+    max_poll_interval_seconds: float = 300.0
     batch_size: int = 10
 
     #: Push human edits from the vault back to the canonical store.

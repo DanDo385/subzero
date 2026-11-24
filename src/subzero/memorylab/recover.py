@@ -336,10 +336,60 @@ def _row_line(row: Any, decision: Triage) -> str:
     )
 
 
-def render_report(report: RecoveryReport, today: str) -> str:
+_ALL_SQL = """
+SELECT t.conversation_id, t.outcome, t.bucket, t.reason, t.gate, t.candidates,
+       t.scores, t.layers, c.provider, c.title, c.started_at, p.name AS project_name
+FROM memory_triage t
+JOIN conversations c ON c.id = t.conversation_id
+LEFT JOIN projects p ON p.id = c.project_id
+"""
+
+
+async def all_decided(services: Services) -> list[tuple[Any, Triage]]:
+    """Every stored decision, so the run notes describe the whole history and
+    not only the sessions one run happened to decide."""
+    out: list[tuple[Any, Triage]] = []
+    for row in await services.db.fetch(_ALL_SQL):
+        scores = row["scores"]
+        if isinstance(scores, str):
+            scores = json.loads(scores)
+        out.append(
+            (
+                row,
+                Triage(
+                    row["outcome"],
+                    row["bucket"],
+                    row["reason"],
+                    row["gate"],
+                    list(row["candidates"] or []),
+                    scores or {},
+                    list(row["layers"] or []),
+                ),
+            )
+        )
+    return out
+
+
+def totals(decided: list[tuple[Any, Triage]]) -> RecoveryReport:
+    report = RecoveryReport(dry_run=False, seen=len(decided))
+    for _row, d in decided:
+        report.outcomes[d.outcome] += 1
+        report.reasons[d.reason] += 1
+        if d.outcome == "note" and d.bucket:
+            report.buckets[d.bucket] += 1
+        for kind in d.candidates:
+            report.candidates[kind] += 1
+        for layer in d.layers:
+            report.layers[layer] += 1
+    return report
+
+
+def render_report(report: RecoveryReport, today: str, *, this_run: int | None = None) -> str:
     data = report.as_dict()
+    ran = f" This run decided {this_run} of them." if this_run is not None else ""
     lines = [
-        f"Run on {today} with question set `{QUESTIONS_VERSION}`.",
+        f"All {data['sessions_seen']} triaged sessions as of {today}, question set "
+        f"`{QUESTIONS_VERSION}`.{ran}",
         "",
         "| Result | Sessions |",
         "| --- | --- |",
@@ -440,13 +490,14 @@ async def write_run_notes(
     today = datetime.now(UTC).date().isoformat()
     paths = services.vault_paths
     meta = {"tags": ["memory-lab", "type/experiment"]}
-    listed = [(r, d) for r, d in decided if d.reason != "sensitive_withheld"]
+    everything = await all_decided(services)
+    listed = [(r, d) for r, d in everything if d.reason != "sensitive_withheld"]
 
     title = f"Recovery report {today}"
     await _write_note(
         services,
         title=title,
-        content=render_report(report, today),
+        content=render_report(totals(everything), today, this_run=len(decided)),
         note_class="experiment",
         vault_path=paths.experiment("Analysis", title),
         metadata=meta,

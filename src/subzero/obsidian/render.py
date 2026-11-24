@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 
+
 def _frontmatter(fields: dict[str, Any]) -> str:
     lines = ["---"]
     for key, value in fields.items():
@@ -109,8 +110,8 @@ def render_note(
         tags.append(type_tag)
     front = _frontmatter(
         {
-            "pc_type": "note",
-            "pc_id": note["id"],
+            "sz_type": "note",
+            "sz_id": note["id"],
             "title": note["title"],
             "note_class": note.get("note_class"),
             "home": meta.get("home"),
@@ -190,8 +191,8 @@ def render_moc(
     sorted by title. Entirely generated - a MOC has no human-owned body."""
     front = _frontmatter(
         {
-            "pc_type": "moc",
-            "pc_id": moc["id"],
+            "sz_type": "moc",
+            "sz_id": moc["id"],
             "title": moc["title"],
             "updated": moc.get("updated_at"),
             "tags": ["subzero/moc", "type/moc"],
@@ -227,8 +228,8 @@ def render_artifact_note(
 ) -> str:
     front = _frontmatter(
         {
-            "pc_type": "artifact",
-            "pc_id": artifact["id"],
+            "sz_type": "artifact",
+            "sz_id": artifact["id"],
             "title": artifact["title"],
             "artifact_type": artifact.get("artifact_type"),
             "project": artifact.get("project_slug"),
@@ -266,8 +267,8 @@ def render_artifact_note(
 def render_project(project: dict[str, Any], snapshot: dict[str, Any]) -> str:
     front = _frontmatter(
         {
-            "pc_type": "project",
-            "pc_id": project["id"],
+            "sz_type": "project",
+            "sz_id": project["id"],
             "title": project["name"],
             "status": project.get("status"),
             "updated": project.get("updated_at"),

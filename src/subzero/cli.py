@@ -319,7 +319,7 @@ def _bridge_request(
 ) -> dict[str, Any]:
     token = settings.harness_api_key.get_secret_value()
     if not token:
-        raise click.ClickException("PC_HARNESS_API_KEY is required for bridge commands.")
+        raise click.ClickException("SUBZERO_HARNESS_API_KEY is required for bridge commands.")
     url = f"{str(settings.base_url).rstrip('/')}{path}"
     try:
         response = httpx.request(
@@ -393,9 +393,19 @@ def check() -> None:
         click.secho(f"  config: {problem}", fg="red")
     if legacy := legacy_env_names():
         click.secho(
-            f"  config: {len(legacy)} setting{'s' if len(legacy) != 1 else ''} still use the old PC_ prefix "
-            f"({', '.join(legacy[:3])}{', ...' if len(legacy) > 3 else ''}). They still work; "
-            "rename them to SUBZERO_ when convenient.",
+            f"  config: {len(legacy)} setting{'s' if len(legacy) != 1 else ''} still use the old "
+            f"PC_ prefix ({', '.join(legacy[:3])}{', ...' if len(legacy) > 3 else ''}). They are "
+            "no longer read, and the server refuses to start while one is set: rename each to "
+            "SUBZERO_.",
+            fg="red",
+        )
+
+    # Not a failure: email is optional. But a deployment that believes it can
+    # send and cannot is worth naming next to the things that are broken.
+    if not settings.agentmail_api_key.get_secret_value() or not settings.agentmail_inbox_id:
+        click.secho(
+            "  email: AgentMail is not configured, so the email tool can only dry-run "
+            "(set SUBZERO_AGENTMAIL_API_KEY and SUBZERO_AGENTMAIL_INBOX_ID).",
             fg="yellow",
         )
 

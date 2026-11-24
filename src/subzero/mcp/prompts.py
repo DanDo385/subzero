@@ -49,6 +49,11 @@ def register(mcp: FastMCP) -> None:
         """Draft an email, show it, and send only after confirmation."""
         return action_guide("email")
 
+    @mcp.prompt(name="use_subzero")
+    def use_subzero() -> str:
+        """When to use Subzero, and which tool each kind of request needs."""
+        return action_guide("use-subzero")
+
     @mcp.prompt(name="recall_context")
     def recall_context(topic: str = "") -> str:
         """How to retrieve shared context before answering."""

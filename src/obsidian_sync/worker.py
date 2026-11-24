@@ -13,13 +13,16 @@ from typing import Any
 
 import httpx
 
-from obsidian_sync.client import SyncClient
+from obsidian_sync.client import Lease, SyncClient
 from obsidian_sync.config import WorkerSettings
 from obsidian_sync.vault import Vault
 from subzero.logging_setup import configure_logging, get_logger
 from subzero.util import sha256_bytes
 
 logger = get_logger(__name__)
+
+#: Never ask the server faster than this, whatever it suggests.
+FAST_DELAY_SECONDS = 0.5
 
 
 class ObsidianSyncWorker:
@@ -79,8 +82,11 @@ class ObsidianSyncWorker:
         )
         try:
             while not self._stopping.is_set():
+                # A tick that reaches the server replaces this with what the
+                # server asked for; a tick that failed keeps the local rhythm.
+                delay = self._settings.poll_interval_seconds
                 try:
-                    processed = await self._tick()
+                    lease = await self._tick()
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code == 401:
                         logger.error(
@@ -92,18 +98,15 @@ class ObsidianSyncWorker:
                             "server error while polling",
                             extra={"status": exc.response.status_code},
                         )
-                    processed = 0
                 except httpx.HTTPError:
                     # Offline is the normal state for a laptop. Keep quiet and
                     # retry; nothing is lost because the queue is server-side.
                     logger.debug("could not reach the server; will retry")
-                    processed = 0
                 except Exception:
                     logger.exception("unexpected worker error")
-                    processed = 0
+                else:
+                    delay = self._next_delay(lease)
 
-                # Poll again immediately while there is a backlog.
-                delay = 0.5 if processed else self._settings.poll_interval_seconds
                 with_timeout = asyncio.wait_for(self._stopping.wait(), timeout=delay)
                 try:
                     await with_timeout
@@ -113,7 +116,21 @@ class ObsidianSyncWorker:
             await self._client.aclose()
             logger.info("obsidian-sync stopped")
 
-    async def _tick(self) -> int:
+    def _next_delay(self, lease: Lease) -> float:
+        """How long to wait before the next poll.
+
+        Draining a backlog comes straight back. Otherwise the server decides:
+        quick while work is still arriving, quiet when the vault has been idle,
+        because nothing can push a job to this laptop and every poll is a
+        request it has to answer. The ceiling keeps a nonsense answer from
+        stalling the worker, and the floor keeps it from hammering.
+        """
+        if lease.jobs:
+            return FAST_DELAY_SECONDS
+        asked = lease.poll_in_seconds or self._settings.poll_interval_seconds
+        return min(max(asked, FAST_DELAY_SECONDS), self._settings.max_poll_interval_seconds)
+
+    async def _tick(self) -> Lease:
         if self._settings.watch_for_edits and self._written:
             edits = self._vault.scan_for_edits(self._written)
             if edits:
@@ -128,13 +145,13 @@ class ObsidianSyncWorker:
                     extra={"count": len(edits), "applied": len(result.get("applied", []))},
                 )
 
-        jobs = await self._client.lease()
+        lease = await self._client.lease()
         try:
-            for job in jobs:
+            for job in lease.jobs:
                 await self._handle(job)
         finally:
             self._save_written()
-        return len(jobs)
+        return lease
 
     async def _handle(self, job: dict[str, Any]) -> None:
         job_id = str(job["id"])

@@ -136,7 +136,7 @@ async def _write_index(
         UPDATE notes
         SET note_class = 'session_index',
             vault_path = $2,
-            sensitivity = $3::pc_sensitivity
+            sensitivity = $3::sz_sensitivity
         WHERE id = $1
         """,
         note_id,

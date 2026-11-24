@@ -230,7 +230,7 @@ class EmailService:
                 raise ValidationError(
                     "The approved send time has passed. Review a new draft with a new time."
                 )
-            key = f"pc-{row['id']}"
+            key = f"sz-{row['id']}"
             receipt = (
                 {"status": "dry_run", "test_inbox": payload["from"], "send_at": payload["send_at"]}
                 if row["dry_run"]

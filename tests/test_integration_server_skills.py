@@ -72,7 +72,9 @@ async def test_named_prompts_and_tool_contracts(client):
     assert {"context_search", "session_checkpoint", "email"} <= tools.keys()
     assert {"home", "concepts"} <= tools["session_checkpoint"].inputSchema["properties"].keys()
     assert tools["email"].inputSchema["properties"]["dry_run"]["default"] is True
-    assert {"search", "save", "email"} <= {prompt.name for prompt in await client.list_prompts()}
+    assert {"search", "save", "email", "use_subzero"} <= {
+        prompt.name for prompt in await client.list_prompts()
+    }
     for action, tool in (
         ("search", "context_search"),
         ("save", "session_checkpoint"),
@@ -80,6 +82,15 @@ async def test_named_prompts_and_tool_contracts(client):
     ):
         prompt = await client.get_prompt(action)
         assert any(tool in message.content.text for message in prompt.messages)
+
+
+async def test_usage_guide_is_available_through_prompt_and_resource(client):
+    prompt = await client.get_prompt("use_subzero")
+    resource = await client.read_resource("subzero://guide/use-subzero")
+    assert len(prompt.messages) == 1
+    assert len(resource) == 1
+    assert prompt.messages[0].content.text.strip()
+    assert prompt.messages[0].content.text == resource[0].text
 
 
 async def test_save_and_search_reuse_existing_tools(client, services):
@@ -120,6 +131,7 @@ async def test_project_home_resolves_existing_project(client, services):
         )
     ).data
     assert result.classification["home"] == "projects/shared-memory"
+
 
 
 async def test_email_dry_run_through_mcp_never_calls_agentmail(client, services, monkeypatch):
@@ -221,7 +233,7 @@ async def test_scheduled_email_stays_local_until_confirmation(services, inbox):
     )
     assert receipt["status"] == "scheduled"
     assert requests[0][1]["send_at"] == when.isoformat()
-    assert requests[0][1]["client_id"].startswith("pc-")
+    assert requests[0][1]["client_id"].startswith("sz-")
     assert not deliveries  # No immediate send endpoint was called.
 
 

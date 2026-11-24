@@ -4,9 +4,11 @@ description: Save durable context from this chat when the user says "save this",
 ---
 
 Call `session_checkpoint` once with a concise summary and any durable decisions,
-facts or tasks. Use your actual app or harness as `provider` and
-reuse this conversation's ID when available. Preserve accurate fact provenance.
-Find existing projects before naming or creating them.
+facts, or tasks: a project's next steps, not personal errands. Shopping and
+errand lists live in my own list apps and have no parameter here. Use your
+actual app or harness as `provider` and reuse this conversation's ID when
+available. Preserve accurate fact provenance. Find the existing project before
+naming or creating one.
 
 Choose exactly one `home`: `projects/{existing-project-slug}`, `lesson/{category}`,
 `setup/{tool}` (for example `setup/neovim`), or `other`. Use the main subject as

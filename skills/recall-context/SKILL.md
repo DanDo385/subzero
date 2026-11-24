@@ -33,7 +33,7 @@ Do **not** retrieve for a self-contained question ("what's 12% of 340",
 
 1. **Start with one bootstrap.** Call `context_bootstrap` with a short `query`
    of key terms you choose, the way you would search your own memory: names,
-   projects, topics, ids (`"harbor notes deploy"`, not the user's paragraph).
+   projects, topics, ids (`"portfolio site deploy"`, not the user's paragraph).
    Pass `project` when you know it; otherwise the server infers it from the
    query and says which project it picked and why. Never paste the user's
    message: it is reduced to key terms anyway, and the extra words cost tokens.
@@ -86,7 +86,7 @@ continue without it; do not retry in a loop.
 decision with its date, project and originating provider. Answer with the
 decision and note which assistant it was made in.
 
-> "Where did we leave off on Harbor Notes?"
+> "Where did we leave off on the portfolio site?"
 
-`context_bootstrap(project="harbor-notes")` with no query → the handoff alone:
+`context_bootstrap(project="portfolio-site")` with no query → the handoff alone:
 latest sessions, open questions, open tasks, active decisions.

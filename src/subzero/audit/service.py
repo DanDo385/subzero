@@ -54,7 +54,7 @@ class AuditService:
                     resulting_version, classification_event_id, approval_status,
                     provenance, status, error, duration_ms, metadata
                 ) VALUES (
-                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::pc_provenance,
+                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::sz_provenance,
                     $16,$17,$18,$19
                 )
                 RETURNING id

@@ -3,7 +3,7 @@
 Configuration lives in ``~/.config/subzero/client.json`` (written by
 ``subzero connect``, readable only by you):
 
-    {"url": "https://<mac>.<tailnet>.ts.net", "token": "pcd_...", "machine": "mbp"}
+    {"url": "https://<mac>.<tailnet>.ts.net", "token": "szd_...", "machine": "mbp"}
 
 ``SUBZERO_CLIENT_URL`` and ``SUBZERO_CLIENT_TOKEN`` override it, which is how a
 firstmate crew or a CI box gets credentials without the file.

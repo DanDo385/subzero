@@ -149,7 +149,7 @@ async def test_a_client_named_like_an_app_gets_nothing_extra() -> None:
     result = await provider._apply_policy(token)
     assert result is not None
     assert scopes.MEMORY_WRITE not in result.scopes
-    assert result.claims["pc_provider"] == "chatgpt"  # audit guess, grants nothing
+    assert result.claims["sz_provider"] == "chatgpt"  # audit guess, grants nothing
 
 
 async def test_a_client_on_the_apps_callback_gets_the_apps_scopes() -> None:
@@ -160,7 +160,7 @@ async def test_a_client_on_the_apps_callback_gets_the_apps_scopes() -> None:
     result = await provider._apply_policy(token)
     assert result is not None
     assert scopes.MEMORY_WRITE in result.scopes
-    assert result.claims["pc_provider"] == "chatgpt"
+    assert result.claims["sz_provider"] == "chatgpt"
 
 
 @pytest.mark.parametrize(

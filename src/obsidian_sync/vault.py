@@ -22,7 +22,9 @@ from subzero.errors import PathSecurityError
 from subzero.obsidian.paths import resolve_in_vault
 from subzero.util import sha256_bytes
 
-_PC_ID_FRONTMATTER = re.compile(r"^pc_id:\s*([0-9a-fA-F-]{36})\s*$", re.M)
+#: Both frontmatter generations are read: the server writes ``sz_id`` now, and
+#: files already on disk still say ``pc_id`` until the worker next rewrites them.
+_ID_FRONTMATTER = re.compile(r"^(?:sz_id|pc_id):\s*([0-9a-fA-F-]{36})\s*$", re.M)
 
 
 @dataclass(frozen=True)
@@ -91,7 +93,7 @@ class Vault:
         target.parent.mkdir(parents=True, exist_ok=True)
         # Write to a temp file in the same directory and rename, so a crash
         # mid-write cannot leave a half-written note in the vault.
-        fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".pc-", suffix=".tmp")
+        fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".sz-", suffix=".tmp")
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
@@ -136,6 +138,7 @@ class Vault:
         return edits
 
 
+
 def note_id_of(text: str) -> str | None:
-    match = _PC_ID_FRONTMATTER.search(text)
+    match = _ID_FRONTMATTER.search(text)
     return match.group(1) if match else None

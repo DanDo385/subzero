@@ -27,7 +27,7 @@ _COLUMNS = """
     source_provider, source_conversation_id, provenance, sensitivity
 """
 
-_VALUES = "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::pc_provenance,$11::pc_sensitivity)"
+_VALUES = "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::sz_provenance,$11::sz_sensitivity)"
 
 #: On a repeat, enrich the stored row the way list items used to be merged.
 _MERGE = """

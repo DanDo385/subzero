@@ -15,23 +15,22 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import (
     BaseSettings,
-    DotEnvSettingsSource,
-    EnvSettingsSource,
     NoDecode,
-    PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
-#: Settings are read as SUBZERO_<NAME>. Before the rename they were PC_<NAME>;
-#: those are still honoured, below the new names, so an existing deployment,
-#: 1Password Environment or .env.local keeps working until it is updated.
+#: Settings are read as SUBZERO_<NAME>. They were PC_<NAME> before the rename,
+#: and that prefix is no longer honoured: a variable the process silently
+#: ignores is how a server comes up with the wrong configuration. Anything still
+#: set under the old name is reported by `subzero check` and refused at startup,
+#: so the cutover fails loudly on a machine nobody is watching.
 ENV_PREFIX = "SUBZERO_"
 LEGACY_ENV_PREFIX = "PC_"
 ENV_FILES = (".env", ".env.local")
 
 
 def legacy_env_names() -> list[str]:
-    """PC_ variables set in the process environment (for `subzero check`)."""
+    """PC_ variables still set in the environment, which are no longer read."""
     return sorted(name for name in os.environ if name.startswith(LEGACY_ENV_PREFIX))
 
 
@@ -52,32 +51,6 @@ class Settings(BaseSettings):
         extra="ignore",
         env_prefix=ENV_PREFIX,
     )
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # Highest priority first: SUBZERO_ env, PC_ env, SUBZERO_ files, PC_ files.
-        legacy_env = EnvSettingsSource(settings_cls, env_prefix=LEGACY_ENV_PREFIX)
-        legacy_dotenv = DotEnvSettingsSource(
-            settings_cls,
-            env_file=ENV_FILES,
-            env_file_encoding="utf-8",
-            env_prefix=LEGACY_ENV_PREFIX,
-        )
-        return (
-            init_settings,
-            env_settings,
-            legacy_env,
-            dotenv_settings,
-            legacy_dotenv,
-            file_secret_settings,
-        )
 
     # ----------------------------------------------------------- deployment
     environment: Literal["dev", "staging", "prod"] = "dev"
@@ -423,6 +396,14 @@ class Settings(BaseSettings):
         if not 0.0 < self.review_confidence <= self.auto_route_confidence <= 1.0:
             problems.append(
                 "Require 0 < SUBZERO_REVIEW_CONFIDENCE <= SUBZERO_AUTO_ROUTE_CONFIDENCE <= 1."
+            )
+
+        legacy = legacy_env_names()
+        if legacy:
+            problems.append(
+                "PC_ environment variables are no longer read: "
+                + ", ".join(legacy)
+                + ". Rename each one to the SUBZERO_ prefix."
             )
 
         return problems

@@ -2,11 +2,13 @@
 
 [Obsidian](https://obsidian.md) is a free notes app that works on plain files in a folder (a
 *vault*). subzero fills a vault with clean, linked notes: research, project pages, session
-notes, and "map" pages for your topics. You can read them, edit them, and see how they link together.
+notes, and "map" pages for your topics. You can read them, edit them, and see how they link
+together. Shopping lists and errands stay in your own list apps.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
-your server "anything new to write?" every 30 seconds. Nothing on the internet can reach into your
-computer: the helper only ever calls out.
+your server "anything new to write?" and follows the server's suggested delay: quickly while work
+is arriving, less often when the vault is idle. Nothing on the internet can reach into your
+computer: the helper only ever calls out. Older servers use the helper's configured poll interval.
 
 ## Step 1: Choose where the vault lives
 
@@ -54,6 +56,9 @@ uv run obsidian-sync run --once
 now. If not, nothing is written yet, and that's fine.
 
 To see what it *would* write without writing anything: `uv run obsidian-sync run --once --dry-run`.
+
+To verify the vault location and server credential without leasing any queued work:
+`uv run obsidian-sync check`. It reports `server: reachable and credential accepted` on success.
 
 ## Step 3: Keep it running in the background
 
@@ -119,6 +124,11 @@ generated block, so a re-render refreshes them and your edits to the body are ke
 are not checkboxes on purpose: ticking one in Obsidian cannot complete the task, and the next
 render would silently untick it.
 
+An older list note may still be in your vault from before lists left Subzero. It is inert now:
+nothing reads its hidden `sz:id` or `pc:id` markers any more, so ticking a box there does
+nothing. Copy anything still open into your own list app, then leave the file as a record or
+move it to `99-Archive/`. Ordinary Markdown checkboxes in a prose note are just checkboxes.
+
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user
 session manager. Use `systemctl` with `sudo` instead: copy the files to `/etc/systemd/system/` and
 replace `%h` in the service file with your full home directory path.)
@@ -144,7 +154,6 @@ Gemini rows are takeout days (one row per day in the export). `vault-fill` write
 from the database. It does not call a model. See [guide 10](10-build-your-wiki.md).
 
 A `## Next steps` section shows the project's open and blocked tasks; done and dropped tasks stay out of the file.
-
 Rendered files carry a `type/` tag in frontmatter so the graph can be filtered:
 `type/project` on project notes, `type/moc` on maps, and
 `type/session-index` on the four indexes. Tags already stored on a note are kept.

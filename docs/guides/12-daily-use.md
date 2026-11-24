@@ -1,7 +1,8 @@
 # 12. Daily use: what to expect
 
 Your server is online and your apps are connected. Here's what a normal day looks like, plus the
-few things worth knowing before they surprise you.
+few things worth knowing before they surprise you. The full manual (what to say, where a result
+goes, skills and tools) is [How to use it](16-using-subzero.md).
 
 ## The first time in each app
 
@@ -41,6 +42,7 @@ You don't need special commands. But these phrases help when you want to be expl
 | "What did we decide about [topic]?" | Searches past decisions, even from a different app. |
 | "Save this file to my [project] project." | Stores the actual file bytes, not just a reference. |
 | "Park this in the Inbox, I'm not sure where it goes." | Saves it with `inbox_add`; it waits in `00-Inbox/` until you file it. |
+| "Add this to my shopping list." | Nothing in Subzero. That list stays in your own list app. |
 
 You can also just talk normally. The apps figure out when to use their tools from context.
 
@@ -59,6 +61,7 @@ You can also just talk normally. The apps figure out when to use their tools fro
 - **email**: "email this to reader@example.com" prepares exactly the requested
   content and shows the sender, recipients, subject, body and requested send time.
   It sends or schedules only after your next confirmation.
+
 
 The home is `projects/{project}`, `lesson/{category}`, `setup/{tool}` or `other`.
 A note about Neovim can live in `setup/neovim` and have `concept/lua` and
@@ -144,7 +147,7 @@ If the second app finds it, cross-app memory is working.
 ## Turning off built-in memory (one last time)
 
 If you haven't yet, now is a good time to turn off each app's built-in memory. With it on, an app
-might answer from its own private notes instead of checking the shared record, and the four apps drift
+might answer from its own private notes instead of checking the shared record, and the apps drift
 apart.
 
 Export your history from each app first ([guide 9](09-import-your-history.md), step 1), so you lose
@@ -152,10 +155,12 @@ nothing. Then turn the memory switches off (see the table in [guide 6](06-connec
 
 ## What's next
 
+- **[Guide 16](16-using-subzero.md):** what to say, where each result goes, and every skill and tool.
 - **[Guide 8](08-obsidian.md):** set up your Obsidian notebook, if you want one.
-- **[Guide 9](09-import-your-history.md):** bring in years of old chats from all four apps.
+- **[Guide 9](09-import-your-history.md):** bring in years of old chats.
 - **[Guide 10](10-build-your-wiki.md):** build links and topic maps from your notes.
 - **[Guide 13](13-browser-extension.md):** capture chats live in the browser, backfill old ones, and bridge coding sessions.
+- **[Guide 15](15-agents-messages-and-the-board.md):** coding agents, messages, and the board.
 - **[Troubleshooting](../troubleshooting.md):** when anything goes wrong.
 - **[FAQ](../faq.md):** common questions, short answers.
 

@@ -55,7 +55,7 @@ async def test_an_edit_made_after_a_restart_is_pushed(
 
     first = _worker(services, live_server, vault, state_dir)
     try:
-        assert await first._tick() == 1
+        assert len((await first._tick()).jobs) == 1
     finally:
         await first._client.aclose()
 
