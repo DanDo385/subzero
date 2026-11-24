@@ -17,11 +17,12 @@ few things worth knowing before they surprise you.
 After the first few saves, you don't need to manage anything. The apps:
 
 - **Look things up** when your question could depend on something saved before: a project you're
-  working on, a decision you made, a list you keep.
+  working on, a decision you made, a task you recorded.
 - **Save decisions and facts** at the end of a useful conversation. They bundle everything worth
   keeping into one save, without duplicates.
-- **Update your lists.** If you say "add oat milk to my shopping list," the real list is updated;
-  the app doesn't just write out a copy from memory.
+- **Track next steps.** When a conversation produces a concrete next step for a project, it is
+  saved as an open task on that project. Shopping lists, errands and personal todos are not
+  Subzero's: those live in your own apps, through those apps' own connectors.
 - **Preserve files they create.** Charts, documents, code: if an app makes something useful, you can
   ask it to save the file itself, not just mention that it existed.
 
@@ -36,7 +37,7 @@ You don't need special commands. But these phrases help when you want to be expl
 | --- | --- |
 | "Check subzero." | Searches everything saved across all apps for relevant information. |
 | "Save this to subzero." | Saves the current state of the conversation: decisions, facts, tasks. |
-| "Add [something] to my [list name] list." | Updates your real list. |
+| "Note [next step] as a task for [project]." | Saves it as an open task on that project's next steps. |
 | "What did we decide about [topic]?" | Searches past decisions, even from a different app. |
 | "Save this file to my [project] project." | Stores the actual file bytes, not just a reference. |
 | "Park this in the Inbox, I'm not sure where it goes." | Saves it with `inbox_add`; it waits in `00-Inbox/` until you file it. |
@@ -87,7 +88,11 @@ For real mail:
 4. Grant `email:send` to the intended client in `SUBZERO_CLIENT_SCOPE_POLICY`. Clients
    granted `*` already have it; unmatched/read-only clients do not.
 5. Apply the new migration with `uv run subzero migrate` and restart
-   the server. Ask for a draft with `dry_run=false`, review it, then confirm only
+   the server. If your database predates the tasks cutover, first run
+   `uv run subzero export-lists --out DIR`: migration 0018 drops the old
+   `lists` and `list_items` tables and carries over only task items, so the
+   export is the only copy of anything else you kept in lists. Ask for a
+   draft with `dry_run=false`, review it, then confirm only
    when you're ready for a real send. A future send time needs a timezone.
 
 Drafts remain in your database until approved. A scheduled receipt means

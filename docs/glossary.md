@@ -19,7 +19,7 @@ Plain-language meanings for the words used in these docs.
 | **Jev (TypeSafe)** | An AI service built for answering yes/no and multiple-choice questions very cheaply. Used to sort your old chats and decide which notes to link. It doesn't write text. |
 | **Map of Content (MOC) / map** | An Obsidian page that lists and groups all notes about one topic. |
 | **MCP** | Model Context Protocol: the standard that lets ChatGPT, Claude, Gemini and Grok use outside tools like your server. |
-| **Migration / migrate** | Creating or updating the tables in your database. Always safe to run again. |
+| **Migration / migrate** | Creating or updating the tables in your database. Running it again only applies what is new, but migration 0018 drops the old list tables: run `subzero export-lists --out DIR` first (see the FAQ). |
 | **OAuth / sign-in app / client ID and secret** | The machinery behind "Sign in with Google". The client ID is public-ish; the client secret is secret. |
 | **Obsidian / vault** | A notes app, and the folder of notes it opens. |
 | **Orphan note** | A note with no links to or from any other note. |
@@ -32,6 +32,7 @@ Plain-language meanings for the words used in these docs.
 | **Service role key (Supabase)** | The master key to your Supabase project. Only your server should have it. |
 | **Skill** | A packaged set of instructions some AI apps can load to do a task well. |
 | **Supabase** | A hosting service for your database and files. |
+| **Task** | A concrete next step of a project or area. Shopping lists, errands and personal todos are not tasks: those live in your own apps. |
 | **Terminal** | The app where you type commands. |
 | **Token** | A temporary password proving you're signed in. |
 | **uv** | The tool that installs and runs this project and its Python. |

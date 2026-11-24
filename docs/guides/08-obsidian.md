@@ -1,8 +1,8 @@
 # 8. Set up your Obsidian notebook
 
 [Obsidian](https://obsidian.md) is a free notes app that works on plain files in a folder (a
-*vault*). subzero fills a vault with clean, linked notes: research, project pages, your
-lists, and "map" pages for your topics. You can read them, edit them, and see how they link together.
+*vault*). subzero fills a vault with clean, linked notes: research, project pages, session
+notes, and "map" pages for your topics. You can read them, edit them, and see how they link together.
 
 The notes are written by **the helper** (`obsidian-sync`), a small program on your computer. It asks
 your server "anything new to write?" every 30 seconds. Nothing on the internet can reach into your
@@ -50,8 +50,8 @@ Then in Obsidian: **Open folder as vault** and pick that folder.
 uv run obsidian-sync run --once
 ```
 
-✅ It exits without errors. If your AI apps have saved notes already, they appear in the vault. If
-not, nothing is written yet, and that's fine.
+✅ It exits without errors. If memory-lab triage has already routed notes to the vault, they appear
+now. If not, nothing is written yet, and that's fine.
 
 To see what it *would* write without writing anything: `uv run obsidian-sync run --once --dry-run`.
 
@@ -90,15 +90,15 @@ another device does not carry it along). A note written before this record exist
 the next time the server rewrites it. To keep the record somewhere else, set
 `OBSIDIAN_SYNC_STATE_DIR`.
 
-## How notes and lists reach the vault
+## How notes reach the vault
 
 Chat apps no longer write vault notes directly: the note tools were removed in
 the cutover, and a checkpoint does not write one either. The vault fills from
 what the server queues: session notes routed by memory-lab triage
 (`subzero memory-lab recover`), items a chat app parked with `inbox_add`, an
-artifact queued with `artifact_queue_for_vault`, and the lists this helper
-renders. "Queued" means the helper still needs to pick the job up; "written"
-means it landed.
+artifact queued with `artifact_queue_for_vault`, and the generated blocks
+rendered into notes (a project's `## Next steps`, Related, Maps). "Queued"
+means the helper still needs to pick the job up; "written" means it landed.
 
 Each queued note has one home. Existing numbered folders stay in use:
 
@@ -114,10 +114,10 @@ Custom root settings replace the numbered root names in this mapping.
 Existing files are not moved by this update. If a file already has a different
 tracked path, the server refuses a second copy and asks you to relocate it first.
 
-A list renders under `Lists/` inside its home. Tick an item in Obsidian while
-the helper is running: the same item is completed in the database on the next
-poll. Keep the hidden `pc:id` comments intact so items stay linked. Ordinary
-Markdown checkboxes in a prose note do not have this two-way behavior.
+A project's next steps render as a plain-bullet `## Next steps` section inside the note's
+generated block, so a re-render refreshes them and your edits to the body are kept. The bullets
+are not checkboxes on purpose: ticking one in Obsidian cannot complete the task, and the next
+render would silently untick it.
 
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user
 session manager. Use `systemctl` with `sudo` instead: copy the files to `/etc/systemd/system/` and
@@ -130,11 +130,11 @@ replace `%h` in the service file with your full home directory path.)
 | Folder | What goes there |
 | --- | --- |
 | `00-Inbox` | Things worth keeping whose home isn't clear yet, parked by `inbox_add` or Jev triage |
-| `20-Projects` | One folder per project: status page, lists, saved files |
+| `20-Projects` | One folder per project: status page with its next steps, saved files |
 | `30-Research` | Findings from research conversations, with sources |
 | `40-Wiki` | Explanations of how things work |
 | `50-Concepts` | Single ideas and terms |
-| `60-Resources` | Tools, articles, your lists, saved files not tied to a project |
+| `60-Resources` | Tools, articles, saved files not tied to a project |
 | `70-Atlas` | One session index per assistant, plus map pages that link a topic ([guide 10](10-build-your-wiki.md)) |
 
 The four index notes are `ChatGPT`, `Claude`, `Grok`, and `Gemini`. Each lists the newest
@@ -143,10 +143,10 @@ only when that session already has its own note. Older sessions are one line, "N
 Gemini rows are takeout days (one row per day in the export). `vault-fill` writes these
 from the database. It does not call a model. See [guide 10](10-build-your-wiki.md).
 
-Lists render open, blocked, and done items. Dropped items stay out of the file.
+A `## Next steps` section shows the project's open and blocked tasks; done and dropped tasks stay out of the file.
 
 Rendered files carry a `type/` tag in frontmatter so the graph can be filtered:
-`type/project` on project notes, `type/list` on lists, `type/moc` on maps, and
+`type/project` on project notes, `type/moc` on maps, and
 `type/session-index` on the four indexes. Tags already stored on a note are kept.
 
 ## Editing notes
@@ -159,7 +159,7 @@ sees your version. Two things to know:
 - If you edit a note at the same moment an AI app updates it, your edit wins. The update is held back
   as a *conflict* instead of overwriting you.
 
-Ticking a checkbox in a list note (`- [x]`) marks that item done everywhere.
+Checkboxes you type into a prose note are yours alone; nothing syncs them back to the database.
 
 ## Common problems
 
@@ -167,6 +167,6 @@ Ticking a checkbox in a list note (`- [x]`) marks that item done everywhere.
 | --- | --- |
 | `Vault directory does not exist` | Create the folder (step 1), or fix `OBSIDIAN_SYNC_VAULT_PATH`. |
 | `worker rejected: check OBSIDIAN_SYNC_API_KEY matches` | The helper's key differs from the server's `SUBZERO_WORKER_API_KEY`. They must be identical; after changing the server's, run `deploy/vercel-env.sh .env.local` and `vercel deploy --prod`. |
-| Notes never appear | Your AI apps may not have saved any notes yet. Ask one to "save this research to Obsidian". Also check the log: `tail -f ~/Library/Logs/subzero/obsidian-sync.err.log`. |
+| Notes never appear | The vault fills from memory-lab triage and `inbox_add` (guide 16), not from asking a chat app to save a note: run `uv run subzero memory-lab recover` after checkpoints pile up. Also check the log: `tail -f ~/Library/Logs/subzero/obsidian-sync.err.log`. |
 
 **Next:** [9. Import your old chats](09-import-your-history.md)

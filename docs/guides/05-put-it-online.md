@@ -30,6 +30,11 @@ uv run subzero check
 
 should end with **All checks passed.**
 
+> **Moving an older database online?** If this database was created before the
+> tasks cutover, run `uv run subzero export-lists --out DIR` first: migration
+> 0018 drops the old `lists` and `list_items` tables and carries over only task
+> items. On a brand-new database from guides 00-04 there is nothing to export.
+
 ## Step 2: Sign in to Vercel
 
 Create a free account at <https://vercel.com/signup> (signing up with GitHub is easiest), then:
@@ -136,7 +141,11 @@ uv run subzero migrate     # applies any new database changes
 vercel deploy --prod
 ```
 
-`migrate` is always safe to run: it only applies changes that haven't been applied yet.
+`migrate` only applies changes that haven't been applied yet. One migration is
+not harmless on an old database: 0018 drops the old `lists` and `list_items`
+tables and carries over only task items. If you haven't applied it yet, run
+`uv run subzero export-lists --out DIR` before `migrate` so you keep a copy of
+everything else you had in lists.
 
 ## Other places to run it
 

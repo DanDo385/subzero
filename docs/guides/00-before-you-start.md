@@ -16,7 +16,7 @@ use, and the choices you'll make along the way. Nothing here asks you to type an
 
 - **Your server** is a small program running on a free hosting service (the guides use Vercel). It's
   the only thing the AI apps talk to.
-- **Your database** (Supabase, free) holds everything: memories, decisions, projects, lists, your
+- **Your database** (Supabase, free) holds everything: memories, decisions, projects, tasks, your
   imported chat history, and files.
 - **The helper** is an optional program on your own computer. It copies notes from the database into
   your Obsidian folder, and sends your edits back. It only ever *calls out* to your server; nothing on

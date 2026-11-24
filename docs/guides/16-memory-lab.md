@@ -75,7 +75,7 @@ decides where it goes; only then do the expensive or external layers see it.
 | Layer | What it holds | Who fills it | From which sessions |
 | --- | --- | --- | --- |
 | **Vault** | PARA notes and `Permanent/` | Claude, from the full transcript | Worth 0.8 or more, and Jev at least 70% sure of the folder |
-| **Structured** | Facts, events (decisions), instructions (preferences), tasks | Claude, into Subzero's memories, decisions and lists | Every vault session, plus any worthwhile session with a decision, procedure or preference |
+| **Structured** | Facts, events (decisions), instructions (preferences), tasks | Claude, into Subzero's memory, decision and task rows | Every vault session, plus any worthwhile session with a decision, procedure or preference |
 | **Honcho** | A model of you that tracks how your preferences change | Honcho, from your own messages with their original dates | Sessions that lean towards a preference or working pattern (60% or more) |
 | **Hot memory** | `MEMORY.md`, `USER.md`, skills | You, weekly, from a ranked candidates list | Decisions on active projects, preferences, repeated procedures |
 | **Inbox** | Drafts that need a person | Jev triage, session-capture, `inbox_add` | Only valuable sessions whose folder is unclear or that contradict what you know |

@@ -2,7 +2,7 @@
 
 > This is the design document, for developers. To set it up, follow the [guides](guides/00-before-you-start.md). They deploy to Vercel; the Cloud Run deployment described below is an alternative.
 
-A provider-neutral shared memory, knowledge, list, project and artifact system,
+A provider-neutral shared memory, knowledge, project, task and artifact system,
 exposed over MCP, that ChatGPT, Claude, Gemini and Grok all read and write.
 
 It is not a chat UI. The native apps stay the interface; this sits underneath
@@ -100,7 +100,7 @@ distinguishes four things, and so should you:
 ```mermaid
 flowchart LR
     A["A. Shared context<br/>retrieved through MCP<br/>when the model asks"] --> D
-    B["B. Live durable state<br/>model explicitly calls<br/>checkpoint / list / artifact tools"] --> D
+    B["B. Live durable state<br/>model explicitly calls<br/>checkpoint / inbox / artifact tools"] --> D
     C["C. Complete raw history<br/>imported from provider exports"] --> D
     E["D. Artifact bytes<br/>only when the client actually<br/>hands them to a tool"] --> D
     D[(Subzero)]
@@ -149,7 +149,7 @@ flowchart TB
     subgraph OB["Obsidian — human layer"]
         direction LR
         B1[project notes, research]
-        B2[list views]
+        B2[session notes, Inbox drafts]
         B3[artifact READMEs]
     end
 
@@ -170,7 +170,7 @@ Three rules that follow from this, and that the code enforces:
 subzero/
 ├── migrations/               # numbered SQL, applied once, hash-checked
 ├── instructions/             # per-provider setup + the shared instruction
-├── skills/                   # portable workflows, including search/save/email/vault
+├── skills/                   # portable workflows, including search/save/email
 ├── scripts/                  # per-provider import wrappers
 ├── extension/                # browser extension: capture, durable queue, pairing
 ├── src/subzero/
@@ -286,7 +286,7 @@ or more terms a row must match about a third of them. `"quoted phrases"` must
 appear, `-word` excludes, a UUID is an exact lookup, `LH-142` and `fly.io` are
 matched whole as well as split, and long words also match a shortened prefix so
 a typo such as "postgress" still finds "postgres". Every layer (memories,
-decisions, summaries, notes, open list items, artifacts, and messages on
+decisions, summaries, notes, open tasks, artifacts, and messages on
 request) is searched in one SQL statement. The score is
 
     text match x who said it x kind x recency
@@ -300,7 +300,7 @@ covers rows tagged to the project and untagged rows that name it.
 fit rather than stopping:
 
 1. **handoff**: for the project, the newest one to three session summaries with
-   their date, provider and open questions; open tasks and list items; active
+   their date, provider and open questions; open tasks; active
    decisions. Sessions with no project that name the project are included and
    say so.
 2. **relevant**: items matching the query, ranked as above, from the project and
@@ -390,7 +390,7 @@ what it already sent:
   gives no id, a stable synthetic one from provider + title + day
 - decisions, project events: content hash
 - memories: content hash, then subject similarity, then embedding distance
-- list items: normalised text hash
+- tasks: normalised text hash, per project (or per source conversation for a task with none)
 
 Calling `session_checkpoint` twice with the same content produces one of
 everything. The result reports what was skipped and why.
@@ -610,8 +610,8 @@ Properties that fall out of this:
 - **No inbound access to your Mac.** No port forwarding, no public SSH, no Obsidian REST API, no
   exposed filesystem. The laptop dials out.
 - **The server keeps working with the laptop off.** Only vault sync pauses.
-- **Human edits are never silently overwritten.** A mismatch is a conflict. Notes, maps and list
-  views all carry the hash of what the worker last wrote, so all three are covered.
+- **Human edits are never silently overwritten.** A mismatch is a conflict. Notes and maps
+  both carry the hash of what the worker last wrote, so both are covered.
 - **One open job per path, and a write requested during a lease waits.** The unique index covers
   `queued` and `approved` only, so a render asked for while the worker is mid-write queues behind it
   instead of being dropped.
@@ -825,8 +825,10 @@ uv run subzero migrate --status   # what is pending
 ```
 
 Migrations are numbered SQL files applied once each inside a transaction and
-recorded with their hash. Editing an already-applied migration is refused —
-add a new one.
+recorded with their hash. Editing an already-applied migration is refused;
+add a new one. One migration is destructive on a pre-cutover database: 0018
+drops `lists` and `list_items` and carries over only task items, so run
+`uv run subzero export-lists --out DIR` first (see [Tasks](#tasks)).
 
 ---
 

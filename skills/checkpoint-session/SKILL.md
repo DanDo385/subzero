@@ -72,8 +72,8 @@ before referring to it)
 
 3. **Read the result.** It reports exactly what was created, updated and
    skipped, plus how the content was classified. If `notes` is non-empty, it is
-   telling you something you should relay - a list it had to create, an item it
-   could not match, an artifact it could not attach.
+   telling you something you should relay - a project name it could not match,
+   an artifact it could not attach.
 
 ## Safeguards
 

@@ -76,6 +76,10 @@ or a local folder (`SUBZERO_STORAGE_BACKEND=local`), which suits a home server b
 
 **How do I update to a new version?**
 `git pull`, `uv sync`, `uv run subzero migrate`, `vercel deploy --prod`.
+One-time exception: if your database still has the old `lists` and `list_items`
+tables (anything from before the tasks cutover), run `uv run subzero export-lists
+--out DIR` after `uv sync` and **before** `migrate`. Migration 0018 drops those
+tables and carries over only task items; the export is your only copy of the rest.
 
 **How do I back up my data?**
 Your data is your Supabase database: Supabase keeps daily backups on paid plans, and you can export any

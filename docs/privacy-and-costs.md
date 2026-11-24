@@ -4,7 +4,7 @@
 
 | What | Where | Who can see it |
 | --- | --- | --- |
-| Memories, decisions, projects, lists, imported conversations | Your Supabase database | You (and Supabase as your host) |
+| Memories, decisions, projects, tasks, imported conversations | Your Supabase database | You (and Supabase as your host) |
 | Saved files (charts, PDFs, code) | Your Supabase Storage, in private buckets | You; the apps get short-lived download links |
 | Your original export `.zip` files | A separate private bucket, optional | You |
 | Notes | Your Obsidian folder, on your computer (and iCloud, if you put it there) | You |

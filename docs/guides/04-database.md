@@ -72,6 +72,12 @@ uv run subzero migrate
 uv run subzero check
 ```
 
+> **Reusing an older database?** If this Supabase project already holds data
+> from before the tasks cutover, run `uv run subzero export-lists --out DIR`
+> before `migrate`: migration 0018 drops the old `lists` and `list_items`
+> tables and carries over only task items. On a fresh project there is nothing
+> to export.
+
 ✅ `check` should report `database: connected, schema up to date`, `storage: buckets present and
 private`, and end with **All checks passed.** `check` also creates your two private storage folders
 ("buckets") in Supabase the first time.

@@ -48,6 +48,8 @@ plus separate items for the TypeSafe and Anthropic API keys (field `credential`)
 
 ```bash
 deploy/preflight.sh                                                         # 1Password users
+# On a database from before the tasks cutover, first: uv run subzero export-lists --out DIR
+# (migration 0018 drops lists/list_items; only task items are carried over).
 op run --env-file=deploy/admin.env.op -- uv run subzero migrate  # or: uv run ... migrate
 deploy/vercel-env.sh                                                        # or: deploy/vercel-env.sh .env.local
 vercel deploy --prod

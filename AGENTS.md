@@ -75,9 +75,10 @@ and health routes. Its lifespan opens the asyncpg pool and calls `build_services
 
 **Tools are thin.** `mcp/tools_*.py` only declare the schema (`Annotated[... , Field(description=)]`),
 enforce a scope with `auth=require_scopes(...)`, and delegate to a service in
-`memory/ sessions/ projects/ lists/ notes/ artifacts/ retrieval/ review/`. Business logic and SQL
-belong in the service, never in the tool module. Field descriptions are prompt surface — the model
-reads them — so they are written as instructions to the caller.
+`memory/ sessions/ projects/ notes/ artifacts/ retrieval/ review/` or to `tasks.py`
+(project next steps, rendered into vault notes). Business logic and SQL
+belong in the service, never in the tool module. Field descriptions are prompt surface, the model
+reads them, so they are written as instructions to the caller.
 
 **`models.py` is the MCP boundary.** Pydantic types with `extra="forbid"`; the `Literal` unions
 there (`Provenance`, `Sensitivity`, `StorageStatus`, `ArtifactType`, …) are the vocabulary the rest
@@ -93,9 +94,9 @@ is unavailable the result is marked `degraded`, the fallback deliberately refuse
 or write to the vault, and the object is queued for reclassification.
 
 **`session_checkpoint` is the shared write path** (`sessions/service.py`, the largest module). One
-transaction, and idempotent through deterministic keys — `(provider, provider_conversation_id)` for
-conversations, content hashes for decisions/memories/list items — never through caller bookkeeping.
-Preserve both properties when changing it.
+transaction, and idempotent through deterministic keys: `(provider, provider_conversation_id)` for
+conversations, content hashes for decisions/memories, normalized text per project for tasks,
+never through caller bookkeeping. Preserve both properties when changing it.
 
 **The cloud never reaches the Mac.** `obsidian/queue.py` only enqueues jobs (validated path,
 rendered content, `expected_sha256`); `src/obsidian_sync/` polls `/worker/*` outbound with a shared
@@ -146,9 +147,11 @@ read path that makes a model call (one, with a 2 s timeout). Pass vectors as `$n
 
 **Historical backfill is two passes.** Import screens sensitivity deterministically
 (`importers/sensitivity.py`, can only raise a level), then Jev classifies an excerpt (pass 1),
-cached by input in `classification_events.metadata.cache_key`. `extraction/deep.py` (pass 2)
-sends only conversations Jev marked `deep_extraction=yes` to Claude and writes the result through
-`session_checkpoint`. `reclassify-conversations` redoes pass 1 from stored messages.
+cached by input in `classification_events.metadata.cache_key`. Pass 2 is memory-lab:
+`memorylab/recover.py` applies the triage policy to classified sessions and routes them to
+layers, and `subzero memory-lab extract` sends the sessions `memorylab/layers.py` picks
+(vault and structured layers) to Claude, writing results through `session_checkpoint` plus
+`notes.upsert`. `reclassify-conversations` redoes pass 1 from stored messages.
 
 **The wiki graph lives in Postgres** (`note_edges`, `mocs`, `moc_memberships`; `wiki/service.py`).
 Links and maps render into a marked generated block at note-render time (`obsidian/render.py`),
@@ -162,7 +165,7 @@ to their 1Password Environment (`project-env`).
 
 ### Consumers outside `src/`
 
-- `skills/` - portable workflow skills, including the named search/save/email/vault actions.
+- `skills/` - portable workflow skills, including the named search/save/email actions.
 - `instructions/` — per-provider connector setup plus the shared custom instruction.
 - `scripts/` — thin wrappers over `subzero import <provider>` / `reclassify`.
 
@@ -183,15 +186,21 @@ are old enough. Active, pinned, and unknown runs stay.
 
 **Where a note goes.**
 
-- A note a person should read goes to the vault: record it in the session
-  checkpoint and the pipeline files it.
+- Session notes reach the vault only through memory-lab triage
+  (`memorylab/recover.py`, then `memory-lab extract`): a checkpoint never
+  writes a vault note by itself. Record the content in the session
+  checkpoint; triage decides the layer.
+- Something that cannot be placed goes to `00-Inbox/` with `inbox_add` and
+  leaves it through `review_reclassify` or the weekly analysis (guide 16).
 - A job or a message for another agent goes to the dispatch board
   (`subzero dispatch`, `subzero msg`, `subzero board` on 127.0.0.1). See
   `docs/guides/15-agents-messages-and-the-board.md`. The board never receives
   the device token. Hooks must never fail the harness.
-- A list is not Subzero state. Do not add list tools, list tables, or list
-  instructions. The list tools are removed. A separate list app connects and
-  manages lists.
+- Lists are not Subzero state. Do not add list tools, list tables, or list
+  instructions; the `lists` and `list_items` tables were exported with
+  `subzero export-lists` and dropped in migration 0018. Project next steps
+  are `tasks` rows (`src/subzero/tasks.py`); shopping lists and errands live
+  in the user's own apps.
 
 **Herdr and the browser.** Herdr commands run in the terminal. The browser
 extension captures chats and can open a bridge session with a CLI

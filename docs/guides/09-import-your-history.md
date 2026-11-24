@@ -115,8 +115,8 @@ uv run subzero memory-lab extract --limit 50 --apply   # start small, then raise
 To reduce cost, set `SUBZERO_EXTRACTION_MODEL=claude-sonnet-5` in `.env.local` (cheaper, still good),
 or keep `--limit` low to read only the best sessions per run.
 
-Old to-dos found in old chats are kept as context ("Unfinished at the time: ...") rather than added to
-your task lists, because most of them are long done.
+Old to-dos found in old chats are kept as context ("Unfinished at the time: ...") rather than added
+to your tasks, because most of them are long done.
 
 ## Later: re-sort after changes
 
