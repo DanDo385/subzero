@@ -262,4 +262,3 @@ async def push_edits(request: Request, services: Services) -> Response:
             applied.append({"vault_path": edit.get("vault_path"), "error": str(exc)})
 
     return JSONResponse({"applied": applied})
-

@@ -138,7 +138,6 @@ class Vault:
         return edits
 
 
-
 def note_id_of(text: str) -> str | None:
     match = _ID_FRONTMATTER.search(text)
     return match.group(1) if match else None

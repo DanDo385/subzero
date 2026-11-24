@@ -133,7 +133,6 @@ async def test_project_home_resolves_existing_project(client, services):
     assert result.classification["home"] == "projects/shared-memory"
 
 
-
 async def test_email_dry_run_through_mcp_never_calls_agentmail(client, services, monkeypatch):
     async def forbidden(*args, **kwargs):
         raise AssertionError("dry run attempted a network call")
