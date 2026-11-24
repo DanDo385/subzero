@@ -53,8 +53,8 @@ ABANDONED_AFTER = timedelta(days=1)
 #: The tail of a runner's output that is stored: 16 KB of text. A cap in
 #: characters, not bytes, so a cut never splits a UTF-8 sequence.
 OUTPUT_TAIL_CHARS = 16 * 1024
-#: A command is capped like a goal, and for kind='command' it also rides in
-#: the goal column, which the schema caps at the same length.
+#: A command or first_command is capped like a goal, and for kind='command'
+#: the command also rides in the goal column, capped at the same length.
 MAX_COMMAND_CHARS = 4000
 #: Runner-side timeout bounds, mirrored by a CHECK in migration 0021.
 TIMEOUT_MIN_S = 1
@@ -508,6 +508,7 @@ class AgentService:
             kind="command",
             goal=text,
             command=text,
+            first_command=None,
             worktree=worktree,
             space=space,
             timeout_s=self._checked_timeout(timeout_s),
@@ -527,27 +528,22 @@ class AgentService:
     ) -> dict[str, Any]:
         """Queue an interactive session for the runner to open.
 
-        ``first_command`` is typed into the session for the human to review;
-        the runner never executes it. It rides in ``goal``, because the
-        schema reserves ``command`` for kind='command': for a session job the
-        goal is the text to type, or says what to open when there is none.
+        ``first_command`` is stored in its own column: text the runner types
+        into the session for the human to review and never executes. ``goal``
+        stays a human description of the job either way.
         """
         typed = (first_command or "").strip() or None
         if typed is not None and len(typed) > MAX_COMMAND_CHARS:
             raise ValidationError(f"Keep the first command under {MAX_COMMAND_CHARS:,} characters.")
         place = (worktree or "").strip() or (space or "").strip()
-        if typed:
-            goal = typed
-        else:
-            goal = (
-                f"Open an interactive session in {place}."
-                if place
-                else "Open an interactive session."
-            )
+        goal = (
+            f"Open an interactive session in {place}." if place else "Open an interactive session."
+        )
         return await self._queue_exec(
             kind="session",
             goal=goal,
             command=None,
+            first_command=typed,
             worktree=worktree,
             space=space,
             timeout_s=None,
@@ -562,6 +558,7 @@ class AgentService:
         kind: str,
         goal: str,
         command: str | None,
+        first_command: str | None,
         worktree: str | None,
         space: str | None,
         timeout_s: int | None,
@@ -592,8 +589,8 @@ class AgentService:
                 """
                 INSERT INTO dispatch_jobs
                     (goal, target, routed_by, created_by, kind, space, worktree, cwd,
-                     command, timeout_s, keep_open)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *
+                     command, first_command, timeout_s, keep_open)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *
                 """,
                 goal,
                 chosen,
@@ -604,6 +601,7 @@ class AgentService:
                 _clean(worktree, 500),
                 cwd,
                 command,
+                first_command,
                 timeout_s,
                 keep_open,
             )

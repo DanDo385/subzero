@@ -138,7 +138,10 @@ the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goal
 `agents:exec` MCP tools `agent_run` and `agent_open`): the server never executes anything and
 nothing in `src/subzero/` shells out. The runner on the user's machine is the only piece that
 touches a shell, working in a `cwd` that `agents/exec_paths.py` resolved inside
-`SUBZERO_EXEC_ROOTS`. `agents:exec` is granted by name only: neither `DEFAULT_SCOPES` nor the
+`SUBZERO_EXEC_ROOTS`. For `kind='session'`, `goal` is a description and `first_command` is the
+text the runner types into the session for the human to review, never executing it; for
+`kind='command'`, `command` is what runs and `first_command` is NULL (a schema CHECK enforces
+both). `agents:exec` is granted by name only: neither `DEFAULT_SCOPES` nor the
 `"*"` policy shorthand includes it (see `EXEC_SCOPES`), so a wildcard policy cannot hand a chat
 app a shell. Executable jobs skip sigils and Jev (a command is user content, not
 classifier input), and a runner's `output` is user content too: stored as a tail capped at

@@ -198,8 +198,9 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "A command to type into the opened session for the human to review and "
-                    "run themselves. It is never executed by the runner."
+                    "Text the runner types into the opened session for the human to "
+                    "review. It is never executed by the runner, and the runner does not "
+                    "press Enter unless the caller asked for that with a trailing newline."
                 )
             ),
         ] = None,

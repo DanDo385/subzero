@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from uuid import UUID
 
+import asyncpg
 import httpx
 import pytest
 from fastmcp import Client
@@ -121,7 +122,8 @@ async def test_agent_open_queues_a_session_that_keeps_open(client, services, cod
     assert job["kind"] == "session"
     assert job["keep_open"] is True
     assert job["command"] is None  # the schema reserves it for kind='command'
-    assert job["goal"] == "uv run pytest"  # typed for the human, never executed
+    assert job["first_command"] == "uv run pytest"  # typed for the human, never executed
+    assert job["goal"] == "Open an interactive session in subzero."  # the description
     assert job["cwd"] == str(code_root / "subzero")
     assert (job["target"], job["routed_by"]) == ("claude", "sigil")
 
@@ -134,7 +136,18 @@ async def test_a_session_without_a_first_command_says_what_to_open(services, cod
     job = await services.agents.queue_session(worktree="subzero/cli-exec", space="ws-1")
     assert job["goal"] == "Open an interactive session in subzero/cli-exec."
     assert job["space"] == "ws-1"
+    assert job["first_command"] is None
     assert job["keep_open"] is True
+
+
+async def test_the_schema_refuses_first_command_on_a_command_job(services, code_root) -> None:
+    """The CHECK is the last gate: first_command belongs to kind='session' only."""
+    job = await services.agents.queue_command("true", worktree="subzero")
+    assert job["first_command"] is None
+    with pytest.raises(asyncpg.CheckViolationError):
+        await services.db.execute(
+            "UPDATE dispatch_jobs SET first_command = 'ls' WHERE id = $1", UUID(job["id"])
+        )
 
 
 async def test_over_long_command_bad_timeout_and_bad_worktree_are_refused(
@@ -161,6 +174,8 @@ async def test_the_service_refuses_bad_inputs_before_any_schema(services, code_r
         await services.agents.queue_command("true", timeout_s=1801)
     with pytest.raises(ValidationError):
         await services.agents.queue_command("true", target="nobody")
+    with pytest.raises(ValidationError):
+        await services.agents.queue_session(first_command="x" * 4001)
     assert await services.db.fetchval("SELECT count(*) FROM dispatch_jobs") == 0
 
 

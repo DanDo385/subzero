@@ -16,12 +16,14 @@
 -- Reverse:
 --   ALTER TABLE dispatch_jobs
 --       DROP CONSTRAINT IF EXISTS dispatch_jobs_timeout_range,
+--       DROP CONSTRAINT IF EXISTS dispatch_jobs_first_command_needs_session_kind,
 --       DROP CONSTRAINT IF EXISTS dispatch_jobs_command_needs_command_kind,
 --       DROP COLUMN IF EXISTS kind,
 --       DROP COLUMN IF EXISTS space,
 --       DROP COLUMN IF EXISTS worktree,
 --       DROP COLUMN IF EXISTS cwd,
 --       DROP COLUMN IF EXISTS command,
+--       DROP COLUMN IF EXISTS first_command,
 --       DROP COLUMN IF EXISTS timeout_s,
 --       DROP COLUMN IF EXISTS keep_open,
 --       DROP COLUMN IF EXISTS exit_code,
@@ -42,6 +44,10 @@ ALTER TABLE dispatch_jobs ADD COLUMN IF NOT EXISTS cwd TEXT;
 -- kind='command' only, enforced by the CHECK below.
 ALTER TABLE dispatch_jobs ADD COLUMN IF NOT EXISTS command TEXT
     CHECK (command IS NULL OR length(command) BETWEEN 1 AND 4000);
+-- Text the runner types into the session for the human to review, never
+-- executed by the runner. kind='session' only, enforced by the CHECK below.
+ALTER TABLE dispatch_jobs ADD COLUMN IF NOT EXISTS first_command TEXT
+    CHECK (first_command IS NULL OR length(first_command) BETWEEN 1 AND 4000);
 ALTER TABLE dispatch_jobs ADD COLUMN IF NOT EXISTS timeout_s INTEGER;
 ALTER TABLE dispatch_jobs ADD COLUMN IF NOT EXISTS keep_open BOOLEAN NOT NULL DEFAULT false;
 -- What came back from the runner. output is user content: a tail only,
@@ -54,6 +60,9 @@ ALTER TABLE dispatch_jobs ADD COLUMN IF NOT EXISTS output_truncated BOOLEAN NOT 
 ALTER TABLE dispatch_jobs DROP CONSTRAINT IF EXISTS dispatch_jobs_command_needs_command_kind;
 ALTER TABLE dispatch_jobs ADD CONSTRAINT dispatch_jobs_command_needs_command_kind
     CHECK (command IS NULL OR kind = 'command');
+ALTER TABLE dispatch_jobs DROP CONSTRAINT IF EXISTS dispatch_jobs_first_command_needs_session_kind;
+ALTER TABLE dispatch_jobs ADD CONSTRAINT dispatch_jobs_first_command_needs_session_kind
+    CHECK (first_command IS NULL OR kind = 'session');
 ALTER TABLE dispatch_jobs DROP CONSTRAINT IF EXISTS dispatch_jobs_timeout_range;
 ALTER TABLE dispatch_jobs ADD CONSTRAINT dispatch_jobs_timeout_range
     CHECK (timeout_s IS NULL OR timeout_s BETWEEN 1 AND 1800);
