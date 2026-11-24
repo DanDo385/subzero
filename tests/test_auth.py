@@ -38,7 +38,8 @@ def _settings(**overrides: Any) -> Settings:
 
 
 def test_expand_shorthands() -> None:
-    assert expand(["*"]) == set(ALL_SCOPES)
+    assert expand(["*"]) == set(ALL_SCOPES) - set(scopes.EXEC_SCOPES)
+    assert expand(["*", scopes.AGENTS_EXEC]) == set(ALL_SCOPES)
     assert expand(["read"]) == {s for s in ALL_SCOPES if s.endswith(":read")}
     assert expand([scopes.MEMORY_WRITE]) == {scopes.MEMORY_WRITE}
 
@@ -54,14 +55,22 @@ def test_default_is_read_only() -> None:
 
 
 def test_an_unmatched_client_never_gets_exec() -> None:
-    """agents:exec is not a :read scope, so the read-only default cannot grant it."""
+    """agents:exec is granted by name only: not by the default, "read" or "*"."""
     granted = resolve_client_scopes({}, client_id="new-client", app=None)
     assert scopes.AGENTS_EXEC not in granted
     assert scopes.AGENTS_EXEC not in expand(["read"])
-    # "*" means every scope, agents:exec included: only name it for clients
-    # the operator owns. A policy that wants everything but exec lists scopes.
-    assert scopes.AGENTS_EXEC in expand(["*"])
+    # The quickstart policy in .env.local.example is {"*": ["*"]}, so a
+    # wildcard that carried exec would hand every chat app a shell on the
+    # user's machine.
+    assert scopes.AGENTS_EXEC not in expand(["*"])
+    assert scopes.AGENTS_EXEC not in resolve_client_scopes(
+        {"*": ["*"]}, client_id="a-chatgpt-client", app="chatgpt"
+    )
     assert scopes.AGENTS_EXEC in expand([scopes.AGENTS_EXEC])
+    assert scopes.AGENTS_EXEC in expand(["*", scopes.AGENTS_EXEC])
+    assert scopes.AGENTS_EXEC in resolve_client_scopes(
+        {"my-cli": ["*", scopes.AGENTS_EXEC]}, client_id="my-cli", app=None
+    )
 
 
 def test_exact_client_id_wins_over_app_match() -> None:

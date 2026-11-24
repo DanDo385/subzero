@@ -49,11 +49,11 @@ EMAIL_SEND = "email:send"
 AGENTS_READ = "agents:read"
 AGENTS_WRITE = "agents:write"
 #: Queues commands and interactive sessions for the runner on the user's own
-#: machine to execute. Deliberately not a ``:read`` scope, so DEFAULT_SCOPES
-#: can never grant it: a client that matches no policy entry cannot queue
-#: execution. Name the clients that may have it in SUBZERO_CLIENT_SCOPE_POLICY
-#: (the user's own CLI and harness clients); chat apps should not get it. Note
-#: that the "*" shorthand means every scope, agents:exec included.
+#: machine to execute. This is remote execution, so it is granted by name only:
+#: it is not a ``:read`` scope, so DEFAULT_SCOPES can never include it, and the
+#: ``"*"`` shorthand deliberately skips it. A policy entry has to say
+#: ``agents:exec`` for a client to get it. Name the user's own CLI and harness
+#: clients; chat apps should not have it.
 AGENTS_EXEC = "agents:exec"
 
 ALL_SCOPES: tuple[str, ...] = (
@@ -77,6 +77,15 @@ ALL_SCOPES: tuple[str, ...] = (
 
 READ_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s.endswith(":read"))
 
+#: Scopes the ``"*"`` shorthand never grants. Queueing a shell command on the
+#: user's machine is remote execution, and the quickstart policy shipped in
+#: ``.env.local.example`` is ``{"*": ["*"]}``, so a wildcard has to mean
+#: "everything except this". Grant it by name.
+EXEC_SCOPES: frozenset[str] = frozenset({AGENTS_EXEC})
+
+#: What ``"*"`` expands to.
+WILDCARD_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s not in EXEC_SCOPES)
+
 #: Granted when a client matches no policy entry and no default is configured.
 #: Read-only by default: a newly connected client can retrieve context but
 #: cannot mutate anything until the operator says so.
@@ -86,15 +95,16 @@ DEFAULT_SCOPES: tuple[str, ...] = READ_SCOPES
 def expand(scopes: list[str] | tuple[str, ...]) -> set[str]:
     """Expand policy shorthands.
 
-    ``"*"`` means every scope; ``"read"`` means every ``:read`` scope; anything
-    else must be a literal scope name. Unknown names are dropped rather than
-    silently widening access.
+    ``"*"`` means every scope except :data:`EXEC_SCOPES`; ``"read"`` means every
+    ``:read`` scope; anything else must be a literal scope name, so
+    ``agents:exec`` is granted only by naming it. Unknown names are dropped
+    rather than silently widening access.
     """
     out: set[str] = set()
     for raw in scopes:
         scope = raw.strip()
         if scope == "*":
-            out.update(ALL_SCOPES)
+            out.update(WILDCARD_SCOPES)
         elif scope == "read":
             out.update(READ_SCOPES)
         elif scope in ALL_SCOPES:

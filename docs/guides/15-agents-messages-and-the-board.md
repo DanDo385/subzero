@@ -125,10 +125,11 @@ command for your machine (`agent_run "uv run pytest -q"` with a `worktree` like
 `subzero/cli-exec`) or an interactive session (`agent_open`). The server only stores the job: the
 runner on your machine claims it and is the only piece that touches a shell. The worktree must
 exist under one of your `SUBZERO_EXEC_ROOTS` (by default `~/Code` and `~/Code/worktrees`);
-anything else is refused before it is queued. Grant `agents:exec` in `SUBZERO_CLIENT_SCOPE_POLICY`
-only to your own CLI and harness clients, never to chat apps. Results come back through the same
-finish path as any job: an exit code plus the last 16 KB of output, and a non-zero exit is a
-failure even when the output looks fine.
+anything else is refused before it is queued. Grant `agents:exec` by name in
+`SUBZERO_CLIENT_SCOPE_POLICY`, only to your own CLI and harness clients: the `"*"` shorthand
+deliberately excludes it, so a wildcard policy can never hand a chat app a shell. Results come
+back through the same finish path as any job: an exit code plus the last 16 KB of output, and a
+non-zero exit is a failure even when the output looks fine.
 
 ## 6. Lessons where you type the important part
 

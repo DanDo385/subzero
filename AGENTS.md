@@ -138,7 +138,9 @@ the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goal
 `agents:exec` MCP tools `agent_run` and `agent_open`): the server never executes anything and
 nothing in `src/subzero/` shells out. The runner on the user's machine is the only piece that
 touches a shell, working in a `cwd` that `agents/exec_paths.py` resolved inside
-`SUBZERO_EXEC_ROOTS`. Executable jobs skip sigils and Jev (a command is user content, not
+`SUBZERO_EXEC_ROOTS`. `agents:exec` is granted by name only: neither `DEFAULT_SCOPES` nor the
+`"*"` policy shorthand includes it (see `EXEC_SCOPES`), so a wildcard policy cannot hand a chat
+app a shell. Executable jobs skip sigils and Jev (a command is user content, not
 classifier input), and a runner's `output` is user content too: stored as a tail capped at
 `OUTPUT_TAIL_CHARS`, never sent to the classifier, the embedder or any external call, and
 returned only to the caller. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`)
