@@ -16,6 +16,7 @@ from typing import Any, NoReturn
 import click
 
 from subzero import client, prompt, sigils
+from subzero.agents import runner
 
 HOOK_EVENTS = {
     "SessionStart": ("session-start", 15),
@@ -398,6 +399,63 @@ def register(main: click.Group) -> None:
             body["task"] = task
         _call("POST", f"/api/v1/agents/{session['id']}/beat", json_body=body)
         click.echo(f"{session['name']}: {status}")
+
+    @agent.command(name="run")
+    @click.option(
+        "--as", "targets", multiple=True, required=True, help="Agent name(s) to take jobs for."
+    )
+    @click.option("--once", is_flag=True, help="Claim at most one job, then exit (the default).")
+    @click.option("--loop", "loop_", is_flag=True, help="Keep claiming until interrupted.")
+    @click.option(
+        "--interval",
+        default=runner.DEFAULT_INTERVAL_S,
+        show_default=True,
+        type=float,
+        help="Seconds between polls in --loop mode.",
+    )
+    @click.option(
+        "--pane",
+        default=None,
+        help="herdr pane id for goal jobs with a space (default: the only pane with an agent).",
+    )
+    @click.option(
+        "--open",
+        "open_repo",
+        is_flag=True,
+        help="Goal jobs without a space: also open the repo with herdr-axi.",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Check the environment and print the plan for queued jobs; claim nothing.",
+    )
+    def agent_run(
+        targets: tuple[str, ...],
+        once: bool,
+        loop_: bool,
+        interval: float,
+        pane: str | None,
+        open_repo: bool,
+        dry_run: bool,
+    ) -> None:
+        """Execute queued dispatch jobs here, through tmux-axi and herdr-axi only."""
+        if once and loop_:
+            _fail("Pick one of --once or --loop, not both.")
+        session = _current_session()
+        if session is None and not dry_run:
+            _fail("No session for this folder. Run `subzero agent start --harness runner` first.")
+        the_runner = runner.Runner(
+            targets=targets,
+            session_id=session["id"] if session else None,
+            echo=click.echo,
+            pane=pane,
+            open_repo=open_repo,
+        )
+        try:
+            code = the_runner.run(loop=loop_, interval=interval, dry_run=dry_run)
+        except (client.ClientError, runner.RunnerSetupError) as exc:
+            _fail(str(exc))
+        sys.exit(code)
 
     @main.command()
     @click.argument("to")
