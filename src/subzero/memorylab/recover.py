@@ -40,6 +40,33 @@ from subzero.util import slugify, truncate_for_budget
 
 logger = get_logger(__name__)
 
+#: Decisions written per round trip. The Supabase pooler costs about 175 ms a
+#: statement, so one row at a time put 5,629 sessions past a quarter of an hour.
+UPSERT_BATCH = 500
+
+_UPSERT_SQL = """
+INSERT INTO memory_triage (
+    conversation_id, classification_event_id, questions_version, outcome,
+    bucket, reason, gate, candidates, scores, note_id, layers, decided_at
+)
+SELECT r.conversation_id, r.classification_event_id, $2, r.outcome, r.bucket,
+       r.reason, r.gate, r.candidates, r.scores, r.note_id, r.layers, now()
+FROM jsonb_to_recordset($1::jsonb) AS r(
+    conversation_id uuid, classification_event_id uuid, outcome text,
+    bucket text, reason text, gate text, candidates text[], scores jsonb,
+    note_id uuid, layers text[]
+)
+ON CONFLICT (conversation_id) DO UPDATE SET
+    classification_event_id = EXCLUDED.classification_event_id,
+    questions_version = EXCLUDED.questions_version,
+    outcome = EXCLUDED.outcome, bucket = EXCLUDED.bucket,
+    reason = EXCLUDED.reason, gate = EXCLUDED.gate,
+    candidates = EXCLUDED.candidates, scores = EXCLUDED.scores,
+    note_id = coalesce(EXCLUDED.note_id, memory_triage.note_id),
+    layers = EXCLUDED.layers,
+    decided_at = now()
+"""
+
 _EVENTS_SQL = """
 SELECT DISTINCT ON (e.object_id)
        e.id AS event_id, e.object_id AS conversation_id, e.answers,
@@ -225,6 +252,35 @@ async def _apply(services: Services, row: Any, decision: Triage) -> UUID | None:
     )
 
 
+def _pending_row(row: Any, decision: Triage, note_id: UUID | None) -> dict[str, Any]:
+    """One decision, as the JSON ``_UPSERT_SQL`` unpacks back into columns."""
+    return {
+        "conversation_id": str(row["conversation_id"]),
+        "classification_event_id": str(row["event_id"]),
+        "outcome": decision.outcome,
+        "bucket": decision.bucket,
+        "reason": decision.reason,
+        "gate": decision.gate,
+        "candidates": decision.candidates,
+        "scores": decision.scores,
+        "note_id": str(note_id) if note_id else None,
+        "layers": decision.layers,
+    }
+
+
+async def _flush(services: Services, pending: dict[str, dict[str, Any]]) -> None:
+    """Write a batch of decisions in one round trip and empty the buffer.
+
+    Keyed by conversation so a batch can never ask Postgres to update the same
+    row twice, and still idempotent: writing the same decisions again leaves
+    the same table.
+    """
+    if not pending:
+        return
+    await services.db.execute(_UPSERT_SQL, list(pending.values()), QUESTIONS_VERSION)
+    pending.clear()
+
+
 def decide(row: Any) -> Triage:
     answers = row["answers"]
     if isinstance(answers, str):
@@ -263,6 +319,7 @@ async def recover(
     report = RecoveryReport(dry_run=dry_run)
     rows = await services.db.fetch(_EVENTS_SQL, QUESTIONS_VERSION)
     decided: list[tuple[Any, Triage]] = []
+    pending: dict[str, dict[str, Any]] = {}
     for row in rows:
         if limit is not None and report.seen >= limit:
             break
@@ -290,34 +347,10 @@ async def recover(
         note_id = await _apply(services, row, decision)
         if note_id:
             report.notes_written += 1
-        await services.db.execute(
-            """
-            INSERT INTO memory_triage (
-                conversation_id, classification_event_id, questions_version, outcome,
-                bucket, reason, gate, candidates, scores, note_id, layers, decided_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11, now())
-            ON CONFLICT (conversation_id) DO UPDATE SET
-                classification_event_id = EXCLUDED.classification_event_id,
-                questions_version = EXCLUDED.questions_version,
-                outcome = EXCLUDED.outcome, bucket = EXCLUDED.bucket,
-                reason = EXCLUDED.reason, gate = EXCLUDED.gate,
-                candidates = EXCLUDED.candidates, scores = EXCLUDED.scores,
-                note_id = coalesce(EXCLUDED.note_id, memory_triage.note_id),
-                layers = EXCLUDED.layers,
-                decided_at = now()
-            """,
-            row["conversation_id"],
-            row["event_id"],
-            QUESTIONS_VERSION,
-            decision.outcome,
-            decision.bucket,
-            decision.reason,
-            decision.gate,
-            decision.candidates,
-            decision.scores,
-            note_id,
-            decision.layers,
-        )
+        pending[str(row["conversation_id"])] = _pending_row(row, decision, note_id)
+        if len(pending) >= UPSERT_BATCH:
+            await _flush(services, pending)
+    await _flush(services, pending)
     if not dry_run and report.seen:
         await write_run_notes(services, report, decided)
     return report

@@ -213,3 +213,49 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     assert "Editor habits" in candidates
 
     assert await write_structured(services) >= 0
+
+
+_STORED_SQL = """
+SELECT conversation_id, classification_event_id, questions_version, outcome, bucket,
+       reason, gate, candidates, scores, note_id, layers
+FROM memory_triage ORDER BY conversation_id
+"""
+
+
+@pytest.mark.asyncio
+async def test_decisions_are_written_in_batches_and_stay_idempotent(
+    services, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """5,629 sessions one upsert at a time took a quarter of an hour over the
+    pooler. Batching must not change what ends up in the table."""
+    import subzero.memorylab.recover as recover_module
+
+    services.classification = ClassificationService(services.db, TriageJev(), services.settings)
+    await ImportRunner(services).run(
+        _zip(tmp_path / "export.zip"), provider="claude", store_archive=False
+    )
+
+    monkeypatch.setattr(recover_module, "UPSERT_BATCH", 3)
+    real_execute = services.db.execute
+    batch_sizes: list[int] = []
+
+    async def counting_execute(query: str, *args: Any) -> Any:
+        if "INSERT INTO memory_triage" in query:
+            batch_sizes.append(len(args[0]))
+        return await real_execute(query, *args)
+
+    services.db.execute = counting_execute  # type: ignore[method-assign]
+    try:
+        report = await recover(services, dry_run=False)
+    finally:
+        services.db.execute = real_execute  # type: ignore[method-assign]
+
+    assert report.seen == 4
+    assert batch_sizes == [3, 1]  # two round trips for four sessions, not four
+    stored = [dict(r) for r in await services.db.fetch(_STORED_SQL)]
+    assert len(stored) == 4
+    assert all(r["questions_version"] == QUESTIONS_VERSION for r in stored)
+    assert sum(1 for r in stored if r["note_id"] is not None) == 1  # the Inbox draft
+
+    await recover(services, dry_run=False, redo=True)
+    assert [dict(r) for r in await services.db.fetch(_STORED_SQL)] == stored
