@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import parse_qs, urlsplit
 
@@ -268,6 +269,19 @@ class Settings(BaseSettings):
         }
     )
 
+    # ------------------------------------------------------------------ agents
+    #: Directories a caller-supplied `worktree` resolves against for exec jobs
+    #: (the agent_run / agent_open MCP tools and dispatch). Comma-separated or
+    #: a JSON list; `~` is expanded. A relative shape is tried against each
+    #: root and the first that exists wins (see agents/exec_paths.py), so with
+    #: the defaults a bare "repo" finds ~/Code/repo and "repo/slug" finds
+    #: ~/Code/worktrees/repo/slug. The server resolves; the runner on the
+    #: machine re-validates before it executes anything, because the two do
+    #: not trust each other's checks.
+    exec_roots: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["~/Code", "~/Code/worktrees"]
+    )
+
     # ------------------------------------------------------------ retrieval
     default_token_budget: int = 2500
     context_search_default_limit: int = 10
@@ -279,6 +293,7 @@ class Settings(BaseSettings):
         "allowed_hosts",
         "allowed_redirect_uris",
         "no_external_sensitivity",
+        "exec_roots",
         mode="before",
     )
     @classmethod
@@ -397,6 +412,14 @@ class Settings(BaseSettings):
             problems.append(
                 "Require 0 < SUBZERO_REVIEW_CONFIDENCE <= SUBZERO_AUTO_ROUTE_CONFIDENCE <= 1."
             )
+
+        for root in self.exec_roots:
+            expanded = Path(str(root).strip()).expanduser()
+            if not str(root).strip() or not expanded.is_absolute():
+                problems.append(
+                    "SUBZERO_EXEC_ROOTS entries must be absolute directories "
+                    f"('~' is fine): {root!r}."
+                )
 
         legacy = legacy_env_names()
         if legacy:

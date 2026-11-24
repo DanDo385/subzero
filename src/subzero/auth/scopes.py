@@ -1,8 +1,14 @@
 """Capability scopes.
 
-The vocabulary is intentionally small. Every MCP tool declares the scopes it
-needs; FastMCP turns an unmet requirement into a spec-correct
-``403 insufficient_scope`` challenge naming exactly what is missing.
+Every MCP tool declares the scopes it needs. An unmet per-tool requirement is
+enforced by visibility: FastMCP filters the tool out of the advertised list
+(``_component_auth_allows`` in fastmcp/server/server.py) and a direct call is
+refused as an unknown tool ("Unknown tool: '<name>'", isError=true,
+fastmcp/server/mixins/mcp_operations.py:321). The spec-correct
+``403 insufficient_scope`` challenge (``InsufficientScopeError`` in
+fastmcp/server/middleware/authorization.py) fires only for server-global auth
+checks, which Subzero does not install: the denial a scope-less client sees is
+a hidden tool, not a 403.
 
 HOW SCOPES ARE GRANTED
 ----------------------
@@ -16,8 +22,13 @@ Two paths, chosen by ``SUBZERO_AUTH_MODE``:
   registered OAuth client's id or on the app its redirect URIs belong to. This is a real, enforced boundary - it is just
   administered by the operator rather than requested by the client.
 
-Both paths end with the scopes on ``AccessToken.scopes``, so tool code and the
-challenge machinery do not care which was used.
+``agents:exec`` is granted on either path only to clients the operator named
+for it: it is not a ``:read`` scope, so the read-only default for an
+unmatched client can never include it. Grant it to the user's own CLI and
+harness clients only; chat apps should not get it.
+
+Both paths end with the scopes on ``AccessToken.scopes``, so tool code and
+the enforcement machinery do not care which was used.
 """
 
 from __future__ import annotations
@@ -37,6 +48,13 @@ REVIEW = "review:write"
 EMAIL_SEND = "email:send"
 AGENTS_READ = "agents:read"
 AGENTS_WRITE = "agents:write"
+#: Queues commands and interactive sessions for the runner on the user's own
+#: machine to execute. Deliberately not a ``:read`` scope, so DEFAULT_SCOPES
+#: can never grant it: a client that matches no policy entry cannot queue
+#: execution. Name the clients that may have it in SUBZERO_CLIENT_SCOPE_POLICY
+#: (the user's own CLI and harness clients); chat apps should not get it. Note
+#: that the "*" shorthand means every scope, agents:exec included.
+AGENTS_EXEC = "agents:exec"
 
 ALL_SCOPES: tuple[str, ...] = (
     CONTEXT_READ,
@@ -54,6 +72,7 @@ ALL_SCOPES: tuple[str, ...] = (
     EMAIL_SEND,
     AGENTS_READ,
     AGENTS_WRITE,
+    AGENTS_EXEC,
 )
 
 READ_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s.endswith(":read"))

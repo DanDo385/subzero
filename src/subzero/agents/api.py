@@ -95,6 +95,15 @@ def _str(body: dict[str, Any], key: str) -> str | None:
     return value
 
 
+def _int(body: dict[str, Any], key: str) -> int | None:
+    value = body.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(f"{key} must be a whole number.")
+    return value
+
+
 async def start(request: Request, device: dict[str, Any]) -> Any:
     body = await _body(request)
     return await get_services().agents.start(
@@ -162,6 +171,8 @@ async def dispatch(request: Request, device: dict[str, Any]) -> Any:
         _str(body, "goal") or "",
         mode=_str(body, "mode") or "scout",
         target=_str(body, "target"),
+        space=_str(body, "space"),
+        worktree=_str(body, "worktree"),
         created_by=_str(body, "created_by") or str(device.get("device_name") or "cli"),
     )
 
@@ -181,6 +192,8 @@ async def finish(request: Request, device: dict[str, Any]) -> Any:
         _uuid(request.path_params["job_id"]),
         status=_str(body, "status") or "done",
         result=_str(body, "result"),
+        exit_code=_int(body, "exit_code"),
+        output=_str(body, "output"),
     )
 
 

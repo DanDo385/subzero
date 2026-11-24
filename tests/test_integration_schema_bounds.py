@@ -34,6 +34,7 @@ REQUIRED: dict[str, dict[str, Any]] = {
     "artifact_begin_upload": {"title": "t", "filename": "t.txt", "mime_type": "text/plain"},
     "artifact_search": {},
     "review_list": {},
+    "agent_run": {"command": "true"},
 }
 
 #: Numeric parameters allowed to have no declared maximum, and why.

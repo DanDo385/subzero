@@ -53,6 +53,17 @@ def test_default_is_read_only() -> None:
     assert not any(s.endswith(":write") for s in granted)
 
 
+def test_an_unmatched_client_never_gets_exec() -> None:
+    """agents:exec is not a :read scope, so the read-only default cannot grant it."""
+    granted = resolve_client_scopes({}, client_id="new-client", app=None)
+    assert scopes.AGENTS_EXEC not in granted
+    assert scopes.AGENTS_EXEC not in expand(["read"])
+    # "*" means every scope, agents:exec included: only name it for clients
+    # the operator owns. A policy that wants everything but exec lists scopes.
+    assert scopes.AGENTS_EXEC in expand(["*"])
+    assert scopes.AGENTS_EXEC in expand([scopes.AGENTS_EXEC])
+
+
 def test_exact_client_id_wins_over_app_match() -> None:
     policy = {"abc123": ["memory:read"], "chatgpt": ["*"]}
     granted = resolve_client_scopes(policy, client_id="abc123", app="chatgpt")

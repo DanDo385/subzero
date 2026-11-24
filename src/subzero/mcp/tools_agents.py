@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal
+from uuid import UUID
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
@@ -43,6 +44,26 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = "scout",
+        space: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "herdr workspace id or label the job belongs to, when the user named "
+                    "one. Stored as given; herdr is the authority on whether it exists."
+                )
+            ),
+        ] = None,
+        worktree: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Where the work lives: 'repo/slug' for a worktree under "
+                    "~/Code/worktrees, 'repo' for a checkout under ~/Code, or an absolute "
+                    "path inside a configured exec root. Resolved on the server and "
+                    "refused if it does not exist."
+                )
+            ),
+        ] = None,
     ) -> ToolResult:
         """Queue a job for the user's coding agents (firstmate crew, Claude Code, ...).
 
@@ -53,9 +74,169 @@ def register(mcp: FastMCP) -> None:
         """
         principal = current_principal()
         job = await get_services().agents.dispatch(
-            goal, mode=mode, created_by=principal.provider or "chat"
+            goal,
+            mode=mode,
+            created_by=principal.provider or "chat",
+            space=space,
+            worktree=worktree,
         )
         line = f"Queued for {job['target']} as {job['mode']} ({job['routed_by']})."
+        return text_and_structured(line, job)
+
+    @mcp.tool(
+        name="agent_run",
+        tags={"agents", "write"},
+        auth=require_scopes(scopes.AGENTS_EXEC),
+        annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
+        output_schema=object_output_schema(),
+    )
+    async def agent_run(
+        command: Annotated[
+            str,
+            Field(
+                description=(
+                    "The exact command to run and nothing chained onto it: no '&& rm -rf', "
+                    "no force-push tail, one command per job. When the result comes back, "
+                    "report the exit code honestly: a non-zero exit is a failure even when "
+                    "the output looks fine."
+                )
+            ),
+        ],
+        worktree: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Where it runs: 'repo/slug' for a worktree under ~/Code/worktrees, "
+                    "'repo' for a checkout under ~/Code, or an absolute path inside a "
+                    "configured exec root. Refused if it does not exist."
+                )
+            ),
+        ] = None,
+        space: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "herdr workspace id or label, when the command belongs to one. Stored "
+                    "as given; herdr decides whether it knows it."
+                )
+            ),
+        ] = None,
+        timeout_s: Annotated[
+            int,
+            Field(
+                ge=1,
+                le=1800,
+                description="Seconds the runner gives the command before killing it.",
+            ),
+        ] = 120,
+        target: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Which agent's runner executes it (claude, codex, grok, gemini, pi, "
+                    "crew). Without one, any free runner takes it."
+                )
+            ),
+        ] = None,
+    ) -> ToolResult:
+        """Queue one command to run on the user's machine.
+
+        The job is queued, not started: the server executes nothing, and the
+        runner on the user's machine claims the job and does the running.
+        Call when the user asks for a specific command on their own machine
+        (a build, a test run, a status check). Tell the user it is queued and
+        which target it went to.
+        """
+        principal = current_principal()
+        services = get_services()
+        job = await services.agents.queue_command(
+            command,
+            worktree=worktree,
+            space=space,
+            timeout_s=timeout_s,
+            target=target,
+            created_by=principal.provider or "chat",
+        )
+        await services.audit.record(
+            tool="agent_run",
+            action="create",
+            object_type="dispatch_job",
+            object_id=UUID(job["id"]),
+            metadata={"cwd": job["cwd"], "timeout_s": job["timeout_s"], "target": job["target"]},
+        )
+        line = f"Queued for {job['target']}: the machine's runner executes it, not this server."
+        return text_and_structured(line, job)
+
+    @mcp.tool(
+        name="agent_open",
+        tags={"agents", "write"},
+        auth=require_scopes(scopes.AGENTS_EXEC),
+        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+        output_schema=object_output_schema(),
+    )
+    async def agent_open(
+        worktree: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Where the session opens: 'repo/slug' for a worktree under "
+                    "~/Code/worktrees, 'repo' for a checkout under ~/Code, or an absolute "
+                    "path inside a configured exec root. Refused if it does not exist."
+                )
+            ),
+        ] = None,
+        space: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "herdr workspace id or label to open the session in. Stored as given; "
+                    "herdr decides whether it knows it."
+                )
+            ),
+        ] = None,
+        first_command: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "A command to type into the opened session for the human to review and "
+                    "run themselves. It is never executed by the runner."
+                )
+            ),
+        ] = None,
+        target: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Which agent's runner opens it (claude, codex, grok, gemini, pi, crew). "
+                    "Without one, any free runner takes it."
+                )
+            ),
+        ] = None,
+    ) -> ToolResult:
+        """Queue opening an interactive session on the user's machine.
+
+        The job is queued, not started: the runner opens the session in the
+        resolved folder or herdr workspace and leaves it open for the user.
+        Call when the user asks to open a terminal or session somewhere. Tell
+        the user it is queued and which target it went to.
+        """
+        principal = current_principal()
+        services = get_services()
+        job = await services.agents.queue_session(
+            worktree=worktree,
+            space=space,
+            first_command=first_command,
+            target=target,
+            created_by=principal.provider or "chat",
+        )
+        await services.audit.record(
+            tool="agent_open",
+            action="create",
+            object_type="dispatch_job",
+            object_id=UUID(job["id"]),
+            metadata={"cwd": job["cwd"], "timeout_s": job["timeout_s"], "target": job["target"]},
+        )
+        line = f"Queued for {job['target']}: the runner opens the session on the machine."
         return text_and_structured(line, job)
 
     @mcp.tool(

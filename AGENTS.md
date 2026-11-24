@@ -134,9 +134,16 @@ only names an existing project and never creates one.
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
 tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
 the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
-`scout`. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`) runs on each machine:
-hooks must never fail the harness, and the board serves only 127.0.0.1 and never sends the device
-token to the page.
+`scout`. `dispatch_jobs` also carries executable intent (`kind='command'|'session'`, queued by the
+`agents:exec` MCP tools `agent_run` and `agent_open`): the server never executes anything and
+nothing in `src/subzero/` shells out. The runner on the user's machine is the only piece that
+touches a shell, working in a `cwd` that `agents/exec_paths.py` resolved inside
+`SUBZERO_EXEC_ROOTS`. Executable jobs skip sigils and Jev (a command is user content, not
+classifier input), and a runner's `output` is user content too: stored as a tail capped at
+`OUTPUT_TAIL_CHARS`, never sent to the classifier, the embedder or any external call, and
+returned only to the caller. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`)
+runs on each machine: hooks must never fail the harness, and the board serves only 127.0.0.1 and
+never sends the device token to the page.
 
 **Embeddings are optional.** `SUBZERO_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
 full-text search alone, so nothing may assume a vector is present. When a provider is set,

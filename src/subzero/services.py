@@ -108,7 +108,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
         vault_paths=vault_paths,
         oauth_kv=PostgresKeyValue(db),
         email=EmailService(db, settings),
-        agents=AgentService(db, classifier),
+        agents=AgentService(db, classifier, settings),
         bridge=bridge,
     )
 
