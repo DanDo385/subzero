@@ -64,7 +64,7 @@ are stored through the same canonical writers as imported conversations.
 | --- | --- | --- |
 | `database: cannot connect (InvalidPasswordError)` | The password in the connection string is wrong. | Reset it in Supabase (**Project Settings → Database**) to letters and numbers only, update `SUBZERO_DATABASE_URL`. |
 | `database: cannot connect (gaierror / timeout)` | The address can't be reached. | Use Supabase's **Transaction pooler** string, not *Direct connection*. |
-| `N pending migrations` | New database changes haven't been applied. | Run `uv run subzero export-lists --out DIR` first: migration 0018 drops the old `lists` and `list_items` tables and only task items are carried over. Then `uv run subzero migrate`. |
+| `N pending migrations` | New database changes haven't been applied. | Run `uv run subzero export-lists --out DIR` first: migration 0020 drops the old `lists` and `list_items` tables and only task items are carried over. Then `uv run subzero migrate`. |
 | Everything stopped working after a week of not using it | Supabase paused the free project. | Resume it in the Supabase dashboard. |
 
 ## Online (Vercel)
@@ -120,7 +120,7 @@ answers predate the triage questions.
 
 **Recovered notes never reach Obsidian.** The Obsidian helper rejects folders it does
 not know. Update it to this version and restart it, so it accepts `25-Areas`,
-`Permanent` and `Experiments` ([guide 16](guides/16-memory-lab.md)).
+`Permanent` and `Experiments` ([guide 17](guides/17-memory-lab.md)).
 
 **`memory-lab extract` reports sessions under `failed` and `errors`.** Claude answered
 for those sessions but writing the result to the database did not finish, usually a

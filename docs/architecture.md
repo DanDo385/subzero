@@ -413,7 +413,7 @@ Tasks are the concrete next steps of a project or area: context about what is
 unfinished there, not personal errands. Shopping lists, errands and personal
 todos live in the user's own apps through those apps' own connectors; the old
 `lists` and `list_items` tables were exported with `subzero export-lists` and
-dropped in migration 0018.
+dropped in migration 0020.
 
 Postgres is canonical. `session_checkpoint` writes tasks inside its one
 transaction, deduplicated on the normalized text per project, or per source
@@ -826,7 +826,7 @@ uv run subzero migrate --status   # what is pending
 
 Migrations are numbered SQL files applied once each inside a transaction and
 recorded with their hash. Editing an already-applied migration is refused;
-add a new one. One migration is destructive on a pre-cutover database: 0018
+add a new one. One migration is destructive on a pre-cutover database: 0020
 drops `lists` and `list_items` and carries over only task items, so run
 `uv run subzero export-lists --out DIR` first (see [Tasks](#tasks)).
 

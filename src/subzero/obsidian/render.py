@@ -13,7 +13,6 @@ import re
 from typing import Any
 
 
-
 def _frontmatter(fields: dict[str, Any]) -> str:
     lines = ["---"]
     for key, value in fields.items():

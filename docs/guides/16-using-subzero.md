@@ -64,14 +64,16 @@ These phrases are optional. They make the action obvious.
 | "Save this." | One checkpoint: summary, decisions, facts, tasks, open questions. |
 | "Search my memory for Neovim." | Search with a few terms taken from the topic. |
 | "Find that old chat about API pricing." | Search past conversations by meaning. Without embeddings, it matches words and says so. |
-| "Send this to my vault." | Queue a note for Obsidian. "Queued" means the helper has not written it yet. |
+| "Send that saved file to my vault." | Queue a vault copy of an artifact that was really stored. "Queued" means the helper has not written it yet. |
 | "Save this chart to the website redesign." | Store the file when the app actually has the bytes. A filename alone is only a reference. |
 | "Email this to reader@example.com." | Show a draft. Send only after you confirm. Needs [AgentMail](12-daily-use.md#optional-email-setup). |
 | "Have Claude add dark mode." | Queue a job. It is not started until an agent on your machine picks it up. |
 | "What are my agents doing?" | Running sessions, open jobs, and messages waiting for you. |
+| "Park this in the Inbox." | The item waits in `00-Inbox/` until a review files it. |
 
 A shopping list stays in your list app. Asking Subzero to add an item does not
-update that app.
+update that app. A concrete next step of a project is different: that is a
+task, saved with a checkpoint, and it shows up in the project's open tasks.
 
 ## Where a result goes
 
@@ -79,7 +81,7 @@ update that app.
 | --- | --- | --- |
 | An answer from past work | Read only. Nothing is written. | What was found, and which app it came from. |
 | Something this chat should remember | `session_checkpoint`, once. | What was created, updated, or skipped. |
-| A note you will reread | The vault, through `note_write`. | "Queued" or "already written". |
+| Something you cannot place | `inbox_add`. | It waits in `00-Inbox/` until a review files it with `review_reclassify`. |
 | Work for another agent | `dispatch`. | "Queued", the agent name, and scout or ship. Not "started" or "done". |
 | A message for a running agent | `agent_message`. | "Sent." The agent sees it on its next turn. |
 | A message for you | `agent_message` with `to` set to `me`, or `subzero msg me`. | It shows on the board and in `subzero inbox`. |
@@ -161,17 +163,17 @@ Skills, prompts and tools are different surfaces for the same workflow.
 | Thing | How many | What it is |
 | --- | --- | --- |
 | Skill | Folders in [skills/](../../skills/) | Instructions an app loads when the job matches. Install `use-subzero` first. The others are optional. |
-| Prompt | 9 | The same kind of instructions, asked for by name inside the connector. |
+| Prompt | 7 | The same kind of instructions, asked for by name inside the connector. |
 | Tool | The server lists the current set | A named action. The app calls these. You rarely type the name. |
 | Resource | one per skill | `subzero://guide/<skill-name>` returns that skill's file. |
 
 Skill folder names use hyphens (`use-subzero`). Prompt names use underscores
 (`use_subzero`). The resource uses the folder name.
 
-A prompt exists for `search`, `save`, `email`, `vault`, `use_subzero`,
-`recall_context`, `checkpoint_session`, `capture_artifacts`, and
-`manage_lists`. The other skills are files and resources only:
-`project-artifacts`, `research-to-obsidian`, `update-project`, `daily-review`.
+A prompt exists for `search`, `save`, `email`, `use_subzero`,
+`recall_context`, `checkpoint_session`, and `capture_artifacts`. The other
+skills are files and resources only: `project-artifacts`, `session-capture`,
+`update-project`, `daily-review`.
 
 ### The workflow skills
 
@@ -180,17 +182,14 @@ A prompt exists for `search`, `save`, `email`, `vault`, `use_subzero`,
 | `use-subzero` | Any past history, preference, project, decision, workflow, vault note, or job for another agent. Also when the app would otherwise say it has no memory of earlier chats. |
 | `search` | "Search my memory for X." |
 | `save` | "Save this" or "remember this session." |
-| `vault` | "Send this to my vault" or "put this in Obsidian." |
 | `email` | Draft a message. Send only after you confirm. |
 | `recall-context` | The full retrieval steps before answering from past work. |
 | `checkpoint-session` | What belongs in one checkpoint, and what to leave out. |
 | `session-capture` | Save a useful session summary and decisions rather than inventing a full transcript. |
 | `capture-artifacts` | Store a file, and tell the truth about whether the bytes were captured. |
 | `project-artifacts` | Several files that belong together as one versioned artifact. |
-| `research-to-obsidian` | Research worth rereading becomes a vault note, with sources. |
 | `update-project` | Status, goals, decisions, and the activity log of a project. |
 | `daily-review` | Open tasks, unresolved questions, and whether the vault helper is keeping up. |
-| `manage-lists` | Say that a list app manages lists. Do not call the old list tools. |
 
 `use-subzero` is the map. Install that one. Add another only when you want
 the app to follow that job's longer procedure.
@@ -230,7 +229,13 @@ Send one checkpoint, not several. Repeat calls with the same conversation id
 update one record. A content hash keeps a decision or fact from being stored
 twice.
 
-### Projects and notes (9)
+### Inbox (1)
+
+| Tool | What it does |
+| --- | --- |
+| `inbox_add` | Park something you cannot place. It waits in `00-Inbox/` until a review files it with `review_reclassify`. |
+
+### Projects (6)
 
 | Tool | What it does |
 | --- | --- |
@@ -240,14 +245,13 @@ twice.
 | `project_create` | Create a project. Search first, so one effort does not become two. |
 | `project_update` | Change status, goals, or description. Omitted fields stay as they are. |
 | `project_event_add` | Append one line to the project's log. An identical line is not repeated. |
-| `note_search` | Search notes. |
-| `note_get` | Read one note. |
-| `note_write` | Write or update a note and queue it for the vault. |
 
-A note has one home: `projects/{slug}`, `lesson/{category}`, `setup/{tool}`,
-or `other`. Concepts are tags (`concept/lsp`). They do not make extra copies.
-The server builds the file path. You do not supply one. Folders and the
-helper are [guide 8](08-obsidian.md).
+Vault notes are not written by the chat apps. They come from memory-lab
+triage: `subzero memory-lab recover` and `subzero memory-lab extract`
+([guide 17](17-memory-lab.md)). Each note has one home: `projects/{slug}`,
+`lesson/{category}`, `setup/{tool}`, or `other`. Concepts are tags
+(`concept/lsp`); they do not make extra copies. Folders and the helper are
+[guide 8](08-obsidian.md).
 
 ### Artifacts (14)
 
@@ -326,16 +330,6 @@ recipients, subject, body, and any send time, and sends only after you
 confirm. Setup, dry-run, and the scope `email:send` are in
 [guide 12](12-daily-use.md#optional-email-setup). A scheduled receipt means
 AgentMail accepted it for later. It does not mean the message has arrived.
-
-### Lists (10, frozen)
-
-These tools are still registered: `list_search`, `list_get`, `list_create`,
-`list_add_item`, `list_update_item`, `list_complete_item`, `list_move_item`,
-`list_archive_item`, `list_recent`, `list_find_item`.
-
-Do not use them. A list app connects and manages lists. Do not ask the model
-to write a Markdown list and call that the list. The `manage-lists` skill and
-the `manage_lists` prompt both say the same thing.
 
 ## How to read what comes back
 

@@ -69,7 +69,7 @@ A note about Neovim can live in `setup/neovim` and have `concept/lua` and
 
 Something you cannot place goes to the Inbox instead of a guessed home: say
 "park this in the Inbox" and the app calls `inbox_add`. The item waits in
-`00-Inbox/` until a review files it (see [guide 16](16-memory-lab.md)).
+`00-Inbox/` until a review files it (see [guide 17](17-memory-lab.md)).
 
 ## Optional email setup
 
@@ -92,7 +92,7 @@ For real mail:
    granted `*` already have it; unmatched/read-only clients do not.
 5. Apply the new migration with `uv run subzero migrate` and restart
    the server. If your database predates the tasks cutover, first run
-   `uv run subzero export-lists --out DIR`: migration 0018 drops the old
+   `uv run subzero export-lists --out DIR`: migration 0020 drops the old
    `lists` and `list_items` tables and carries over only task items, so the
    export is the only copy of anything else you kept in lists. Ask for a
    draft with `dry_run=false`, review it, then confirm only

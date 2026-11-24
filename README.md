@@ -99,7 +99,7 @@ Follow the guides in order. Each one ends with a check that tells you it worked.
 | 13 | [The browser extension](docs/guides/13-browser-extension.md) | 10 min | Optional: save chats from any app, and backfill old ones |
 | 14 | [Run it on your Mac over Tailscale](docs/guides/14-run-on-your-mac-over-tailscale.md) | 15 min | Optional: host it yourself, private to your devices |
 | 15 | [Agents, messages and the board](docs/guides/15-agents-messages-and-the-board.md) | 15 min | Optional: coding agents share one prompt, message each other; a live board |
-| 16 | [Memory lab](docs/guides/16-memory-lab.md) | 30 min, then weekly | Optional: Jev sorts old sessions into PARA notes and an Inbox; compare memory layers over a few weeks |
+| 17 | [Memory lab](docs/guides/17-memory-lab.md) | 30 min, then weekly | Optional: Jev sorts old sessions into PARA notes and an Inbox; compare memory layers over a few weeks |
 | Reference | [How to use it](docs/guides/16-using-subzero.md) | 15 min | Read after connecting: what to say, what gets saved, skills and tools |
 
 The quickest possible start, if you already have the tools:

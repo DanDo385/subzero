@@ -19,6 +19,7 @@
 14. [Run it on your Mac over Tailscale](guides/14-run-on-your-mac-over-tailscale.md) *(optional)*
 15. [Agents, messages and the board](guides/15-agents-messages-and-the-board.md) *(optional)*
 16. [How to use it](guides/16-using-subzero.md)
+17. [Memory lab](guides/17-memory-lab.md) *(optional)*
 
 ## When you need help
 
@@ -34,7 +35,7 @@
 - [Every setting, explained](../.env.example)
 - [Deploy scripts](../deploy/README.md)
 - [Workflow skills](../skills/) for AI apps that support skills. `use-subzero` is the one to install first.
-- [How to use it](guides/16-using-subzero.md): phrases, what gets saved, the 13 skills, and the 53 tools.
+- [How to use it](guides/16-using-subzero.md): phrases, what gets saved, the 11 skills, and the 41 tools.
 
 ## For developers
 

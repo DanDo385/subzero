@@ -74,7 +74,7 @@ uv run subzero check
 
 > **Reusing an older database?** If this Supabase project already holds data
 > from before the tasks cutover, run `uv run subzero export-lists --out DIR`
-> before `migrate`: migration 0018 drops the old `lists` and `list_items`
+> before `migrate`: migration 0020 drops the old `lists` and `list_items`
 > tables and carries over only task items. On a fresh project there is nothing
 > to export.
 

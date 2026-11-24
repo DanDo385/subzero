@@ -86,7 +86,7 @@ only while a command runs.
 
    ```bash
    # Database from before the tasks cutover? Run `uv run subzero export-lists --out DIR`
-   # first: migration 0018 drops the old list tables, keeping only task items.
+   # first: migration 0020 drops the old list tables, keeping only task items.
    op run --env-file=deploy/admin.env.op -- uv run subzero migrate
    deploy/vercel-env.sh                  # picks up deploy/production.env.op automatically
    deploy/install-worker.sh              # picks up deploy/worker.env.op automatically
