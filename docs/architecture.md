@@ -976,7 +976,7 @@ The full vertical slice, end to end over HTTP:
 
 ```
  [ 1] connected + authenticated; 53 tools advertised (before the cutover
-      removed the note and list tools; the surface is now 40)
+      removed the note and list tools; the surface is now 41)
  [ 2] memory_save -> created
  [ 3] memory_search -> 1 hit
  [ 4] project_create -> personal-ai

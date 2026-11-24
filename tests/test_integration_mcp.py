@@ -38,6 +38,7 @@ async def test_client_can_list_the_full_tool_surface(mcp_client) -> None:
         "memory_search",
         "session_checkpoint",
         "project_list",
+        "inbox_add",
         "artifact_save_bundle",
         "artifact_register_reference",
         "review_list",

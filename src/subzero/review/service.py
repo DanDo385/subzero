@@ -1,9 +1,10 @@
 """Human review queue.
 
-Where ambiguous routing goes instead of being guessed. Approving a review item
-applies the suggested routing; reclassifying overrides it and records the
-override on the originating classification event, which is how the quality of
-the classifier can be measured against what a human actually wanted.
+Where ambiguous routing goes instead of being guessed. Approving a review
+item closes the question and changes nothing; reclassifying applies the
+corrected routing and records the override on the originating classification
+event, which is how the quality of the classifier can be measured against
+what a human actually wanted.
 
 There is deliberately no generic delete: dismissing an item closes the
 question without destroying the object it was about.

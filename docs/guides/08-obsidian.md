@@ -95,9 +95,10 @@ the next time the server rewrites it. To keep the record somewhere else, set
 Chat apps no longer write vault notes directly: the note tools were removed in
 the cutover, and a checkpoint does not write one either. The vault fills from
 what the server queues: session notes routed by memory-lab triage
-(`subzero memory-lab recover`), an artifact queued with
-`artifact_queue_for_vault`, and the lists this helper renders. "Queued" means
-the helper still needs to pick the job up; "written" means it landed.
+(`subzero memory-lab recover`), items a chat app parked with `inbox_add`, an
+artifact queued with `artifact_queue_for_vault`, and the lists this helper
+renders. "Queued" means the helper still needs to pick the job up; "written"
+means it landed.
 
 Each queued note has one home. Existing numbered folders stay in use:
 
@@ -128,7 +129,7 @@ replace `%h` in the service file with your full home directory path.)
 
 | Folder | What goes there |
 | --- | --- |
-| `00-Inbox` | Things worth keeping whose home isn't clear yet |
+| `00-Inbox` | Things worth keeping whose home isn't clear yet, parked by `inbox_add` or Jev triage |
 | `20-Projects` | One folder per project: status page, lists, saved files |
 | `30-Research` | Findings from research conversations, with sources |
 | `40-Wiki` | Explanations of how things work |

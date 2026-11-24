@@ -57,10 +57,10 @@ message from the person's side. Never send anything sensitive.
 ## 4 · Park what is uncertain
 
 Anything you are not sure how to file (an idea with no clear home, a fact that
-may contradict an existing note) is parked in the Inbox for triage, one item
-per entry, with a line saying why it is uncertain. Where you cannot write to
-the Inbox from here, record the item in the session checkpoint as an open
-question and say it needs triage. Never file it elsewhere "for now".
+may contradict an existing note) goes in through `inbox_add`, one item per
+call, with `why_uncertain` saying why it is uncertain. It stays in `00-Inbox/`
+until a person files it with `review_reclassify`. Never file it elsewhere
+"for now".
 
 ## Do not
 

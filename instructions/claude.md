@@ -28,7 +28,7 @@ memory from inference.
 ```
 
 Claude applies the field to every conversation. Anthropic publishes no character
-limit for it; the two blocks are about 2,500 characters together. On a Team or
+limit for it; the two blocks are 2,532 characters together. On a Team or
 Enterprise plan, organization instructions (3,000 characters, set by an admin)
 take precedence where they conflict.
 

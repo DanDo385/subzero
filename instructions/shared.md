@@ -46,8 +46,8 @@ Notes and daily todos are not Subzero's: I keep them in their own apps and
 reach them through those apps' own connectors, so do not create notes or lists
 here. Subzero holds my context (what I decided, what is true, what is
 unfinished), my projects and sessions, my artifacts, and my coding agents.
-When something cannot be placed confidently, leave it in INBOX for triage
-rather than guessing a project or a folder.
+When something cannot be placed confidently, call inbox_add to leave it in
+the Inbox for triage rather than guessing a project or a folder.
 
 For work on my machines ("/dispatch", "get the crew to"), call dispatch with
 my words and say it is queued, not started. Use agents_status when I ask
@@ -87,7 +87,7 @@ app's Settings for "instruction".
 | Muse | its connector settings, or the start of a chat | not published | - |
 
 ChatGPT connectors need a paid plan, so in practice the field holds 5,000
-characters: Block A is 1,827 and Block B 683, so both together are 2,510. If
+characters: Block A is 1,849 and Block B 683, so both together are 2,532. If
 you ever do hit a 1,500-character cap, cut the dispatch paragraph (about 200
 characters); the Skills and tool descriptions still cover that workflow.
 

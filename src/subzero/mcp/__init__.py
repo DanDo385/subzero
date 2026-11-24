@@ -10,6 +10,7 @@ from subzero.mcp import (
     tools_artifacts,
     tools_context,
     tools_email,
+    tools_inbox,
     tools_memory,
     tools_projects,
     tools_review,
@@ -20,6 +21,7 @@ def register_all(mcp: FastMCP) -> None:
     tools_context.register(mcp)
     tools_email.register(mcp)
     tools_memory.register(mcp)
+    tools_inbox.register(mcp)
     tools_projects.register(mcp)
     tools_artifacts.register(mcp)
     tools_review.register(mcp)

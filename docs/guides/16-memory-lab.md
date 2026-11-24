@@ -22,7 +22,7 @@ Subzero creates these the first time it writes to them:
 
 | Folder | What goes in it |
 | --- | --- |
-| `00-Inbox/` | The only place for drafts Jev was not sure about. You empty it. |
+| `00-Inbox/` | Drafts Jev was not sure about, plus anything a chat app parked with `inbox_add`. You empty it with `review_reclassify` or the weekly analysis. |
 | `20-Projects/` | Work with a goal and an end. |
 | `25-Areas/` | Ongoing responsibilities with no end date. |
 | `60-Resources/` | Topics and reference material. |
@@ -78,7 +78,7 @@ decides where it goes; only then do the expensive or external layers see it.
 | **Structured** | Facts, events (decisions), instructions (preferences), tasks | Claude, into Subzero's memories, decisions and lists | Every vault session, plus any worthwhile session with a decision, procedure or preference |
 | **Honcho** | A model of you that tracks how your preferences change | Honcho, from your own messages with their original dates | Sessions that lean towards a preference or working pattern (60% or more) |
 | **Hot memory** | `MEMORY.md`, `USER.md`, skills | You, weekly, from a ranked candidates list | Decisions on active projects, preferences, repeated procedures |
-| **Inbox** | Drafts that need a person | Jev triage | Only valuable sessions whose folder is unclear or that contradict what you know |
+| **Inbox** | Drafts that need a person | Jev triage, session-capture, `inbox_add` | Only valuable sessions whose folder is unclear or that contradict what you know |
 
 ```bash
 uv run subzero memory-lab recover            # dry run: counts only, writes nothing
@@ -150,7 +150,8 @@ session is sent once.
 2. Run one row of `Experiments/Scoring/retrieval-test-template.md` per layer.
 3. Paste `Experiments/Analysis/weekly-analysis-prompt.md` into an AI that can read
    your vault, and save its answer as `Experiments/Analysis/weekly-YYYY-MM-DD.md`.
-4. Act on its keep, drop and merge list. This is the only way anything leaves
+4. Act on its keep, drop and merge list, and file what remains with
+   `review_reclassify`. The weekly analysis is the only way anything leaves
    the Inbox automatically.
 
 ## Undo

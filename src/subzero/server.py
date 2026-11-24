@@ -79,8 +79,8 @@ Name the project when there is one. Not conversational noise.
 The user keeps notes and daily todo lists in their own apps, reached through \
 those apps' own connectors. Do not create notes or lists here. Subzero holds \
 context: decisions, facts, sessions, projects, artifacts and coding agents. \
-Content that cannot be placed with confidence belongs in the Inbox for \
-triage, never in a guessed project or folder.
+Content that cannot be placed with confidence goes to the Inbox through \
+inbox_add for triage, never into a guessed project or folder.
 
 Capture files through the artifact tools, and never describe an artifact as \
 saved unless the tool result reports capture_status "captured".

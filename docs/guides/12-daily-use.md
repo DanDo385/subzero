@@ -39,6 +39,7 @@ You don't need special commands. But these phrases help when you want to be expl
 | "Add [something] to my [list name] list." | Updates your real list. |
 | "What did we decide about [topic]?" | Searches past decisions, even from a different app. |
 | "Save this file to my [project] project." | Stores the actual file bytes, not just a reference. |
+| "Park this in the Inbox, I'm not sure where it goes." | Saves it with `inbox_add`; it waits in `00-Inbox/` until you file it. |
 
 You can also just talk normally. The apps figure out when to use their tools from context.
 
@@ -61,6 +62,10 @@ You can also just talk normally. The apps figure out when to use their tools fro
 The home is `projects/{project}`, `lesson/{category}`, `setup/{tool}` or `other`.
 A note about Neovim can live in `setup/neovim` and have `concept/lua` and
 `concept/lsp` tags. It gets one home even when several concepts are covered.
+
+Something you cannot place goes to the Inbox instead of a guessed home: say
+"park this in the Inbox" and the app calls `inbox_add`. The item waits in
+`00-Inbox/` until a review files it (see [guide 16](16-memory-lab.md)).
 
 ## Optional email setup
 

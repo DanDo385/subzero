@@ -7,7 +7,7 @@ every script, and to the person who owns the vault.
 
 | Folder | Holds | Who writes |
 | --- | --- | --- |
-| `00-Inbox/` | Valuable items whose home is unclear or that contradict a note. The only holding area. | Jev triage, session-capture, any agent that is unsure |
+| `00-Inbox/` | Valuable items whose home is unclear or that contradict a note. The only holding area. | Jev triage, session-capture, `inbox_add` from any connected app, any agent that is unsure |
 | `20-Projects/` | Work with a goal and an end, one sub-folder per project | Subzero, the person |
 | `25-Areas/` | Ongoing responsibilities with no end date | Claude (`memory-lab extract`) in the folder Jev chose, the person |
 | `60-Resources/` | Topics and reference material | Claude (`memory-lab extract`) in the folder Jev chose, the person |
@@ -32,10 +32,11 @@ Each layer gets what it is good at. Jev decides the route; nobody files by guess
 | An explicit decision with a date and context | Structured memory (decisions), shown in `Experiments/Structured/` | Claude (`subzero memory-lab extract`) |
 | A valuable session with a clear home | A note in its PARA folder | Claude, in the folder Jev chose |
 | A one-off insight that stands alone | A `Permanent/` note, linked from its project or area | Claude or the person |
-| Valuable, but the home is unclear or it contradicts a note | `00-Inbox/` only | Jev triage |
+| Valuable, but the home is unclear or it contradicts a note | `00-Inbox/` only | Jev triage, `inbox_add` |
 
 The Inbox is for decisions only a person can make, not for everything
-uncertain. The weekly analysis is the only automatic way out of it.
+uncertain. The way out is a person filing the item with `review_reclassify`,
+or the weekly analysis, which is the only automatic way out.
 
 ## Classification
 
