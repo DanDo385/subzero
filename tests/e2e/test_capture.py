@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 
 import httpx
 
+from support.ingest import load_fixture
 from support.pair import pair_device
-
-FIXTURE_DIR = Path(__file__).resolve().parents[2] / "extension" / "tests" / "fixtures"
-
-
-def _load_fixture(provider: str) -> dict:
-    return json.loads((FIXTURE_DIR / f"{provider}-conversation.json").read_text())
 
 
 async def test_unauthenticated_ingest_returns_401(http_client: httpx.AsyncClient) -> None:
@@ -41,7 +34,7 @@ async def test_ingest_fixture_then_recall_via_mcp(
     http_client: httpx.AsyncClient, mcp_client, services
 ) -> None:
     token = await pair_device(http_client, services.db, code="E2ECAPTURE")
-    payload = _load_fixture("claude")
+    payload = load_fixture("claude")
     headers = {"Authorization": f"Bearer {token}"}
 
     first = await http_client.post("/api/v1/ingest/conversation", json=payload, headers=headers)

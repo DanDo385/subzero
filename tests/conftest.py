@@ -139,4 +139,4 @@ async def live_server(settings):
 
 
 # Shared HTTP/MCP clients for e2e journeys (see tests/e2e/).
-pytest_plugins = ["support.app", "support.worker", "support.eval"]
+pytest_plugins = ["support.app", "support.rate_limit", "support.worker", "support.eval"]

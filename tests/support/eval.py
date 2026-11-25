@@ -11,13 +11,6 @@ from eval.fixture import Seeded, seed
 
 
 @pytest.fixture
-def unthrottled(settings):
-    settings.rate_limit_per_minute = 1_000_000
-    settings.rate_limit_burst = 1_000_000
-    return settings
-
-
-@pytest.fixture
 async def seeded_mcp_world(
     unthrottled, db, mcp_client
 ) -> AsyncIterator[tuple[Any, Seeded]]:
