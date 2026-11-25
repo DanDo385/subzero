@@ -60,6 +60,8 @@ async def test_ingest_fixture_then_recall_via_mcp(
 
     # A human message from the fixture should be searchable once ingested.
     snippet = payload["messages"][0]["content"][:40]
-    found = await mcp_client.call_tool("context_search", {"query": snippet, "limit": 5})
+    found = await mcp_client.call_tool(
+        "context_search", {"query": snippet, "limit": 5, "include_messages": True}
+    )
     texts = [getattr(i, "content", "") or str(i) for i in found.data]
     assert any(snippet[:20] in t for t in texts)

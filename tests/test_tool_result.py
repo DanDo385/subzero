@@ -33,6 +33,7 @@ class _Retrieval:
         user_message: str | None = None,
         token_budget: int = 1200,
         project: str | None = None,
+        home: str | None = None,
     ) -> ContextPackage:
         return self.package
 
