@@ -34,7 +34,6 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
@@ -737,24 +736,12 @@ class RetrievalService:
             notes.append(
                 "user_message is deprecated; pass query (key terms). Reduced to key terms."
             )
-        # %project picks the project; ^lesson or &setup picks a home whose own
-        # sessions become the handoff. Sigil words stay as search terms.
-        marks = sigils.parse(text)
-        home = None
-        if marks.any:
-            text = marks.plain
-            if marks.project and not project:
-                project = marks.project
-            if marks.home and not marks.home.startswith("projects/"):
-                home = marks.home
-            notes.append("Sigils read: " + " ".join(marks.found))
         return await self._build_package(
             query=text,
             token_budget=token_budget or self._settings.default_token_budget,
             project=project,
             include_handoff=True,
             notes=notes,
-            home=home,
         )
 
     async def _build_package(

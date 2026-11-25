@@ -104,6 +104,9 @@ class BoardHandler(BaseHTTPRequestHandler):
                 json_body={
                     "goal": str(body.get("goal", "")),
                     "mode": "ship" if body.get("ship") is True else "scout",
+                    "target": (str(body.get("target")).strip().lower() or None)
+                    if body.get("target")
+                    else None,
                     "created_by": "board",
                 },
             )

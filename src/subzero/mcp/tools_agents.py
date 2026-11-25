@@ -28,9 +28,8 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(
                 description=(
-                    "The job, in the user's words, sigils included: '%Code/site add dark "
-                    "mode >claude', '^zig build an arena allocator lesson'. A '>name' "
-                    "picks the agent; without one, Jev picks."
+                    "The job, in the user's words: 'add dark mode to the portfolio site'. "
+                    "Pass target to pick the agent; without one, Jev picks."
                 )
             ),
         ],
@@ -252,8 +251,8 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(
                 description=(
-                    "Who gets it: a session name or id from agents_status, a home sigil "
-                    "(^cfa2, %Code/site, &herdr) for every agent working there, or 'me'."
+                    "Who gets it: a session name or id from agents_status, a home "
+                    "(projects/<slug>, lesson/<name>, setup/<tool>) for every agent working there, or 'me'."
                 )
             ),
         ],

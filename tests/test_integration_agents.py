@@ -77,7 +77,7 @@ async def test_beat_moves_and_reports_status(services) -> None:
 
 async def test_ending_a_session_fails_its_unfinished_job(services) -> None:
     s = await _session(services)
-    job = await services.agents.dispatch("tidy the README >claude")
+    job = await services.agents.dispatch("tidy the README", target="claude")
     await services.agents.claim(UUID(s["id"]), targets=["claude"])
     await services.agents.end(UUID(s["id"]), summary="clear")
     row = await services.db.fetchrow(
@@ -89,8 +89,8 @@ async def test_ending_a_session_fails_its_unfinished_job(services) -> None:
 
 async def test_claim_refuses_a_second_job_and_unknown_sessions(services) -> None:
     s = await _session(services)
-    await services.agents.dispatch("one >claude")
-    await services.agents.dispatch("two >claude")
+    await services.agents.dispatch("one", target="claude")
+    await services.agents.dispatch("two", target="claude")
     await services.agents.claim(UUID(s["id"]), targets=["claude"])
     with pytest.raises(ValidationError):
         await services.agents.claim(UUID(s["id"]), targets=["claude"])
@@ -124,7 +124,7 @@ async def test_ambiguous_or_wildcard_addresses_are_refused(services) -> None:
 async def test_a_heartbeat_that_does_not_show_messages_does_not_consume_them(services) -> None:
     s = await _session(services, home="lesson/zig")
     await services.agents.send(to=s["id"][:8], body="direct")
-    await services.agents.send(to="^zig", body="to the lesson")
+    await services.agents.send(to="lesson/zig", body="to the lesson")
     quiet = await services.agents.beat(UUID(s["id"]), status="idle")
     assert quiet["messages"] == []
     shown = await services.agents.beat(UUID(s["id"]), deliver=True)
@@ -152,7 +152,7 @@ async def test_home_message_reaches_each_session_there_but_not_the_sender(servic
     a = await _session(services, ext="a", home="lesson/zig")
     b = await _session(services, ext="b", home="lesson/zig")
     c = await _session(services, ext="c", home="projects/other")
-    await services.agents.send(to="^zig", body="use 0.15 syntax", from_session=UUID(a["id"]))
+    await services.agents.send(to="lesson/zig", body="use 0.15 syntax", from_session=UUID(a["id"]))
     assert (await services.agents.beat(UUID(a["id"]), deliver=True))["messages"] == []
     assert len((await services.agents.beat(UUID(b["id"]), deliver=True))["messages"]) == 1
     assert (await services.agents.beat(UUID(b["id"]), deliver=True))["messages"] == []
@@ -168,7 +168,7 @@ async def test_messages_for_me(services) -> None:
 
 async def test_bad_addressees_are_refused(services) -> None:
     with pytest.raises(ValidationError):
-        await services.agents.send(to="^", body="x")
+        await services.agents.send(to="not/valid/home/", body="x")
     with pytest.raises(ValidationError):
         await services.agents.send(to="me", body="   ")
 
@@ -176,12 +176,12 @@ async def test_bad_addressees_are_refused(services) -> None:
 # ------------------------------------------------------------------ dispatch
 
 
-async def test_target_sigil_routes_without_jev(services) -> None:
-    job = await services.agents.dispatch("^zig scaffold the allocator lesson >claude", mode="ship")
+async def test_explicit_target_routes_without_jev(services) -> None:
+    job = await services.agents.dispatch("scaffold the allocator lesson", mode="ship", target="claude")
     assert (job["target"], job["routed_by"], job["home"], job["mode"]) == (
         "claude",
-        "sigil",
-        "lesson/zig",
+        "target",
+        None,
         "ship",
     )
 
@@ -196,7 +196,7 @@ async def test_risky_ship_starts_as_scout(services) -> None:
 
 async def test_unknown_target_is_refused(services) -> None:
     with pytest.raises(ValidationError):
-        await services.agents.dispatch("do it >nobody")
+        await services.agents.dispatch("do it", target="nobody")
 
 
 async def test_confident_jev_picks_the_agent(services) -> None:
@@ -215,14 +215,14 @@ async def test_unsure_or_unavailable_jev_goes_to_crew(services) -> None:
 
 
 async def test_job_for_me_also_messages_me(services) -> None:
-    await services.agents.dispatch("decide the CFA L3 pathway >me")
+    await services.agents.dispatch("decide the CFA L3 pathway", target="me")
     assert "decide the CFA L3 pathway" in (await services.agents.messages_for_me())[0]["body"]
 
 
 async def test_claim_prefers_named_jobs_then_crew(services) -> None:
-    await services.agents.dispatch("anyone can do this >crew")
-    named = await services.agents.dispatch("only for claude >claude")
-    await services.agents.dispatch("only for grok >grok")
+    await services.agents.dispatch("anyone can do this", target="crew")
+    named = await services.agents.dispatch("only for claude", target="claude")
+    await services.agents.dispatch("only for grok", target="grok")
     s = await _session(services)
     first = await services.agents.claim(UUID(s["id"]), targets=["claude"])
     await services.agents.finish(UUID(first["id"]))
@@ -261,7 +261,7 @@ async def test_board_marks_quiet_sessions_idle_and_streams_events(services) -> N
     board = await services.agents.board()
     assert board["sessions"][0]["status"] == "idle"
     last = board["events"][-1]["id"]
-    await services.agents.dispatch("next thing >claude")
+    await services.agents.dispatch("next thing", target="claude")
     newer = await services.agents.board(after_event=last)
     assert [e["kind"] for e in newer["events"]] == ["dispatch"]
 
@@ -296,14 +296,14 @@ async def test_a_hook_session_round_trip_over_http(http) -> None:
     sid = started.json()["id"]
     assert started.json()["machine"] == "mbp"  # the paired device's name
 
-    sent = await http.post("/api/v1/messages", json={"to": "^zig", "body": "hello from the board"})
+    sent = await http.post("/api/v1/messages", json={"to": "lesson/zig", "body": "hello from the board"})
     assert sent.status_code == 200, sent.text
     beat = await http.post(
         f"/api/v1/agents/{sid}/beat", json={"status": "working", "deliver": True}
     )
     assert [m["body"] for m in beat.json()["messages"]] == ["hello from the board"]
 
-    queued = await http.post("/api/v1/dispatch", json={"goal": "^zig write the test >claude"})
+    queued = await http.post("/api/v1/dispatch", json={"goal": "zig write the test", "target": "claude"})
     claimed = await http.post(
         "/api/v1/dispatch/claim", json={"session_id": sid, "targets": ["claude"]}
     )
@@ -350,7 +350,7 @@ async def test_http_errors_are_plain(http) -> None:
     assert (await http.post("/api/v1/dispatch", content=b"[]")).status_code == 400
 
 
-async def test_bootstrap_over_http_reads_sigils(http) -> None:
-    response = await http.get("/api/v1/bootstrap", params={"q": "^cfa2 duration"})
+async def test_bootstrap_over_http_accepts_plain_queries(http) -> None:
+    response = await http.get("/api/v1/bootstrap", params={"q": "cfa2 duration"})
     assert response.status_code == 200
-    assert any("Sigils read" in n for n in response.json().get("notes", []))
+    assert "notes" in response.json()

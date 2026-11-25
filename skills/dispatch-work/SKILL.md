@@ -9,9 +9,8 @@ up. The job is queued, not started.
 
 ## 1. Write the goal
 
-- `goal`: the user's own words, sigils included. `%Code/site` names the
-  project, `^zig` a lesson, `>claude` the agent. Do not rewrite the ask
-  into your own plan; add nothing they did not say.
+- `goal`: the user's own words. Do not rewrite the ask into your own plan;
+  add nothing they did not say.
 - `worktree`: where the work lives, when the user named a folder:
   `repo/slug` for a worktree, `repo` for a checkout. The server refuses a
   path that does not exist under a configured exec root.

@@ -116,7 +116,7 @@ async def test_agent_run_queues_a_command_job_with_a_resolved_cwd(
 async def test_agent_open_queues_a_session_that_keeps_open(client, services, code_root) -> None:
     await client.call_tool(
         "agent_open",
-        {"worktree": "subzero", "first_command": "uv run pytest", "target": ">claude"},
+        {"worktree": "subzero", "first_command": "uv run pytest", "target": "claude"},
     )
     job = await services.db.fetchrow("SELECT * FROM dispatch_jobs")
     assert job["kind"] == "session"
@@ -125,7 +125,7 @@ async def test_agent_open_queues_a_session_that_keeps_open(client, services, cod
     assert job["first_command"] == "uv run pytest"  # typed for the human, never executed
     assert job["goal"] == "Open an interactive session in subzero."  # the description
     assert job["cwd"] == str(code_root / "subzero")
-    assert (job["target"], job["routed_by"]) == ("claude", "sigil")
+    assert (job["target"], job["routed_by"]) == ("claude", "target")
 
     audit_row = await services.db.fetchrow("SELECT * FROM audit_log WHERE tool = 'agent_open'")
     assert audit_row is not None
@@ -184,7 +184,7 @@ async def test_the_service_refuses_bad_inputs_before_any_schema(services, code_r
 
 async def test_dispatch_accepts_a_worktree_and_stores_the_resolved_cwd(services, code_root) -> None:
     job = await services.agents.dispatch(
-        "finish the cutover >claude", worktree="subzero/cli-exec", space="ws-1"
+        "finish the cutover", worktree="subzero/cli-exec", space="ws-1"
     )
     assert job["kind"] == "goal"
     assert job["worktree"] == "subzero/cli-exec"
@@ -195,7 +195,7 @@ async def test_dispatch_accepts_a_worktree_and_stores_the_resolved_cwd(services,
 
 async def test_dispatch_refuses_a_worktree_outside_the_roots(services, code_root, tmp_path) -> None:
     with pytest.raises(ValidationError):
-        await services.agents.dispatch("do it >claude", worktree=str(tmp_path))
+        await services.agents.dispatch("do it", worktree=str(tmp_path), target="claude")
     assert await services.db.fetchval("SELECT count(*) FROM dispatch_jobs") == 0
 
 
@@ -246,7 +246,7 @@ async def test_dispatch_and_finish_over_http_carry_the_exec_fields(
 ) -> None:
     queued = await http.post(
         "/api/v1/dispatch",
-        json={"goal": "run the tests >claude", "worktree": "subzero/cli-exec"},
+        json={"goal": "run the tests", "target": "claude", "worktree": "subzero/cli-exec"},
     )
     assert queued.status_code == 200, queued.text
     assert queued.json()["cwd"] == str(code_root / "worktrees" / "subzero" / "cli-exec")

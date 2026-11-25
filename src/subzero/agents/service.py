@@ -6,14 +6,14 @@ session message another. Dispatched jobs wait in a queue that runners
 (firstmate on the Hetzner box, a Claude Code session, the person) claim by
 target name.
 
-Routing a job never guesses silently. A ``>target`` sigil decides outright;
+Routing a job never guesses silently. An explicit target decides outright;
 otherwise Jev picks among DISPATCH_TARGETS and is only trusted above
 DISPATCH_ROUTE_AUTO; anything less goes to "crew", any free agent. Jobs that
 touch the network, credentials or deletion always start as "scout" (read,
 plan, report), whatever mode was asked for.
 
 Executable jobs (``kind='command'`` and ``kind='session'``, queued by the
-``agents:exec`` tools) skip every routing question: no sigil parse and no
+``agents:exec`` tools) skip every routing question: no
 Jev, because a command is user content that must never reach the classifier.
 The server executes nothing; the runner on the user's machine claims the job
 and does the running. Its ``output`` is user content too: stored as a capped
@@ -29,13 +29,13 @@ from pathlib import PurePath
 from typing import Any
 from uuid import UUID
 
-from subzero import sigils
 from subzero.agents.exec_paths import resolve_cwd, validate_space
 from subzero.classifier.base import Classifier
 from subzero.classifier.questions import DISPATCH_ROUTE_AUTO, DISPATCH_TARGETS
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.errors import NotFoundError, ValidationError
+from subzero.homes import HOME_PATTERN
 from subzero.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -307,7 +307,7 @@ class AgentService:
         from_session: UUID | None = None,
         from_label: str = "me",
     ) -> dict[str, Any]:
-        """Send to 'me', to a home (^lesson, %project, &setup) or to one session."""
+        """Send to 'me', to a home (projects/<slug>, lesson/<name>, setup/<tool>) or to one session."""
         body = (body or "").strip()
         if not body:
             raise ValidationError("A message needs some text.")
@@ -318,11 +318,12 @@ class AgentService:
         to_me = False
         if target.lower() in ("me", "@me", "you"):
             to_me = True
-        elif target[:1] in "%^&":
-            marks = sigils.parse(target)
-            if not marks.home:
-                raise ValidationError(f"{target!r} is not a home. Try ^cfa2, %Code/site or &herdr.")
-            to_home = marks.home
+        elif target[:1] not in "@" and "/" in target:
+            if not re.fullmatch(HOME_PATTERN, target):
+                raise ValidationError(
+                    f"{target!r} is not a home. Use projects/<slug>, lesson/<name>, setup/<tool>, a session, or 'me'."
+                )
+            to_home = target
         else:
             to_session = UUID((await self.resolve_session(target))["id"])
         async with self._db.transaction() as conn:
@@ -412,7 +413,6 @@ class AgentService:
             raise ValidationError("mode is scout (read, plan, report) or ship (make the change).")
         space_label = validate_space(space)
         cwd = resolve_cwd(worktree, self._settings.exec_roots) if worktree else None
-        marks = sigils.parse(goal)
         notes: list[str] = []
         if mode == "ship" and is_risky(goal):
             mode = "scout"
@@ -420,20 +420,16 @@ class AgentService:
                 "Started as scout: it touches the network, credentials, deletion or "
                 "deployment. Approve the plan, then dispatch again with ship."
             )
-        chosen = (target or "").lstrip(">").strip().lower() or (
-            marks.targets[0] if marks.targets else None
-        )
+        chosen = (target or "").strip().lower() or None
         confidence: float | None = None
         if chosen:
             if chosen not in DISPATCH_TARGETS:
                 raise ValidationError(
                     f"Unknown target {chosen!r}. Use one of: {', '.join(DISPATCH_TARGETS)}."
                 )
-            routed_by = "sigil"
+            routed_by = "target"
         else:
-            result = await self._classifier.classify_dispatch(
-                {"goal": goal, "home": marks.home}, DISPATCH_TARGETS
-            )
+            result = await self._classifier.classify_dispatch({"goal": goal}, DISPATCH_TARGETS)
             answer = result.answers.get("target")
             picked = str(answer.value) if answer else "crew"
             confidence = answer.confidence if answer else None
@@ -457,7 +453,7 @@ class AgentService:
                 """,
                 goal,
                 mode,
-                marks.home,
+                None,
                 chosen,
                 routed_by,
                 confidence,
@@ -470,7 +466,7 @@ class AgentService:
                 conn,
                 "dispatch",
                 job_id=row["id"],
-                detail={"target": chosen, "home": marks.home, "goal": goal[:120], "mode": mode},
+                detail={"target": chosen, "goal": goal[:120], "mode": mode},
             )
             if chosen == "me":
                 await conn.execute(
@@ -568,20 +564,19 @@ class AgentService:
     ) -> dict[str, Any]:
         """Store an executable job.
 
-        No routing question is asked and no sigil is parsed: a ``%Code/x`` in
-        a command is a path, not a mark, and the goal never goes to Jev. An
-        explicit target decides ('sigil'); otherwise any free runner ('crew')
+        No routing question is asked and the goal never goes to Jev. An
+        explicit target decides ('target'); otherwise any free runner ('crew')
         takes it.
         """
         space_label = validate_space(space)
         cwd = resolve_cwd(worktree, self._settings.exec_roots) if worktree else None
-        chosen = (target or "").lstrip(">").strip().lower() or None
+        chosen = (target or "").strip().lower() or None
         if chosen:
             if chosen not in DISPATCH_TARGETS:
                 raise ValidationError(
                     f"Unknown target {chosen!r}. Use one of: {', '.join(DISPATCH_TARGETS)}."
                 )
-            routed_by = "sigil"
+            routed_by = "target"
         else:
             chosen, routed_by = "crew", "default"
         async with self._db.transaction() as conn:

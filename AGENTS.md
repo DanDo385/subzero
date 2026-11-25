@@ -127,15 +127,12 @@ The pre-rename `PC_` names are no longer read. `Settings.validate_startup()` rep
 configuration at once and the server refuses to boot on one (`auth_mode=none|static` in prod, plain
 HTTP in prod, OAuth without an allowlist, or a stale `PC_` variable still set).
 
-**Sigils are parsed by code, before Jev** (`sigils.py`): `%project`, `^lesson`, `&setup`, `#concept`,
-`@person`, `>agent`. Read in `session_checkpoint` and `context_bootstrap`. Every sigil typed is
-kept: the first `%`, `^` or `&` files the session, and each further one tags it, so a session about
-two lessons, or a project and a setup, belongs to all of them rather than to whichever came first.
-A `%project` only names an existing project and never creates one; an extra `%` that names nothing
-existing is reported in the result and tags nothing.
+Homes (`projects/<slug>`, `lesson/<name>`, `setup/<tool>`, `other`) are plain typed fields the
+caller passes to `session_checkpoint` and `context_bootstrap`; there is no sigil syntax. A project
+home only names an existing project and never creates one.
 
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
-tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is a sigil, else
+tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch routing is an explicit target, else
 the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
 `scout`. `dispatch_jobs` also carries executable intent (`kind='command'|'session'|'goal'`,
 queued by the `agents:exec` MCP tools `agent_run` and `agent_open`): the server never
@@ -156,7 +153,7 @@ opening the repo with `herdr-axi open`) or submits the text to the one herdr pan
 agent, surfacing an `FM_TASK_ID` refusal verbatim rather than retrying.
 `agents:exec` is granted by name only: neither `DEFAULT_SCOPES` nor the
 `"*"` policy shorthand includes it (see `EXEC_SCOPES`), so a wildcard policy cannot hand a chat
-app a shell. Executable jobs skip sigils and Jev (a command is user content, not
+app a shell. Executable jobs skip Jev (a command is user content, not
 classifier input), and a runner's `output` is user content too: stored as a tail capped at
 `OUTPUT_TAIL_CHARS`, never sent to the classifier, the embedder or any external call, and
 returned only to the caller. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`)

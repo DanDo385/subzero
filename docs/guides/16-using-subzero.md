@@ -98,7 +98,7 @@ scratch file.
 
 You can name a project, or let the server match one.
 
-**You name it.** Pass the project's slug or name, or type a project sigil
+**You name it.** Pass the project's slug or name
 (the next section). A `%` name only points at a project that already exists.
 It does not create one. An unknown name is reported, not invented.
 
@@ -112,49 +112,15 @@ own.
 
 That match is enough for reading and saving when one project is obviously the
 subject. It is the wrong tool when the word is ambiguous. "Claude" can be the
-app, a topic, or the agent who should do the work. A sigil is the exact
-address for those cases.
-
-## Sigils
-
-A sigil is a symbol at the start of a word. Code reads it. The model does not
-guess. You can skip them in ordinary chat and rely on the name match above.
-
-| You type | It means | It files as |
-| --- | --- | --- |
-| `%portfolio-site` | an existing project | home `projects/portfolio-site` |
-| `^cfa2/fixed-income` | a lesson | home `lesson/cfa2`, concept `fixed-income` |
-| `&neovim` | a tool or setup | home `setup/neovim` |
-| `#lsp` | a concept tag | tag `concept/lsp` |
-| `@morgan` | a person | tag `person/morgan` |
-| `>claude` | who should do the work | that agent |
-
-The first `%`, `^`, or `&` is the home. `#` and `@` are extra tags, and you
-can type more than one. `>` names the agent for a job.
-
-A sigil counts only at the start of a word. These are left alone: `C#`,
-`x^2`, `50%`, `a@b.com`, and a URL. Quotes do not start a sigil, so code like
-`printf("%s")` is not a project.
+app, a topic, or the agent who should do the work. Name it in plain words and
+the server matches it: a project by slug or name, a lesson or setup by name,
+and a dispatch target through the target parameter.
 
 Known dispatch targets are `claude`, `codex`, `grok`, `gemini`, `pi`, `me`,
-and `crew`. With no `>` in the goal, a confident classification can pick the
-agent. Otherwise the job goes to `crew`. Anything that touches the network,
-credentials, deletion, or a deploy starts as **scout** (read, plan, report)
-even if you asked to ship it.
-
-**On your computer, you do not type them.** A one-line file named `.subzero`
-at the top of a repo supplies the home for coding sessions started in that
-folder:
-
-```bash
-echo "%portfolio-site" > ~/Code/portfolio-site/.subzero
-echo "^cfa2/fixed-income" > ~/Code/cfa2/.subzero
-```
-
-The nearest `.subzero` above the current folder wins. ChatGPT, Claude,
-Gemini, Grok, and Muse do not see that file. In those apps you type the sigil
-when the name match is not enough, or you say the project name and let the
-server match it.
+and `crew`. Without an explicit target, a confident classification can pick
+the agent. Otherwise the job goes to `crew`. Anything that touches the
+network, credentials, deletion, or a deploy starts as **scout** (read, plan,
+report) even if you asked to ship it.
 
 ## Skills, prompts, and tools
 
@@ -366,7 +332,7 @@ are in [Privacy and costs](../privacy-and-costs.md).
 - It will not start a dispatched job. Queued means waiting.
 - It will not drive herdr, your editor, or your browser unless you ask a
   coding agent to do a specific thing, and that agent is actually running.
-- It will not create a project because a `%` sigil mentioned one.
+- It will not create a project because the summary named one.
 
 ## From the terminal
 

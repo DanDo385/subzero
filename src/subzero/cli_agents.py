@@ -15,7 +15,7 @@ from typing import Any, NoReturn
 
 import click
 
-from subzero import client, prompt, sigils
+from subzero import client, prompt
 from subzero.agents import runner
 
 HOOK_EVENTS = {
@@ -28,7 +28,7 @@ HOOK_EVENTS = {
 SLASH_COMMANDS = {
     "dispatch.md": """\
 ---
-description: Queue a job for your agents. Sigils work - %project ^lesson >agent
+description: Queue a job for your agents.
 argument-hint: <goal, e.g. ^zig write an arena allocator lesson >claude>
 allowed-tools: Bash(subzero dispatch:*)
 ---
@@ -81,7 +81,6 @@ def _current_session(cwd: str | None = None) -> dict[str, Any] | None:
 def _start_session(payload: dict[str, Any], harness: str) -> tuple[dict[str, Any], str]:
     cwd = str(payload.get("cwd") or os.getcwd())
     external = f"{harness}:{payload.get('session_id') or 'none'}"
-    marks = client.home_sigils(cwd)
     config = client.load_config()
     session = client.api(
         "POST",
@@ -92,7 +91,6 @@ def _start_session(payload: dict[str, Any], harness: str) -> tuple[dict[str, Any
             "machine": config.machine or socket.gethostname().split(".")[0],
             "cwd": cwd,
             "branch": client.git(cwd, "rev-parse", "--abbrev-ref", "HEAD"),
-            "home": marks.home,
         },
         timeout=4,
         config=config,
@@ -104,16 +102,15 @@ def _start_session(payload: dict[str, Any], harness: str) -> tuple[dict[str, Any
 def hook_session_start(payload: dict[str, Any], harness: str) -> str:
     session, _ = _start_session(payload, harness)
     cwd = session.get("cwd") or os.getcwd()
-    marks = client.home_sigils(cwd)
     root = client.repo_root(cwd)
     branch = session.get("branch") or ""
-    query = marks.plain or " ".join(p for p in (root.name if root else "", branch) if p)
+    query = " ".join(p for p in (root.name if root else "", branch) if p)
     package = None
     with contextlib.suppress(client.ClientError):
         package = client.api(
             "GET",
             "/api/v1/bootstrap",
-            params={"q": query, "project": marks.project or "", "budget": 900},
+            params={"q": query, "budget": 900},
             timeout=5,
         )
     beat = client.api(
@@ -137,12 +134,6 @@ def hook_prompt(payload: dict[str, Any], harness: str) -> str | None:
     if cached is None:
         cached, _ = _start_session(payload, harness)
     body: dict[str, Any] = {"status": "working", "deliver": True}
-    # Only a prompt that opens with a home sigil ("^cfa2 next topic") moves the
-    # session; a sigil further into the text is just being talked about.
-    words = str(payload.get("prompt") or "").split(maxsplit=1)
-    opening = sigils.parse(words[0]) if words else sigils.parse("")
-    if opening.home:
-        body["home"] = opening.home
     beat = client.api("POST", f"/api/v1/agents/{cached['id']}/beat", json_body=body, timeout=3)
     text = prompt.render_messages(beat.get("messages") or [])
     return f"## Messages for you (from other subzero sessions)\n\n{text}" if text else None
@@ -253,21 +244,20 @@ def register(main: click.Group) -> None:
 
     @main.command(name="prompt")
     @click.option("--cwd", default=os.getcwd, help="Folder to build the prompt for.")
-    @click.option("--query", default=None, help="Key terms or sigils, e.g. '^cfa2 duration'.")
+    @click.option("--query", default=None, help="Key terms, e.g. 'cfa2 duration'.")
     @click.option("--no-agents-md", is_flag=True, help="Leave out the repo's AGENTS.md.")
     @click.option("--offline", is_flag=True, help="Skip the server; files only.")
     def show_prompt(cwd: str, query: str | None, no_agents_md: bool, offline: bool) -> None:
         """Print the master prompt: subzero rules, AGENTS.md, MEMORY.md, MACHINES.md, live context."""
         package = None
         if not offline:
-            marks = sigils.parse(query) if query else client.home_sigils(cwd)
             root = client.repo_root(cwd)
-            q = query or marks.plain or (root.name if root else "")
+            q = query or (root.name if root else "")
             try:
                 package = client.api(
                     "GET",
                     "/api/v1/bootstrap",
-                    params={"q": q, "project": marks.project or "", "budget": 1200},
+                    params={"q": q, "budget": 1200},
                 )
             except client.ClientError as exc:
                 click.secho(f"(no live context: {exc})", fg="yellow", err=True)
@@ -371,7 +361,7 @@ def register(main: click.Group) -> None:
     @agent.command(name="start")
     @click.option("--harness", default="cli", show_default=True)
     @click.option("--name", default=None)
-    @click.option("--home", default=None, help="A sigil: ^zig, %Code/site, &herdr.")
+    @click.option("--home", default=None, help="A home: projects/<slug>, lesson/<name>, setup/<tool>, or other.")
     def agent_start(harness: str, name: str | None, home: str | None) -> None:
         """Register a session (runners and scripts; hooks do this for Claude Code)."""
         cwd = os.getcwd()
@@ -379,7 +369,7 @@ def register(main: click.Group) -> None:
             "harness": harness,
             "name": name,
             "cwd": cwd,
-            "home": sigils.parse(home).home if home else client.home_sigils(cwd).home,
+            "home": home or None,
         }
         session = _call("POST", "/api/v1/agents/start", json_body=body)
         client.remember_session(f"{harness}:{session['id']}", cwd, session)
@@ -462,7 +452,7 @@ def register(main: click.Group) -> None:
     @click.argument("text", nargs=-1, required=True)
     @click.option("--session", "session_id", default=None, help="Send as this session id.")
     def msg(to: str, text: tuple[str, ...], session_id: str | None) -> None:
-        """Message a session (name or id), a home (^zig) or 'me'."""
+        """Message a session (name or id), a home (lesson/zig, projects/site) or 'me'."""
         session = {"id": session_id} if session_id else _current_session()
         _call(
             "POST",
@@ -487,9 +477,9 @@ def register(main: click.Group) -> None:
     @main.command()
     @click.argument("goal", nargs=-1, required=True)
     @click.option("--ship", is_flag=True, help="Make the change (default: scout - plan only).")
-    @click.option("--to", "target", default=None, help="Agent name; same as >name in the goal.")
+    @click.option("--to", "target", default=None, help="Agent name: claude, codex, grok, gemini, pi, me, crew.")
     def dispatch(goal: tuple[str, ...], ship: bool, target: str | None) -> None:
-        """Queue a job for your agents. Sigils work: %project ^lesson >agent."""
+        """Queue a job for your agents."""
         job = _call(
             "POST",
             "/api/v1/dispatch",
@@ -501,7 +491,7 @@ def register(main: click.Group) -> None:
             },
         )
         click.echo(
-            f"Queued {job['id'][:8]} for >{job['target']} as {job['mode']} ({job['routed_by']})."
+            f"Queued {job['id'][:8]} for {job['target']} as {job['mode']} ({job['routed_by']})."
         )
         for note in job.get("notes") or []:
             click.secho(note, fg="yellow")

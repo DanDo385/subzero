@@ -23,7 +23,7 @@ def home_metadata(
 ) -> dict:
     """Validate caller-selected semantics; code never guesses a lesson or tool.
 
-    ``extra_homes`` are the other places a sigil pointed at: a session can be
+    ``extra_homes`` are the other places a session belongs to: it can be
     about a project and a lesson and a setup at once, even though it is filed
     under one of them. They become tags, validated like the home itself.
     """

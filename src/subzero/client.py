@@ -26,15 +26,8 @@ from urllib.parse import urlparse
 
 import httpx
 
-from subzero import sigils
-
 CONFIG_DIR = Path(os.environ.get("SUBZERO_CONFIG_DIR", Path.home() / ".config" / "subzero"))
 STATE_DIR = Path(os.environ.get("SUBZERO_STATE_DIR", Path.home() / ".cache" / "subzero"))
-#: A file in a project or worktree whose first line holds its sigils
-#: (``^zig #comptime`` for a lesson worktree, ``%Code/site`` for a project).
-HOME_FILE = ".subzero"
-
-
 class ClientError(RuntimeError):
     """Something the person can fix; the message says what."""
 
@@ -149,19 +142,6 @@ def git(cwd: str, *args: str) -> str | None:
 def repo_root(cwd: str) -> Path | None:
     top = git(cwd, "rev-parse", "--show-toplevel")
     return Path(top) if top else None
-
-
-def home_sigils(cwd: str) -> sigils.Sigils:
-    """Sigils from the nearest ``.subzero`` file at or above ``cwd``."""
-    here = Path(cwd).resolve()
-    for folder in (here, *here.parents):
-        candidate = folder / HOME_FILE
-        if candidate.is_file():
-            first = candidate.read_text(errors="replace").strip().splitlines()[:1]
-            return sigils.parse(first[0] if first else "")
-        if (folder / ".git").exists():
-            break
-    return sigils.parse("")
 
 
 # ---------------------------------------------------------------- session cache

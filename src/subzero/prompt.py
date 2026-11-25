@@ -3,7 +3,7 @@
 ``subzero prompt`` prints it; the SessionStart hook injects it into Claude
 Code (and any harness that runs the same hook). It is assembled from:
 
-1. CORE: what subzero is, the sigils, when to save, messages and lessons.
+1. CORE: what subzero is, when to save, messages and lessons.
 2. AGENTS.md from the repo the session runs in (skipped for harnesses that
    already load it themselves, like Claude Code with its CLAUDE.md symlink).
 3. MEMORY.md and MACHINES.md from ~/.config/subzero (your own; templates are
@@ -31,20 +31,16 @@ CORE = """\
 You are one of several AI sessions (chat apps, Claude Code, Codex, Grok, firstmate crews)
 that share one memory server, subzero. Use it; never the old "personal-context-mcp" connector.
 
-Sigils say where things belong. Read them in what the user types, and use them yourself:
-  %Code/portfolio-site  project      ^cfa2/fixed-income  lesson (topic becomes a concept)
-  &tailscale            setup/tool   #comptime           concept    @handle  person
-  >claude >codex >grok >gemini >pi >me >crew            who a dispatched job goes to
-
 Working rules:
 - Starting real work: the context below is your handoff. Ask subzero for more
   (context_bootstrap or `subzero prompt`) only when it is not enough.
-- Finishing real work: save once with session_checkpoint, sigils in the title.
+- Finishing real work: save once with session_checkpoint. Give it a clear title and, when
+  useful, a home (projects/<slug>, lesson/<name>, setup/<tool>) and concept names.
 - Other sessions can message you; their messages appear in your context as "Messages for you".
-  Reply with `subzero msg <session or ^home> "<text>"`; tell the user with `subzero msg me "<text>"`.
-- Work for another agent: `subzero dispatch "<goal with sigils>"` (add --ship only when the user
+  Reply with `subzero msg <session or home> "<text>"`; tell the user with `subzero msg me "<text>"`.
+- Work for another agent: `subzero dispatch "<goal>"` (add --ship only when the user
   approved the change). Network, credentials, deletion and deploys always start as scout.
-- Lessons (a ^ home): build the scaffolding, but leave the one or two lines that teach the
+- Lessons: build the scaffolding, but leave the one or two lines that teach the
   idea as `TODO(you): <what to write>`. Then run
   `subzero agent status waiting "Type <what> in <file>:<line>"` and stop. When the user says
   done, read the file, check it, explain what it does, and run `subzero agent status working`.
@@ -85,8 +81,7 @@ def render_package(package: dict[str, Any], limit: int = 2500) -> str | None:
         for question in item.get("open_questions") or []:
             lines.append(f"    open: {question}")
     for note in package.get("notes") or []:
-        if not note.startswith("Sigils read"):
-            lines.append(f"({note})")
+        lines.append(f"({note})")
     text = "\n".join(lines).strip()
     return text[:limit] if text else None
 

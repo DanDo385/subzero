@@ -48,7 +48,7 @@ What each hook does:
 
 | When | It |
 | --- | --- |
-| A session starts | registers it, then adds the **master prompt**: subzero's rules and sigils, your MEMORY.md and MACHINES.md, where you left off in this project or lesson, and any messages waiting |
+| A session starts | registers it, then adds the **master prompt**: subzero's rules, your MEMORY.md and MACHINES.md, where you left off in this project or lesson, and any messages waiting |
 | You send a prompt | marks it working and adds any new messages from other sessions |
 | A turn ends | marks it idle (a lesson's "your turn" stays up) |
 | The session ends | marks it done; on the board it walks to the vault |
@@ -57,35 +57,17 @@ A hook never blocks Claude Code: if the server can't be reached it prints nothin
 reason to `~/.cache/subzero/hook-errors.log`. These hooks follow Claude Code's documented hook
 format (JSON on stdin; text printed at session start or prompt time is added to the context).
 
-**See the master prompt yourself:** `subzero prompt` (add `--query "^cfa2"` for a lesson).
+**See the master prompt yourself:** `subzero prompt` (add `--query "cfa2"` to focus a lesson).
 
-## 3. Tell a folder what it is
+## 3. Homes, everywhere
 
-Put a one-line `.subzero` file at the top of a repo or worktree with its sigils:
+Every session and note is filed under one home: `projects/<slug>`,
+`lesson/<name>`, `setup/<tool>`, or `other`. Say the project, lesson, or tool
+by name in chat or in a checkpoint's `home` field and the server matches it.
+When nothing matches, Jev decides; when Jev isn't sure, things go to the
+inbox (saves) or to `crew` (jobs).
 
-```bash
-echo "^zig #comptime" > ~/Code/zig-lessons/.subzero
-echo "%Code/portfolio-site" > ~/Code/portfolio-site/.subzero
-```
-
-Sessions started there land in that lesson or project, get its handoff, and receive messages sent
-to `^zig` or `%Code/portfolio-site`.
-
-## 4. Sigils, everywhere
-
-| Type | Means | Goes to |
-| --- | --- | --- |
-| `%Code/portfolio-site` | project | that project (must already exist; it is never created for you) |
-| `^cfa2/fixed-income` | lesson | home `lesson/cfa2`, concept `fixed-income` |
-| `&tailscale` | setup or tool | home `setup/tailscale` |
-| `#comptime` | concept | tag `concept/comptime` |
-| `@handle` | person | tag `person/handle` |
-| `>claude` `>codex` `>grok` `>gemini` `>pi` `>me` `>crew` | who does a job | that agent |
-
-They work in chat apps, in Claude Code, in the CLI and on the board. When there's no sigil, Jev
-decides; when Jev isn't sure, things go to the inbox (saves) or to `crew` (jobs).
-
-## 5. Dispatch work, send messages
+## 4. Dispatch work, send messages
 
 ```bash
 subzero dispatch "%Code/portfolio-site add a dark mode toggle >claude"
@@ -185,7 +167,7 @@ subzero board
 It opens `http://127.0.0.1:7777`: agents arrive at the dock, walk to their project or lesson room,
 show **Your turn** when a lesson waits on you, and walk to the vault when their session ends, where
 new notes land on the shelf. Queued jobs sit in their room with the agent they're for and how it
-was chosen (`sigil`, `jev 0.82`, or `default`).
+was chosen (`target`, `jev 0.82`, or `default`).
 
 | Key | Does |
 | --- | --- |

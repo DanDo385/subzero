@@ -180,7 +180,6 @@ subzero/
 │   ├── services.py           # explicit service wiring
 │   ├── models.py             # the shapes that cross the MCP boundary
 │   ├── ingest.py             # /api/v1/ingest: the extension's write path, sync-state
-│   ├── sigils.py             # %project ^lesson &setup #concept @person >agent
 │   ├── cli.py cli_agents.py  # `subzero` commands; client.py is their HTTP side
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration

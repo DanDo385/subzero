@@ -18,4 +18,4 @@ Edit me at ~/.config/subzero/MEMORY.md.
 ## Rules for agents
 - Lessons: leave the lines that teach the idea as `TODO(you):` and wait for me to type them.
 - Never apply network, firewall, DNS or credential changes without my approval.
-- Save to subzero at the end of real work (session_checkpoint), with sigils.
+- Save to subzero at the end of real work (session_checkpoint).
