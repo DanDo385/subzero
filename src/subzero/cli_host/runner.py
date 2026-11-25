@@ -383,7 +383,9 @@ def _tmux_env() -> dict[str, str]:
     the macOS socket-path limit. The user command does not receive this
     mapping; it receives ``_job_env``.
     """
-    return _job_env(str(Path.home()), Path("/tmp"))
+    # tmux puts its socket under TMPDIR. A long pytest temp path exceeds the
+    # macOS socket-path limit, so the client uses the system short directory.
+    return _job_env(str(Path.home()), Path("/tmp"))  # noqa: S108
 
 
 def runner_for(settings: object) -> CliHostRunner:

@@ -27,7 +27,7 @@ uv run ruff check src tests
 uv run ruff format src tests
 uv run mypy src                            # package subzero (the Obsidian worker is subzero.obsidian.sync)
 uv run pytest
-uv run pytest tests/test_paths.py::test_name -x   # single test
+uv run pytest tests/unit/test_paths.py::test_name -x   # single test
 ```
 
 `ruff check src tests`, `mypy src` and `pytest` are all expected to be clean before a change is
@@ -37,8 +37,8 @@ done.
 
 Two tiers, split by whether a database is needed:
 
-- Unit tests (`test_paths`, `test_archives`, `test_classifier`, `test_auth`, `test_obsidian`,
-  `test_importers`, `test_http_security`) need nothing external.
+- Unit tests live under `tests/unit/` (paths, archives, classifier, auth, obsidian,
+  importers, http_security, and similar) and need nothing external.
 - `test_integration_*` and `tests/e2e/*` carry `pytestmark = requires_db`; prefer
   `tests/e2e/` for new journeys (shared fixtures in `tests/support/`) (from `tests/support/db.py`)
   and **skip** unless `SUBZERO_TEST_DATABASE_URL` is set. The `db` fixture drops and recreates the

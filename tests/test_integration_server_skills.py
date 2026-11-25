@@ -13,8 +13,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
 from pydantic import SecretStr
 
@@ -57,43 +55,33 @@ async def test_migration_assigns_homes_without_losing_existing_tags(db, tmp_path
         assert await conn.fetchval("SELECT count(*) FROM sync_jobs") == 0
 
 
-@pytest.fixture
-async def client(services, live_server):
-    async with Client(
-        StreamableHttpTransport(
-            url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
-        )
-    ) as mcp:
-        yield mcp
-
-
-async def test_named_prompts_and_tool_contracts(client):
-    tools = {tool.name: tool for tool in await client.list_tools()}
+async def test_named_prompts_and_tool_contracts(mcp_client):
+    tools = {tool.name: tool for tool in await mcp_client.list_tools()}
     assert {"context_search", "session_checkpoint", "email"} <= tools.keys()
     assert {"home", "concepts"} <= tools["session_checkpoint"].inputSchema["properties"].keys()
     assert tools["email"].inputSchema["properties"]["dry_run"]["default"] is True
     assert {"search", "save", "email", "use_subzero"} <= {
-        prompt.name for prompt in await client.list_prompts()
+        prompt.name for prompt in await mcp_client.list_prompts()
     }
     for action, tool in (
         ("search", "context_search"),
         ("save", "session_checkpoint"),
         ("email", "email"),
     ):
-        prompt = await client.get_prompt(action)
+        prompt = await mcp_client.get_prompt(action)
         assert any(tool in message.content.text for message in prompt.messages)
 
 
-async def test_usage_guide_is_available_through_prompt_and_resource(client):
-    prompt = await client.get_prompt("use_subzero")
-    resource = await client.read_resource("subzero://guide/use-subzero")
+async def test_usage_guide_is_available_through_prompt_and_resource(mcp_client):
+    prompt = await mcp_client.get_prompt("use_subzero")
+    resource = await mcp_client.read_resource("subzero://guide/use-subzero")
     assert len(prompt.messages) == 1
     assert len(resource) == 1
     assert prompt.messages[0].content.text.strip()
     assert prompt.messages[0].content.text == resource[0].text
 
 
-async def test_save_and_search_reuse_existing_tools(client, services):
+async def test_save_and_search_reuse_existing_tools(mcp_client, services):
     args = {
         "provider": "codex",
         "provider_conversation_id": "skills-session",
@@ -102,8 +90,8 @@ async def test_save_and_search_reuse_existing_tools(client, services):
         "home": "setup/neovim",
         "concepts": ["Lua", "LSP"],
     }
-    first = (await client.call_tool("session_checkpoint", args)).data
-    second = (await client.call_tool("session_checkpoint", args)).data
+    first = (await mcp_client.call_tool("session_checkpoint", args)).data
+    second = (await mcp_client.call_tool("session_checkpoint", args)).data
     assert first.conversation_id == second.conversation_id
     row = await services.db.fetchrow(
         "SELECT metadata FROM conversations WHERE id = $1", first.conversation_id
@@ -112,14 +100,14 @@ async def test_save_and_search_reuse_existing_tools(client, services):
     assert row["metadata"]["tags"] == ["setup/neovim", "concept/lsp", "concept/lua"]
     assert await services.db.fetchval("SELECT count(*) FROM session_summaries") == 1
     assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 0
-    results = await client.call_tool("context_search", {"query": "Neovim Lua configuration"})
+    results = await mcp_client.call_tool("context_search", {"query": "Neovim Lua configuration"})
     assert "Neovim" in json.dumps(results.data)
 
 
-async def test_project_home_resolves_existing_project(client, services):
+async def test_project_home_resolves_existing_project(mcp_client, services):
     await services.projects.create(name="Shared Memory")
     result = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "session_checkpoint",
             {
                 "provider": "claude",
@@ -133,7 +121,7 @@ async def test_project_home_resolves_existing_project(client, services):
     assert result.classification["home"] == "projects/shared-memory"
 
 
-async def test_email_dry_run_through_mcp_never_calls_agentmail(client, services, monkeypatch):
+async def test_email_dry_run_through_mcp_never_calls_agentmail(mcp_client, services, monkeypatch):
     async def forbidden(*args, **kwargs):
         raise AssertionError("dry run attempted a network call")
 
@@ -145,16 +133,16 @@ async def test_email_dry_run_through_mcp_never_calls_agentmail(client, services,
         "subject": "Test",
         "text": "Exact requested text\n\nNo additions.",
     }
-    draft = (await client.call_tool("email", args)).data
-    duplicate = (await client.call_tool("email", args)).data
+    draft = (await mcp_client.call_tool("email", args)).data
+    duplicate = (await mcp_client.call_tool("email", args)).data
     assert draft["draft_id"] == duplicate["draft_id"]
     assert draft["draft"]["text"] == args["text"]
     assert draft["status"] == "draft"
     with pytest.raises(ToolError):
-        await client.call_tool("email", {"action": "send", "draft_id": draft["draft_id"]})
+        await mcp_client.call_tool("email", {"action": "send", "draft_id": draft["draft_id"]})
     send = {"action": "send", "draft_id": draft["draft_id"], "confirmation": draft["confirmation"]}
-    assert (await client.call_tool("email", send)).data["status"] == "dry_run"
-    assert (await client.call_tool("email", send)).data["status"] == "dry_run"
+    assert (await mcp_client.call_tool("email", send)).data["status"] == "dry_run"
+    assert (await mcp_client.call_tool("email", send)).data["status"] == "dry_run"
     assert await services.db.fetchval("SELECT count(*) FROM email_drafts") == 1
 
 
@@ -305,11 +293,10 @@ async def test_email_privacy_and_timezone_fail_before_network(services, inbox):
     assert not inbox[0]
 
 
-async def test_read_only_client_cannot_discover_or_send_email(client, services):
-    services.settings.client_scope_policy = {"*": ["read"]}
-    assert "email" not in {tool.name for tool in await client.list_tools()}
+async def test_read_only_client_cannot_discover_or_send_email(read_only_mcp_client, services):
+    assert "email" not in {tool.name for tool in await read_only_mcp_client.list_tools()}
     with pytest.raises(ToolError):
-        await client.call_tool(
+        await read_only_mcp_client.call_tool(
             "email",
             {
                 "action": "draft",
