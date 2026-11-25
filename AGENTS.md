@@ -79,7 +79,8 @@ and health routes. Its lifespan opens the asyncpg pool and calls `build_services
 enforce a scope with `auth=require_scopes(...)`, and delegate to a service in
 `memory/ sessions/ projects/ notes/ artifacts/ retrieval/ review/` or to `tasks.py`
 (project next steps, rendered into vault notes). Business logic and SQL belong in the service, or a
-sibling such as `notes/inbox.py`, `review/filing.py`, or `retrieval/sql.py`, never in the tool module. Field descriptions are prompt surface, the model
+sibling such as `notes/inbox.py`, `review/filing.py`, `retrieval/sql.py`, or
+`retrieval/package.py`, never in the tool module. Field descriptions are prompt surface, the model
 reads them, so they are written as instructions to the caller.
 
 **`models.py` is the MCP boundary.** Pydantic types with `extra="forbid"`; the `Literal` unions
