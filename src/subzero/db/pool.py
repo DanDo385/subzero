@@ -75,16 +75,34 @@ def _decode_vector(value: str | None) -> list[float] | None:
 
 
 class Database:
-    """Owns the pool. One instance per process."""
+    """Owns the pool. One instance per process.
 
-    def __init__(self, pool: asyncpg.Pool) -> None:
-        self._pool = pool
+    Two phases: constructing it is free, :meth:`open` connects. That split lets
+    the app wire every service to this object while it is still being built, and
+    leaves the connecting to the server's lifespan. :meth:`connect` does both
+    for scripts and the CLI.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._pool: asyncpg.Pool | None = None
 
     @classmethod
     async def connect(cls, settings: Settings) -> Database:
-        dsn = settings.database_url.get_secret_value()
-        pool = await asyncpg.create_pool(
-            dsn=dsn,
+        db = cls(settings)
+        await db.open()
+        return db
+
+    @property
+    def is_open(self) -> bool:
+        return self._pool is not None
+
+    async def open(self) -> None:
+        if self._pool is not None:
+            return
+        settings = self._settings
+        self._pool = await asyncpg.create_pool(
+            dsn=settings.database_url.get_secret_value(),
             min_size=settings.db_pool_min_size,
             max_size=settings.db_pool_max_size,
             init=_init_connection,
@@ -93,18 +111,21 @@ class Database:
             statement_cache_size=0,
         )
         logger.info("database pool ready")
-        return cls(pool)
 
     async def close(self) -> None:
-        await self._pool.close()
+        if self._pool is not None:
+            pool, self._pool = self._pool, None
+            await pool.close()
 
     @property
     def pool(self) -> asyncpg.Pool:
+        if self._pool is None:
+            raise RuntimeError("Database is not open; call open() first.")
         return self._pool
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[asyncpg.Connection]:
-        async with self._pool.acquire() as conn:
+        async with self.pool.acquire() as conn:
             yield conn
 
     @asynccontextmanager
@@ -113,36 +134,22 @@ class Database:
 
         Checkpoints use this so a half-applied checkpoint never persists.
         """
-        async with self._pool.acquire() as conn, conn.transaction():
+        async with self.pool.acquire() as conn, conn.transaction():
             yield conn
 
     # ---------------------------------------------------------------- reads
     async def fetch(self, query: str, *args: Any) -> list[asyncpg.Record]:
-        async with self._pool.acquire() as conn:
+        async with self.pool.acquire() as conn:
             return await conn.fetch(query, *args)
 
     async def fetchrow(self, query: str, *args: Any) -> asyncpg.Record | None:
-        async with self._pool.acquire() as conn:
+        async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
     async def fetchval(self, query: str, *args: Any) -> Any:
-        async with self._pool.acquire() as conn:
+        async with self.pool.acquire() as conn:
             return await conn.fetchval(query, *args)
 
     async def execute(self, query: str, *args: Any) -> str:
-        async with self._pool.acquire() as conn:
+        async with self.pool.acquire() as conn:
             return await conn.execute(query, *args)
-
-
-_database: Database | None = None
-
-
-def set_database(db: Database | None) -> None:
-    global _database
-    _database = db
-
-
-def get_database() -> Database:
-    if _database is None:  # pragma: no cover - programming error
-        raise RuntimeError("Database not initialised; server lifespan did not run.")
-    return _database

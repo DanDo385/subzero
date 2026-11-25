@@ -43,7 +43,7 @@ from subzero.auth.provider import build_auth_provider
 from subzero.auth.ratelimit import RateLimitMiddleware
 from subzero.bridge.api import build_bridge_routes
 from subzero.config import Settings, get_settings
-from subzero.db.pool import Database, set_database
+from subzero.db.pool import Database
 from subzero.embeddings.refresh import background_refresh
 from subzero.importers.reclassify import background_classify
 from subzero.ingest import build_ingest_routes
@@ -94,10 +94,10 @@ agents_status shows running coding sessions and who is waiting on the user.
 """
 
 
-def build_mcp(settings: Settings) -> FastMCP:
-    # The OAuth store resolves its pool lazily, so the server - and every one
-    # of its routes - exists before the database does.
-    auth = build_auth_provider(settings, client_storage=PostgresKeyValue())
+def build_mcp(settings: Settings, db: Database) -> FastMCP:
+    # `db` is not open yet. The OAuth store only uses it once a request
+    # arrives, so the server and every route exist before the database does.
+    auth = build_auth_provider(settings, client_storage=PostgresKeyValue(db))
     mcp = FastMCP(
         name="Subzero",
         instructions=SERVER_INSTRUCTIONS,
@@ -577,7 +577,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # and closes state. This matters for more than tidiness - it is what makes
     # an unauthenticated request get a 401 rather than a 404 when the database
     # is unreachable, so a database outage cannot look like "no such endpoint".
-    mcp = build_mcp(settings)
+    db = Database(settings)
+    mcp = build_mcp(settings, db)
     mcp_app = mcp.http_app(
         path=settings.mcp_path,
         stateless_http=True,  # Cloud Run scales to zero; no sticky sessions.
@@ -590,8 +591,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
-        db = await Database.connect(settings)
-        set_database(db)
+        await db.open()
         services = await build_services(settings, db)
         set_services(services)
 
@@ -622,7 +622,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
         finally:
             await services.aclose()
             set_services(None)
-            set_database(None)
 
     routes = _build_routes(settings, mcp_app)
 

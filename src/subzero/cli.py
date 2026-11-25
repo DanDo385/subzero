@@ -25,7 +25,7 @@ import httpx
 from subzero.cli_agents import register as register_agent_commands
 from subzero.config import Settings, get_settings, legacy_env_names
 from subzero.db.migrate import apply_migrations, migration_status
-from subzero.db.pool import Database, set_database
+from subzero.db.pool import Database
 from subzero.digest import build_digest
 from subzero.extraction.deep import DeepExtractor, estimate_cost
 from subzero.importers.adapters import IMPORTERS
@@ -45,7 +45,6 @@ from subzero.wiki.service import WikiService
 
 async def _with_services(settings: Settings):
     db = await Database.connect(settings)
-    set_database(db)
     services = await build_services(settings, db)
     set_services(services)
     return services

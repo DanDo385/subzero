@@ -447,7 +447,7 @@ def memory_client_store(monkeypatch: pytest.MonkeyPatch) -> None:
 
     from subzero import server
 
-    monkeypatch.setattr(server, "PostgresKeyValue", MemoryStore)
+    monkeypatch.setattr(server, "PostgresKeyValue", lambda db: MemoryStore())
 
 
 async def _register(settings: Settings, redirect_uri: str) -> httpx.Response:
