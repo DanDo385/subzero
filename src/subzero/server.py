@@ -8,7 +8,7 @@ Route map:
 
     /                      service identity only; no personal data
     /healthz               liveness
-    /readyz                readiness (checks the database)
+    /readyz                readiness (the database answers and has every migration)
     /mcp[/<server-id>]     the MCP endpoint, authenticated (a trailing slash
                            is served too, not redirected)
     /.well-known/*         OAuth metadata, added by the auth provider
@@ -43,6 +43,7 @@ from subzero.auth.provider import build_auth_provider
 from subzero.auth.ratelimit import RateLimitMiddleware
 from subzero.bridge.api import build_bridge_routes
 from subzero.config import Settings, get_settings
+from subzero.db import schema_status
 from subzero.db.pool import Database, set_database
 from subzero.embeddings.refresh import background_refresh
 from subzero.importers.reclassify import background_classify
@@ -53,6 +54,8 @@ from subzero.logging_setup import (
     request_id_var,
 )
 from subzero.mcp import register_all
+from subzero.mcp.errors import ReadableErrorsMiddleware
+from subzero.request_context import close_record, open_record
 from subzero.services import build_services, get_services, set_services
 from subzero.storage import build_object_store
 from subzero.storage.local import LocalObjectStore
@@ -107,9 +110,13 @@ def build_mcp(settings: Settings) -> FastMCP:
             RateLimitMiddleware(
                 per_minute=settings.rate_limit_per_minute,
                 burst=settings.rate_limit_burst,
-            )
+            ),
+            # Inside the rate limit: turns tool exceptions into messages a
+            # client can act on (see subzero.mcp.errors).
+            ReadableErrorsMiddleware(expose_details=not settings.is_prod),
         ],
-        # Tool results are data, not secrets to leak in a traceback.
+        # Tool results are data, not secrets to leak in a traceback. Anything
+        # ReadableErrorsMiddleware does not translate stays masked.
         mask_error_details=settings.is_prod,
     )
     register_all(mcp)
@@ -403,6 +410,7 @@ class RequestLogMiddleware:
         is_mcp = scope["method"] == "POST" and scope["path"].rstrip("/") == self.mcp_path
         body = bytearray()
         status = 0
+        record = open_record()
 
         async def receive_wrapper() -> Any:
             message = await receive()
@@ -419,6 +427,7 @@ class RequestLogMiddleware:
         try:
             await self.app(scope, receive_wrapper if is_mcp else receive, send_wrapper)
         finally:
+            tool_failures = close_record(record)
             fields: dict[str, Any] = {
                 "http_method": scope["method"],
                 "path": scope["path"],
@@ -433,6 +442,9 @@ class RequestLogMiddleware:
                 fields.update(_rpc_summary(bytes(body)))
                 if self.log_bodies:
                     fields["rpc_body"] = body.decode("utf-8", "replace")
+            if tool_failures:
+                # HTTP says 200 for a failed tool call; this says it failed.
+                fields["tool_failures"] = tool_failures
             logger.info("http request", extra=fields)
 
 
@@ -474,10 +486,20 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
 
     async def readyz(request: Request) -> Response:
         try:
-            await get_services().db.fetchval("SELECT 1")
+            db = get_services().db
+            await db.fetchval("SELECT 1")
+            pending = await schema_status.check(db)
         except Exception:
             logger.exception("readiness check failed")
             return JSONResponse({"ready": False}, status_code=503)
+        if pending:
+            # A database that answers but lacks this code's migrations is not
+            # ready: tools that read the new schema fail. The versions are in
+            # the log; this route may be public (Vercel), so only the count.
+            return JSONResponse(
+                {"ready": False, "reason": "migrations_pending", "pending": len(pending)},
+                status_code=503,
+            )
         return JSONResponse({"ready": True})
 
     def local_store() -> LocalObjectStore | None:
@@ -594,6 +616,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         set_database(db)
         services = await build_services(settings, db)
         set_services(services)
+        # Serve anyway when migrations are pending: most tools still work, and
+        # refusing to start would hide the server from the operator too. The
+        # check logs one clear error and /readyz reports not ready.
+        with contextlib.suppress(Exception):
+            await schema_status.check(db, force=True)
 
         if settings.storage_backend == "supabase":
             with contextlib.suppress(Exception):
@@ -621,6 +648,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 yield
         finally:
             await services.aclose()
+            schema_status.reset()
             set_services(None)
             set_database(None)
 
