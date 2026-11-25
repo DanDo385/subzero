@@ -22,10 +22,11 @@ Two paths, chosen by ``SUBZERO_AUTH_MODE``:
   registered OAuth client's id or on the app its redirect URIs belong to. This is a real, enforced boundary - it is just
   administered by the operator rather than requested by the client.
 
-``agents:exec`` is granted on either path only to clients the operator named
-for it: it is not a ``:read`` scope, so the read-only default for an
-unmatched client can never include it. Grant it to the user's own CLI and
-harness clients only; chat apps should not get it.
+``agents:exec`` and ``cli:run`` are granted on either path only to clients
+the operator named for them: neither is a ``:read`` scope, so the read-only
+default for an unmatched client can never include them. ``cli:run`` is the
+scope for ``run_cli_on_mbp`` (one command on this Mac, result in the same
+chat). Name it for the chat client that should be allowed to ask.
 
 Both paths end with the scopes on ``AccessToken.scopes``, so tool code and
 the enforcement machinery do not care which was used.
@@ -55,6 +56,11 @@ AGENTS_WRITE = "agents:write"
 #: ``agents:exec`` for a client to get it. Name the user's own CLI and harness
 #: clients; chat apps should not have it.
 AGENTS_EXEC = "agents:exec"
+#: Runs one explicit command on the Mac that hosts this server and returns
+#: the output to the same chat. Same grant rule as ``agents:exec``: name it
+#: in the client policy. ``"*"`` does not include it, so a wildcard cannot
+#: hand every connected chat app a shell.
+CLI_RUN = "cli:run"
 
 ALL_SCOPES: tuple[str, ...] = (
     CONTEXT_READ,
@@ -73,6 +79,7 @@ ALL_SCOPES: tuple[str, ...] = (
     AGENTS_READ,
     AGENTS_WRITE,
     AGENTS_EXEC,
+    CLI_RUN,
 )
 
 READ_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s.endswith(":read"))
@@ -81,7 +88,7 @@ READ_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s.endswith(":read"
 #: user's machine is remote execution, and the quickstart policy shipped in
 #: ``.env.local.example`` is ``{"*": ["*"]}``, so a wildcard has to mean
 #: "everything except this". Grant it by name.
-EXEC_SCOPES: frozenset[str] = frozenset({AGENTS_EXEC})
+EXEC_SCOPES: frozenset[str] = frozenset({AGENTS_EXEC, CLI_RUN})
 
 #: What ``"*"`` expands to.
 WILDCARD_SCOPES: tuple[str, ...] = tuple(s for s in ALL_SCOPES if s not in EXEC_SCOPES)
@@ -97,7 +104,7 @@ def expand(scopes: list[str] | tuple[str, ...]) -> set[str]:
 
     ``"*"`` means every scope except :data:`EXEC_SCOPES`; ``"read"`` means every
     ``:read`` scope; anything else must be a literal scope name, so
-    ``agents:exec`` is granted only by naming it. Unknown names are dropped
+    ``agents:exec`` and ``cli:run`` are granted only by naming them. Unknown names are dropped
     rather than silently widening access.
     """
     out: set[str] = set()

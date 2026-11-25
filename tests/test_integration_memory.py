@@ -1,5 +1,6 @@
 """Integration: memory, dedup, projects, tasks, retrieval, checkpoints.
 
+MCP journeys: tests/e2e/test_memory.py. These tests call services directly.
 Requires SUBZERO_TEST_DATABASE_URL pointing at a throwaway Postgres with pgvector.
 """
 

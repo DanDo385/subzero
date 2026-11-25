@@ -35,6 +35,7 @@ REQUIRED: dict[str, dict[str, Any]] = {
     "artifact_search": {},
     "review_list": {},
     "agent_run": {"command": "true"},
+    "run_cli_on_mbp": {"command": "true"},
 }
 
 #: Numeric parameters allowed to have no declared maximum, and why.

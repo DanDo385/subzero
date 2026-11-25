@@ -41,7 +41,7 @@ from subzero.models import (
     ContextPackage,
 )
 from subzero.projects.service import ProjectService
-from subzero.retrieval import inference
+from subzero.retrieval import inference, semantic
 from subzero.retrieval.inference import name_tsquery
 from subzero.retrieval.items import (
     KIND_WEIGHT,
@@ -58,6 +58,7 @@ from subzero.retrieval.items import (
 )
 from subzero.retrieval.package import PackageBuilder
 from subzero.retrieval.query import ParsedQuery, parse
+from subzero.retrieval.semantic import DeepSearchResult
 from subzero.retrieval.sql import (
     CONFLICT_SQL as _CONFLICT_SQL,
 )
@@ -304,6 +305,22 @@ class RetrievalService:
             limit,
         )
         return [_item(kind="summary", row=r, content=r["summary"], title=r["title"]) for r in rows]
+
+    async def deep_search(
+        self,
+        query: str,
+        *,
+        limit: int = 8,
+        provider: str | None = None,
+    ) -> DeepSearchResult:
+        """Hybrid message search for memory_deep_search (one embedding call when enabled)."""
+        return await semantic.deep_search(
+            self._db,
+            self._embeddings,
+            query,
+            limit=limit,
+            provider=provider,
+        )
 
     # ---------------------------------------------------------- packages
 

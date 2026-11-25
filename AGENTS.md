@@ -136,9 +136,8 @@ for a lesson or setup. Use `concepts` to add topic tags.
 **Agents** (`agents/`): live coding sessions, messages between them and dispatched jobs, on device
 tokens over `/api/v1/agents|messages|dispatch` and as MCP tools. Dispatch uses an explicit target, else the Jev `dispatch` question above `DISPATCH_ROUTE_AUTO`, else `crew`; risky goals always start as
 `scout`. `dispatch_jobs` also carries executable intent (`kind='command'|'session'|'goal'`,
-queued by the `agents:exec` MCP tools `agent_run` and `agent_open`): the server never
-executes anything, and the only code in `src/subzero/` that touches a shell is the runner on
-the user's machine. `agents/runner.py` (`subzero agent run`) claims over `/api/v1/dispatch/claim`
+queued by the `agents:exec` MCP tools `agent_run` and `agent_open`): the server stores
+the job and does not run it. `agents/runner.py` (`subzero agent run`) claims over `/api/v1/dispatch/claim`
 and acts only by calling `tmux-axi` or `herdr-axi` with argv lists (`--json`), never
 `shell=True`, never raw `tmux`/`herdr`, never as root. It re-validates every job's `cwd`
 against the runner machine's own `SUBZERO_EXEC_ROOTS` (the server resolved it with
@@ -160,6 +159,16 @@ classifier input), and a runner's `output` is user content too: stored as a tail
 returned only to the caller. The CLI side (`client.py`, `cli_agents.py`, `prompt.py`, `board/`)
 runs on each machine: hooks must never fail the harness, and the board serves only 127.0.0.1 and
 never sends the device token to the page.
+
+**CLI host** (`cli_host/`): `run_cli_on_mbp` runs one explicit command on this Mac and returns
+the result in the same chat. The connector's MCP server is the Mac, so the tool calls
+`cli_host/runner.py` in-process. Each job is a fresh detached tmux session on the socket named
+by `SUBZERO_CLI_RUNNER_SOCKET` (default `subzero-cli`), never the user's default tmux server,
+Herdr, or Firstmate. The command runs as the server user's account, without sudo, with a clean
+environment, and only inside `SUBZERO_EXEC_ROOTS`. `cli:run` is an exec scope: `"*"` does not
+grant it. Output is data: returned to the caller, not sent to Jev or the embedder, and not
+stored on the audit row. A process that is not the Mac runner refuses to start a shell.
+`cli_job_on_mbp` reads a job that was still running when the first call returned.
 
 **Embeddings are optional.** `SUBZERO_EMBEDDING_PROVIDER=none` is the default; retrieval falls back to
 full-text search alone, so nothing may assume a vector is present. When a provider is set,

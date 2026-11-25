@@ -102,6 +102,6 @@ Skill names use hyphens.
 | `update-project` | status, goals, decisions, and the activity log |
 | `daily-review` | open tasks, unresolved questions, vault sync |
 | `manage-lists` | say a list app manages lists; do not call the old list tools |
-| `run-command` | run one exact command on my machine; report its exit code honestly |
+| `run-command` | run one exact command on this Mac with `run_cli_on_mbp`; report host, directory and exit code |
 | `open-session` | open a terminal session there; the first command is typed for review, not run |
 | `dispatch-work` | a described job for a coding agent, with a space or worktree |

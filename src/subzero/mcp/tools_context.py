@@ -208,12 +208,8 @@ def register(mcp: FastMCP) -> None:
         conversation_id. Costs more than context_search; do not call it for
         every request. If "semantic" is false, only exact words were matched.
         """
-        from subzero.retrieval.semantic import deep_search
-
         services = get_services()
-        result = await deep_search(
-            services.db, services.embeddings, query, limit=limit, provider=provider
-        )
+        result = await services.retrieval.deep_search(query, limit=limit, provider=provider)
         payload: dict[str, Any] = {
             "query": result.query,
             "semantic": result.semantic,

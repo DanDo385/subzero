@@ -203,6 +203,27 @@ and can open a bridge session with a CLI when you ask it to. It does not click h
 A worker on the always-on machine can pass a claimed job into a herdr pane with
 `herdr pane send-text`.
 
+## 9. Run one command on this Mac and see the result in the chat
+
+`run_cli_on_mbp` is separate from the dispatch runner above. It does not use Herdr, Firstmate,
+or a coding harness, and it does not open a new public URL. The server on this Mac starts a
+fresh detached tmux session on its own socket (`tmux -L subzero-cli`), runs the command as
+your user, and returns the exit code plus the output in the same chat.
+
+The tool is hidden until the client is granted `cli:run` by name. `"*"` does not include it.
+Add `"cli:run"` to that client's entry in `SUBZERO_CLIENT_SCOPE_POLICY`, restart the server,
+and reconnect the app.
+
+Say which command and which folder. A short command returns immediately. A long one returns a
+job id; ask for that job and the app calls `cli_job_on_mbp`. The session is removed when the
+result is recorded. Ask to keep the session if you want to reattach:
+
+```bash
+tmux -L subzero-cli attach -t job-<id>
+```
+
+The command is not run with sudo, and it only starts inside a directory from `SUBZERO_EXEC_ROOTS`.
+
 ## When something goes wrong
 
 | You see | What it means | Fix |
@@ -215,3 +236,7 @@ A worker on the always-on machine can pass a claimed job into a herdr pane with
 | `Unknown target 'x'` | `>x` isn't an agent subzero knows. | Use one of `claude codex grok gemini pi me crew`. |
 | The board says `can't reach subzero` | The server is down or the Mac is asleep. | Wake the Mac or start the server; the board reconnects on its own. |
 | `Port 7777 is busy` | Another board (or app) is using it. | `subzero board --port 7778`. |
+| No `run_cli_on_mbp` tool | The chat client was not granted `cli:run`. | Add `"cli:run"` by name in `SUBZERO_CLIENT_SCOPE_POLICY`, restart, reconnect the app. `"*"` does not grant it. |
+| `The CLI runner will not run sudo` | The command started with sudo. | Run it as your user, or run sudo yourself in a terminal. |
+| `resolves outside every configured exec root` | The folder is not under `SUBZERO_EXEC_ROOTS`. | Name a directory inside those roots. |
+| `This process is not the Mac CLI runner` | The server that answered is not the Mac process. | Use the Mac connector (`https://<your-mac>/mcp`). This build does not register an outbound worker. |
