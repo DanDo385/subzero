@@ -5,12 +5,14 @@ from __future__ import annotations
 import httpx
 
 from subzero.config import EMBEDDING_DIM
-from subzero.errors import SubzeroError
+from subzero.errors import EmbeddingInputError, SubzeroError
 from subzero.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-#: Chars, not tokens - we only need a safe upper bound per input.
+#: A transport cap, not a guarantee: providers limit input in tokens and chars
+#: are not tokens, so dense text can still be refused. The service shrinks any
+#: input a provider refuses; this only keeps one absurd row off the wire.
 _MAX_INPUT_CHARS = 24_000
 
 
@@ -37,6 +39,11 @@ class OpenAIEmbeddingProvider:
                 "dimensions": self.dimension,
             },
         )
+        if response.status_code == 400:
+            # The request itself was refused, usually one input over the
+            # token limit. The body names the offending index, which is the
+            # whole diagnosis, so keep a piece of it in the log.
+            raise EmbeddingInputError(f"Embedding request refused: HTTP 400: {response.text[:300]}")
         if response.status_code != 200:
             raise SubzeroError(f"Embedding request failed: HTTP {response.status_code}")
         data = sorted(response.json()["data"], key=lambda d: d["index"])
@@ -74,6 +81,8 @@ class GeminiEmbeddingProvider:
                 ]
             },
         )
+        if response.status_code == 400:
+            raise EmbeddingInputError(f"Embedding request refused: HTTP 400: {response.text[:300]}")
         if response.status_code != 200:
             raise SubzeroError(f"Embedding request failed: HTTP {response.status_code}")
         return [item["values"] for item in response.json()["embeddings"]]

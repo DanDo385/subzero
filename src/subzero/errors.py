@@ -43,5 +43,15 @@ class RateLimited(SubzeroError):
     """Caller exceeded the configured request budget."""
 
 
+class EmbeddingInputError(SubzeroError):
+    """The embedding provider refused the request itself, not the caller.
+
+    An input over the model's token limit makes OpenAI reject the whole batch
+    with a 400. That is a different failure from a dead or rate-limited
+    provider, and the response is different: shrink or drop the offending
+    input, rather than retrying a batch that can never succeed.
+    """
+
+
 class ArchiveSecurityError(ValidationError):
     """An archive tripped a zip-slip, entry-count, or decompression guard."""
