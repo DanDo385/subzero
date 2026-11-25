@@ -13,7 +13,6 @@ leaves nothing behind.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from uuid import UUID
 
@@ -38,10 +37,10 @@ from subzero.models import (
     CheckpointTask,
 )
 from subzero.projects.service import ProjectService
-from subzero.sessions.conversations import ConversationStore
 from subzero.retrieval import inference
+from subzero.sessions.conversations import ConversationStore
 from subzero.tasks import upsert_task
-from subzero.util import sha256_text, truncate_for_budget, utcnow
+from subzero.util import sha256_text, truncate_for_budget
 
 logger = get_logger(__name__)
 
