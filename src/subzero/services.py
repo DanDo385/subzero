@@ -1,9 +1,11 @@
-"""Service container.
+"""Composition root.
 
-One object holding every service, built once at startup and reached from tool
-functions through :func:`get_services`. Explicit wiring rather than a DI
-framework: the graph is small enough to read in one screen, and the order of
-construction is itself documentation.
+Builds every service once, in dependency order, and returns them in one
+:class:`Services` object. Only the server and the CLI read that object, and
+they hand each tool module, route and command just the pieces it uses. Nothing
+else imports this module, so no code can reach for "everything". Explicit
+wiring rather than a DI framework: the graph is small enough to read in one
+screen, and the order of construction is itself documentation.
 """
 
 from __future__ import annotations
@@ -122,17 +124,3 @@ def build_services(settings: Settings, db: Database) -> Services:
         agents=AgentService(db, classifier, settings),
         bridge=bridge,
     )
-
-
-_services: Services | None = None
-
-
-def set_services(services: Services | None) -> None:
-    global _services
-    _services = services
-
-
-def get_services() -> Services:
-    if _services is None:  # pragma: no cover - programming error
-        raise RuntimeError("Services not initialised; the server lifespan did not run.")
-    return _services

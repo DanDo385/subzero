@@ -53,7 +53,7 @@ from subzero.logging_setup import (
     request_id_var,
 )
 from subzero.mcp import register_all
-from subzero.services import Services, build_services, get_services, set_services
+from subzero.services import Services, build_services
 from subzero.storage import build_object_store
 from subzero.storage.local import LocalObjectStore
 
@@ -449,7 +449,7 @@ def _verified_key(request: Request, store: LocalObjectStore) -> tuple[str, str] 
     return key, bucket
 
 
-def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
+def _build_routes(settings: Settings, services: Services, mcp_app: Any) -> list[Route | Mount]:
     """Build every route as a closure over THIS app's settings.
 
     Handlers deliberately do not reach for the process-wide `get_settings()`:
@@ -474,7 +474,7 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
 
     async def readyz(request: Request) -> Response:
         try:
-            await get_services().db.fetchval("SELECT 1")
+            await services.db.fetchval("SELECT 1")
         except Exception:
             logger.exception("readiness check failed")
             return JSONResponse({"ready": False}, status_code=503)
@@ -535,9 +535,7 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
         async def endpoint(request: Request) -> Response:
             if not worker_api.authorize(request, settings):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
-            try:
-                services = get_services()
-            except RuntimeError:
+            if not services.db.is_open:
                 return JSONResponse({"error": "unavailable"}, status_code=503)
             return await handler(request, services)
 
@@ -552,15 +550,20 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
         Route("/worker/edits", worker_route(worker_api.push_edits), methods=["POST"]),
         Route("/artifacts/download", local_download, methods=["GET"]),
         Route("/artifacts/upload", local_upload, methods=["PUT", "POST"]),
-        *build_ingest_routes(settings),
-        *build_agent_routes(),
-        *build_bridge_routes(settings),
+        *build_ingest_routes(
+            settings,
+            db=services.db,
+            sessions=services.sessions,
+            classification=services.classification,
+        ),
+        *build_agent_routes(db=services.db, agents=services.agents, retrieval=services.retrieval),
+        *build_bridge_routes(settings, bridge=services.bridge, db=services.db),
         # The MCP app owns its own path plus the /.well-known OAuth metadata.
         Mount("/", app=mcp_app),
     ]
 
 
-def create_app(settings: Settings | None = None) -> Starlette:
+def create_app(settings: Settings | None = None, *, services: Services | None = None) -> Starlette:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
 
@@ -577,8 +580,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # and closes state. This matters for more than tidiness - it is what makes
     # an unauthenticated request get a 401 rather than a 404 when the database
     # is unreachable, so a database outage cannot look like "no such endpoint".
-    db = Database(settings)
-    services = build_services(settings, db)
+    # Tests pass services whose database is already open; open() is a no-op then.
+    if services is None:
+        services = build_services(settings, Database(settings))
+    db = services.db
     mcp = build_mcp(settings, services)
     mcp_app = mcp.http_app(
         path=settings.mcp_path,
@@ -593,7 +598,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         await db.open()
-        set_services(services)
 
         if settings.storage_backend == "supabase":
             with contextlib.suppress(Exception):
@@ -621,9 +625,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 yield
         finally:
             await services.aclose()
-            set_services(None)
 
-    routes = _build_routes(settings, mcp_app)
+    routes = _build_routes(settings, services, mcp_app)
 
     middleware = [
         Middleware(SecurityHeadersMiddleware),

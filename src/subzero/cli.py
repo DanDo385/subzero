@@ -37,7 +37,7 @@ from subzero.importers.reclassify import (
 from subzero.importers.runner import ImportRunner
 from subzero.logging_setup import configure_logging
 from subzero.probe import DEFAULT_PROTOCOL_VERSION, run_probe
-from subzero.services import build_services, set_services
+from subzero.services import build_services
 from subzero.setup_wizard import Answers, build_env, next_steps
 from subzero.vault_fill import fill_vault
 from subzero.wiki.service import WikiService
@@ -46,7 +46,6 @@ from subzero.wiki.service import WikiService
 async def _with_services(settings: Settings):
     db = await Database.connect(settings)
     services = build_services(settings, db)
-    set_services(services)
     return services
 
 
@@ -416,66 +415,62 @@ def check() -> None:
             click.secho(f"  database: cannot connect ({type(exc).__name__})", fg="red")
             return failures + 1
 
-        try:
-            async with db.acquire() as conn:
-                state = await migration_status(conn)
-            if state["pending"]:
-                click.secho(
-                    f"  database: {len(state['pending'])} pending migrations "
-                    f"({', '.join(state['pending'])}) - run `subzero migrate`",
-                    fg="yellow",
-                )
-            else:
-                click.secho("  database: connected, schema up to date", fg="green")
-
-            services = build_services(settings, db)
-            set_services(services)
-
-            if settings.storage_backend == "supabase":
-                try:
-                    await services.store.ensure_buckets()  # type: ignore[attr-defined]
-                    click.secho("  storage: buckets present and private", fg="green")
-                except Exception as exc:
-                    click.secho(f"  storage: {exc}", fg="red")
-                    failures += 1
-            else:
-                click.secho(
-                    f"  storage: local filesystem at {settings.local_storage_root}",
-                    fg="yellow",
-                )
-
-            if settings.classifier == "jev":
-                try:
-                    from typesafe_sdk import Noul
-
-                    result = await services.classifier.classify_list_candidate(  # type: ignore[union-attr]
-                        {"candidate_text": "buy milk", "sensitivity": "normal"},
-                        {"shopping": "Things to buy"},
-                    )
-                    _ = Noul
-                    if result.degraded:
-                        click.secho(
-                            f"  classifier: Jev unreachable ({result.error}); "
-                            "the server will fall back to deterministic rules",
-                            fg="yellow",
-                        )
-                    else:
-                        click.secho(f"  classifier: Jev reachable ({result.model})", fg="green")
-                except Exception as exc:
-                    click.secho(f"  classifier: {type(exc).__name__}: {exc}", fg="yellow")
-            else:
-                click.secho("  classifier: deterministic rules only", fg="yellow")
-
+        async with db.acquire() as conn:
+            state = await migration_status(conn)
+        if state["pending"]:
             click.secho(
-                f"  embeddings: {settings.embedding_provider}"
-                + ("" if services.embeddings.enabled else " (text search only)"),
-                fg="green" if services.embeddings.enabled else "yellow",
+                f"  database: {len(state['pending'])} pending migrations "
+                f"({', '.join(state['pending'])}) - run `subzero migrate`",
+                fg="yellow",
             )
-            click.echo(f"\n  MCP endpoint: {settings.resource_url}")
-            click.echo(f"  Auth mode:    {settings.auth_mode}")
-            await services.aclose()
-        finally:
-            set_services(None)
+        else:
+            click.secho("  database: connected, schema up to date", fg="green")
+
+        services = build_services(settings, db)
+
+        if settings.storage_backend == "supabase":
+            try:
+                await services.store.ensure_buckets()  # type: ignore[attr-defined]
+                click.secho("  storage: buckets present and private", fg="green")
+            except Exception as exc:
+                click.secho(f"  storage: {exc}", fg="red")
+                failures += 1
+        else:
+            click.secho(
+                f"  storage: local filesystem at {settings.local_storage_root}",
+                fg="yellow",
+            )
+
+        if settings.classifier == "jev":
+            try:
+                from typesafe_sdk import Noul
+
+                result = await services.classifier.classify_list_candidate(  # type: ignore[union-attr]
+                    {"candidate_text": "buy milk", "sensitivity": "normal"},
+                    {"shopping": "Things to buy"},
+                )
+                _ = Noul
+                if result.degraded:
+                    click.secho(
+                        f"  classifier: Jev unreachable ({result.error}); "
+                        "the server will fall back to deterministic rules",
+                        fg="yellow",
+                    )
+                else:
+                    click.secho(f"  classifier: Jev reachable ({result.model})", fg="green")
+            except Exception as exc:
+                click.secho(f"  classifier: {type(exc).__name__}: {exc}", fg="yellow")
+        else:
+            click.secho("  classifier: deterministic rules only", fg="yellow")
+
+        click.secho(
+            f"  embeddings: {settings.embedding_provider}"
+            + ("" if services.embeddings.enabled else " (text search only)"),
+            fg="green" if services.embeddings.enabled else "yellow",
+        )
+        click.echo(f"\n  MCP endpoint: {settings.resource_url}")
+        click.echo(f"  Auth mode:    {settings.auth_mode}")
+        await services.aclose()
         return failures
 
     failures = asyncio.run(run())
@@ -580,7 +575,6 @@ def import_export(
                 )
         finally:
             await services.aclose()
-            set_services(None)
 
     asyncio.run(run())
 
@@ -762,7 +756,6 @@ def reclassify(limit: int) -> None:
             click.echo(f"Reclassified {done} of {total} queued objects.")
         finally:
             await services.aclose()
-            set_services(None)
 
     asyncio.run(run())
 
@@ -843,7 +836,6 @@ def reclassify_conversations_cmd(
             click.echo(json.dumps(summarise(report), indent=2))
         finally:
             await services.aclose()
-            set_services(None)
 
     asyncio.run(run())
 
@@ -864,7 +856,6 @@ def vault_fill_command() -> None:
             return await fill_vault(services)
         finally:
             await services.aclose()
-            set_services(None)
 
     click.echo(json.dumps(asyncio.run(run()), indent=2, default=str))
 
@@ -885,7 +876,6 @@ def _run_wiki(action):  # type: ignore[no-untyped-def]
             click.echo(json.dumps(result, indent=2, default=str))
         finally:
             await services.aclose()
-            set_services(None)
 
     asyncio.run(run())
 
@@ -978,7 +968,6 @@ def digest(output: Path | None, days: int | None) -> None:
             )
         finally:
             await services.aclose()
-            set_services(None)
 
     text = asyncio.run(run())
     if output:
@@ -1064,7 +1053,6 @@ def gemini_sync_push(dry_run: bool) -> None:
             )
         finally:
             await services.aclose()
-            set_services(None)
         if dry_run:
             click.echo(
                 f"Digest ready: {len(text)} characters, {text.count(chr(10) + '## ')} sections."
@@ -1107,7 +1095,6 @@ def review(limit: int) -> None:
                 click.echo(f"    {item['question']}")
         finally:
             await services.aclose()
-            set_services(None)
 
     asyncio.run(run())
 
@@ -1151,7 +1138,6 @@ def memory_lab_recover(apply_: bool, limit: int | None, redo: bool) -> None:
             return report.as_dict()
         finally:
             await services.aclose()
-            set_services(None)
 
     click.echo(json.dumps(asyncio.run(run()), indent=2))
 
@@ -1170,7 +1156,6 @@ def memory_lab_structured() -> None:
             return await write_structured(services)
         finally:
             await services.aclose()
-            set_services(None)
 
     click.echo(f"Structured memories: {asyncio.run(run())} items queued for the vault.")
 
@@ -1190,7 +1175,6 @@ def memory_lab_report() -> None:
             )
         finally:
             await services.aclose()
-            set_services(None)
 
     rows = asyncio.run(run())
     if not rows:
@@ -1246,7 +1230,6 @@ def memory_lab_extract(limit: int, apply_: bool, redo: bool, concurrency: int | 
             click.echo(json.dumps({**report.as_dict(), "marked_extracted": marked}, indent=2))
         finally:
             await services.aclose()
-            set_services(None)
 
     asyncio.run(run())
 
@@ -1269,7 +1252,6 @@ def memory_lab_honcho_sync(limit: int, apply_: bool) -> None:
             raise click.ClickException(str(exc)) from exc
         finally:
             await services.aclose()
-            set_services(None)
 
     click.echo(json.dumps(asyncio.run(run()), indent=2))
 
@@ -1290,6 +1272,5 @@ def memory_lab_honcho_snapshot() -> None:
             raise click.ClickException(str(exc)) from exc
         finally:
             await services.aclose()
-            set_services(None)
 
     click.echo(f"Queued {asyncio.run(run())} for the vault.")
