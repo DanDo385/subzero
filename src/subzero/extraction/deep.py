@@ -134,7 +134,7 @@ Decisions, Options compared, Open questions). Be generous: keep every detail, \
 command, number, name and link worth having later. Markdown only: no front \
 matter and no top-level # title.
 - tags: 3-8 lowercase Obsidian tags, words joined with hyphens, nested with / \
-where useful (for example mcp, obsidian, defi/pendle, agents/hermes). No #.
+where useful (for example mcp, obsidian, defi/pendle, agents/claude-code). No #.
 
 Use empty lists where nothing qualifies. Do not invent anything the transcript \
 does not support."""

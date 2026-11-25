@@ -129,6 +129,10 @@ nothing reads its hidden `sz:id` or `pc:id` markers any more, so ticking a box t
 nothing. Copy anything still open into your own list app, then leave the file as a record or
 move it to `99-Archive/`. Ordinary Markdown checkboxes in a prose note are just checkboxes.
 
+A note filed under the `archive` class lives in `99-Archive/` and is history: search and
+`context_bootstrap` no longer return it, so a retired project or tool stops showing up in new
+chats. Its text and versions stay in Postgres.
+
 (Tip: if `systemctl --user` says "Failed to connect to bus", your Linux setup doesn't have a user
 session manager. Use `systemctl` with `sudo` instead: copy the files to `/etc/systemd/system/` and
 replace `%h` in the service file with your full home directory path.)

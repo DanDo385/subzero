@@ -33,7 +33,7 @@ from subzero.util import truncate_for_budget
 
 logger = get_logger(__name__)
 
-#: Longest single message sent to Honcho; Hermes uses the same bound.
+#: Longest single message sent to Honcho.
 HONCHO_MESSAGE_MAX_CHARS = 25_000
 #: Messages per add_messages call.
 HONCHO_BATCH = 50

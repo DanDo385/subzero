@@ -8,21 +8,8 @@ when a question needs more than that.
 
 ## Connect it
 
-Honcho needs an agent that talks to it. Two ways:
-
-**Hermes Agent** (already supports it): in `~/.hermes/config.yaml`
-
-```yaml
-memory:
-  provider: honcho
-```
-
-with `HONCHO_API_KEY` supplied from your secrets manager, not typed into the
-file. Hermes then records every conversation and can answer "what does Honcho
-think I prefer about X".
-
-**Any MCP client** (Claude Code, Codex): add Honcho's MCP server with the key
-from your secrets manager, for example
+Honcho needs an agent that talks to it. In any MCP client (Claude Code, Codex), add
+Honcho's MCP server with the key from your secrets manager, for example
 
 ```bash
 claude mcp add honcho -- npx -y @honcho-ai/mcp
@@ -65,7 +52,7 @@ the other layers, take a snapshot once a week, before the analysis:
    ---
    date: YYYY-MM-DD
    layer: honcho
-   source: hermes   # or the client you asked
+   source: claude-code   # the client you asked
    ---
    ```
 

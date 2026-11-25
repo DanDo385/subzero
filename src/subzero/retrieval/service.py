@@ -267,7 +267,7 @@ FROM (
             NULL, NULL, x.source_provider, x.source_conversation_id, NULL, NULL,
             {rank}
      FROM notes x, q
-     WHERE x.note_class <> 'session_index'
+     WHERE x.note_class NOT IN ('session_index', 'archive')
        AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
        AND {scope}
      ORDER BY exact DESC, rank DESC LIMIT $8)

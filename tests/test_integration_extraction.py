@@ -38,7 +38,7 @@ PAYLOAD = {
     "topics": ["MOC", "Obsidian"],
     "note_title": "Memory architecture",
     "note_markdown": "Postgres is canonical; Obsidian is rendered.\n\n## Key points\n\n- Raw history stays in Postgres.",
-    "tags": ["Obsidian", "#memory", "agents/Hermes", "2026"],
+    "tags": ["Obsidian", "#memory", "agents/Claude-Code", "2026"],
 }
 
 
@@ -139,7 +139,7 @@ async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
     assert note["title"] == "Memory architecture"
     assert note["note_class"] == "wiki"
     assert note["vault_path"].startswith("40-Wiki/")
-    assert note["metadata"]["tags"] == ["obsidian", "memory", "agents/hermes"]
+    assert note["metadata"]["tags"] == ["obsidian", "memory", "agents/claude-code"]
     assert "Postgres is canonical" in note["content"]
     jobs = await services.db.fetch("SELECT job_type FROM sync_jobs ORDER BY created_at")
     assert {j["job_type"] for j in jobs} == {"write_note"}
