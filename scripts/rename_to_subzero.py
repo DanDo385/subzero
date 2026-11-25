@@ -33,7 +33,10 @@ SELF = Path(__file__).resolve()
 SKIP_PREFIXES = ("migrations/",)
 SKIP_FILES = {"uv.lock"}
 #: Files where only package/CLI names change, not prose like "personal context".
-PROSE_EXEMPT = {"src/subzero/retrieval/inference.py", "src/personal_context_mcp/retrieval/inference.py"}
+PROSE_EXEMPT = {
+    "src/subzero/retrieval/inference.py",
+    "src/personal_context_mcp/retrieval/inference.py",
+}
 
 #: Files that name the retired PC_ prefix on purpose: the startup refusal that
 #: reports a stale variable, the tests for it, and the docs that say to rename.
@@ -116,7 +119,9 @@ def rewrite(rel: str, text: str) -> str:
 def main() -> int:
     old_pkg = ROOT / "src" / "personal_context_mcp"
     if old_pkg.exists():
-        subprocess.run(["git", "mv", "src/personal_context_mcp", "src/subzero"], cwd=ROOT, check=True)
+        subprocess.run(
+            ["git", "mv", "src/personal_context_mcp", "src/subzero"], cwd=ROOT, check=True
+        )
 
     changed = 0
     for rel in tracked_files():

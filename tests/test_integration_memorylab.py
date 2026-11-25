@@ -12,9 +12,8 @@ import pytest
 from conftest import requires_db
 from subzero.classifier.base import Answer, ClassificationResult
 from subzero.classifier.questions import QUESTIONS_VERSION
-from subzero.classifier.service import ClassificationService
-from subzero.importers.runner import ImportRunner
 from subzero.memorylab.recover import recover, write_structured
+from test_integration_backfill import _swap_classifier
 
 pytestmark = requires_db
 
@@ -109,16 +108,32 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     from subzero.extraction.deep import NO_NOTE
     from subzero.memorylab.layers import extraction_targets, honcho_sync
 
-    services.classification = ClassificationService(services.db, TriageJev(), services.settings)
-    await ImportRunner(services).run(
+    _swap_classifier(services, TriageJev())
+    await services.importer.run(
         _zip(tmp_path / "export.zip"), provider="claude", store_archive=False
     )
 
-    preview = await recover(services, dry_run=True)
+    preview = await recover(
+        dry_run=True,
+        settings=services.settings,
+        db=services.db,
+        notes=services.notes,
+        sync_queue=services.sync_queue,
+        vault_paths=services.vault_paths,
+    )
     assert preview.as_dict()["vault_notes_planned"] == 1
     assert await services.db.fetchval("SELECT count(*) FROM memory_triage") == 0
 
-    report = (await recover(services, dry_run=False)).as_dict()
+    report = (
+        await recover(
+            dry_run=False,
+            settings=services.settings,
+            db=services.db,
+            notes=services.notes,
+            sync_queue=services.sync_queue,
+            vault_paths=services.vault_paths,
+        )
+    ).as_dict()
     assert report["sessions_seen"] == 4
     assert report["vault_notes_planned"] == 1
     assert report["parked_in_inbox"] == 1
@@ -166,7 +181,7 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     assert rows["Which project is this"]["vault_path"].startswith("00-Inbox/")
     assert rows["Small talk"]["layers"] == []
 
-    ranked = await extraction_targets(services, limit=10)
+    ranked = await extraction_targets(limit=10, settings=services.settings, db=services.db)
     assert [t.importance for t in ranked] == [0.95, 0.85, 0.7]  # worth is readable
     targets = {t.title: t.destination for t in ranked}
     assert targets == {
@@ -176,15 +191,19 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     }
     assert next(iter(targets)) == "Deploy runbook"  # vault sessions first
 
-    dry = (await honcho_sync(services, dry_run=True)).as_dict()
+    dry = (await honcho_sync(dry_run=True, settings=services.settings, db=services.db)).as_dict()
     assert dry["sessions"] == 2 and dry["messages"] == 2
     services.settings.honcho_peer = "dan"
     fake = FakeHoncho()
-    sent = (await honcho_sync(services, dry_run=False, client=fake)).as_dict()
+    sent = (
+        await honcho_sync(dry_run=False, client=fake, settings=services.settings, db=services.db)
+    ).as_dict()
     assert sent["sessions"] == 2 and sent["errors"] == []
     contents = [m["content"] for batch in fake.sessions.values() for m in batch]
     assert all(m.endswith("tell me the steps.") for m in contents)  # user turns only
-    assert (await honcho_sync(services, dry_run=True)).sessions == 0  # not sent twice
+    assert (
+        await honcho_sync(dry_run=True, settings=services.settings, db=services.db)
+    ).sessions == 0  # not sent twice
 
     jobs = {r["vault_path"] for r in await services.db.fetch("SELECT vault_path FROM sync_jobs")}
     assert "Experiments/Analysis/hot-memory-candidates.md" in jobs
@@ -194,7 +213,14 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     )
     assert "Editor habits" in candidates.split("## USER.md")[1]
 
-    again = await recover(services, dry_run=False)
+    again = await recover(
+        dry_run=False,
+        settings=services.settings,
+        db=services.db,
+        notes=services.notes,
+        sync_queue=services.sync_queue,
+        vault_paths=services.vault_paths,
+    )
     assert again.seen == 0 and again.skipped_unchanged == 4
 
     # A later run that decides only one session still reports the whole history.
@@ -202,7 +228,16 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
         "UPDATE memory_triage SET classification_event_id = NULL WHERE conversation_id = "
         "(SELECT id FROM conversations WHERE title = 'Small talk')"
     )
-    assert (await recover(services, dry_run=False)).seen == 1
+    assert (
+        await recover(
+            dry_run=False,
+            settings=services.settings,
+            db=services.db,
+            notes=services.notes,
+            sync_queue=services.sync_queue,
+            vault_paths=services.vault_paths,
+        )
+    ).seen == 1
     report_text = await services.db.fetchval(
         "SELECT content FROM notes WHERE vault_path LIKE 'Experiments/Analysis/recovery-report%'"
     )
@@ -212,7 +247,16 @@ async def test_recover_routes_each_session_to_its_layers(services, tmp_path: Pat
     )
     assert "Editor habits" in candidates
 
-    assert await write_structured(services) >= 0
+    assert (
+        await write_structured(
+            settings=services.settings,
+            db=services.db,
+            notes=services.notes,
+            sync_queue=services.sync_queue,
+            vault_paths=services.vault_paths,
+        )
+        >= 0
+    )
 
 
 _STORED_SQL = """
@@ -230,8 +274,8 @@ async def test_decisions_are_written_in_batches_and_stay_idempotent(
     pooler. Batching must not change what ends up in the table."""
     import subzero.memorylab.recover as recover_module
 
-    services.classification = ClassificationService(services.db, TriageJev(), services.settings)
-    await ImportRunner(services).run(
+    _swap_classifier(services, TriageJev())
+    await services.importer.run(
         _zip(tmp_path / "export.zip"), provider="claude", store_archive=False
     )
 
@@ -239,12 +283,19 @@ async def test_decisions_are_written_in_batches_and_stay_idempotent(
     real_store = recover_module._store
     batch_sizes: list[int] = []
 
-    async def counting_store(services_arg: Any, rows: list[tuple[Any, ...]]) -> None:
+    async def counting_store(rows: list[tuple[Any, ...]], *, db: Any) -> None:
         batch_sizes.append(len(rows))
-        await real_store(services_arg, rows)
+        await real_store(rows, db=db)
 
     monkeypatch.setattr(recover_module, "_store", counting_store)
-    report = await recover(services, dry_run=False)
+    report = await recover(
+        dry_run=False,
+        settings=services.settings,
+        db=services.db,
+        notes=services.notes,
+        sync_queue=services.sync_queue,
+        vault_paths=services.vault_paths,
+    )
 
     assert report.seen == 4
     assert batch_sizes == [3, 1]  # two round trips for four sessions, not four
@@ -253,5 +304,13 @@ async def test_decisions_are_written_in_batches_and_stay_idempotent(
     assert all(r["questions_version"] == QUESTIONS_VERSION for r in stored)
     assert sum(1 for r in stored if r["note_id"] is not None) == 1  # the Inbox draft
 
-    await recover(services, dry_run=False, redo=True)
+    await recover(
+        dry_run=False,
+        redo=True,
+        settings=services.settings,
+        db=services.db,
+        notes=services.notes,
+        sync_queue=services.sync_queue,
+        vault_paths=services.vault_paths,
+    )
     assert [dict(r) for r in await services.db.fetch(_STORED_SQL)] == stored

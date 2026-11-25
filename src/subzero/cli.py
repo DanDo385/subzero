@@ -27,14 +27,13 @@ from subzero.config import Settings, get_settings, legacy_env_names
 from subzero.db.migrate import apply_migrations, migration_status
 from subzero.db.pool import Database
 from subzero.digest import build_digest
-from subzero.extraction.deep import DeepExtractor, estimate_cost
+from subzero.extraction.deep import estimate_cost
 from subzero.importers.adapters import IMPORTERS
 from subzero.importers.reclassify import (
     reclassify_conversations,
     stale_conversations,
     summarise,
 )
-from subzero.importers.runner import ImportRunner
 from subzero.logging_setup import configure_logging
 from subzero.probe import DEFAULT_PROTOCOL_VERSION, run_probe
 from subzero.services import build_services
@@ -554,7 +553,7 @@ def import_export(
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            runner = ImportRunner(services)
+            runner = services.importer
             report = await runner.run(
                 archive,
                 provider=None if provider == "auto" else provider,
@@ -749,7 +748,14 @@ def reclassify(limit: int) -> None:
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            done, total = await drain_reclassification_queue(services, limit=limit)
+            done, total = await drain_reclassification_queue(
+                limit=limit,
+                settings=services.settings,
+                db=services.db,
+                artifacts=services.artifacts,
+                filing=services.filing,
+                router=services.router,
+            )
             if total == 0:
                 click.echo("Nothing queued for reclassification.")
                 return
@@ -825,13 +831,18 @@ def reclassify_conversations_cmd(
         services = await _with_services(settings)
         try:
             ids = await stale_conversations(
-                services, limit=limit, provider=provider, include_current=include_current
+                limit=limit, provider=provider, include_current=include_current, db=services.db
             )
             click.echo(f"{len(ids)} conversation(s) to reclassify.")
             if dry_run or not ids:
                 return
             report = await reclassify_conversations(
-                services, ids, concurrency=concurrency, use_cache=not no_cache
+                ids,
+                concurrency=concurrency,
+                use_cache=not no_cache,
+                settings=services.settings,
+                db=services.db,
+                router=services.router,
             )
             click.echo(json.dumps(summarise(report), indent=2))
         finally:
@@ -853,7 +864,12 @@ def vault_fill_command() -> None:
     async def run() -> dict[str, Any]:
         services = await _with_services(settings)
         try:
-            return await fill_vault(services)
+            return await fill_vault(
+                db=services.db,
+                notes=services.notes,
+                vault_paths=services.vault_paths,
+                wiki=services.wiki,
+            )
         finally:
             await services.aclose()
 
@@ -872,7 +888,7 @@ def _run_wiki(action):  # type: ignore[no-untyped-def]
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            result = await action(WikiService(services))
+            result = await action(services.wiki)
             click.echo(json.dumps(result, indent=2, default=str))
         finally:
             await services.aclose()
@@ -1134,7 +1150,16 @@ def memory_lab_recover(apply_: bool, limit: int | None, redo: bool) -> None:
     async def run() -> dict:
         services = await _with_services(settings)
         try:
-            report = await recover(services, dry_run=not apply_, limit=limit, redo=redo)
+            report = await recover(
+                dry_run=not apply_,
+                limit=limit,
+                redo=redo,
+                settings=services.settings,
+                db=services.db,
+                notes=services.notes,
+                sync_queue=services.sync_queue,
+                vault_paths=services.vault_paths,
+            )
             return report.as_dict()
         finally:
             await services.aclose()
@@ -1153,7 +1178,13 @@ def memory_lab_structured() -> None:
     async def run() -> int:
         services = await _with_services(settings)
         try:
-            return await write_structured(services)
+            return await write_structured(
+                settings=services.settings,
+                db=services.db,
+                notes=services.notes,
+                sync_queue=services.sync_queue,
+                vault_paths=services.vault_paths,
+            )
         finally:
             await services.aclose()
 
@@ -1205,7 +1236,9 @@ def memory_lab_extract(limit: int, apply_: bool, redo: bool, concurrency: int | 
     async def run() -> None:
         services = await _with_services(settings)
         try:
-            targets = await extraction_targets(services, limit=limit, redo=redo)
+            targets = await extraction_targets(
+                limit=limit, redo=redo, settings=services.settings, db=services.db
+            )
             click.echo(json.dumps(estimate_cost(targets, settings), indent=2))
             if not apply_ or not targets:
                 for c in targets[:20]:
@@ -1217,7 +1250,7 @@ def memory_lab_extract(limit: int, apply_: bool, redo: bool, concurrency: int | 
                 raise click.ClickException(
                     "Set SUBZERO_EXTRACTION_PROVIDER=anthropic and SUBZERO_ANTHROPIC_API_KEY to run."
                 )
-            extractor = DeepExtractor(services)
+            extractor = services.deep_extractor()
             try:
                 report = await extractor.run(
                     [c.conversation_id for c in targets],
@@ -1226,7 +1259,7 @@ def memory_lab_extract(limit: int, apply_: bool, redo: bool, concurrency: int | 
                 )
             finally:
                 await extractor.aclose()
-            marked = await mark_extracted(services, [c.conversation_id for c in targets])
+            marked = await mark_extracted([c.conversation_id for c in targets], db=services.db)
             click.echo(json.dumps({**report.as_dict(), "marked_extracted": marked}, indent=2))
         finally:
             await services.aclose()
@@ -1247,7 +1280,11 @@ def memory_lab_honcho_sync(limit: int, apply_: bool) -> None:
     async def run() -> dict:
         services = await _with_services(settings)
         try:
-            return (await honcho_sync(services, dry_run=not apply_, limit=limit)).as_dict()
+            return (
+                await honcho_sync(
+                    dry_run=not apply_, limit=limit, settings=services.settings, db=services.db
+                )
+            ).as_dict()
         except RuntimeError as exc:
             raise click.ClickException(str(exc)) from exc
         finally:
@@ -1267,7 +1304,13 @@ def memory_lab_honcho_snapshot() -> None:
     async def run() -> str:
         services = await _with_services(settings)
         try:
-            return await honcho_snapshot(services)
+            return await honcho_snapshot(
+                settings=services.settings,
+                db=services.db,
+                notes=services.notes,
+                sync_queue=services.sync_queue,
+                vault_paths=services.vault_paths,
+            )
         except RuntimeError as exc:
             raise click.ClickException(str(exc)) from exc
         finally:

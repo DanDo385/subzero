@@ -24,7 +24,7 @@ import contextlib
 import json
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode
 
@@ -528,7 +528,7 @@ def _build_routes(settings: Settings, services: Services, mcp_app: Any) -> list[
         )
         return JSONResponse({"ok": True})
 
-    def worker_route(handler):  # type: ignore[no-untyped-def]
+    def worker_route(handler: Callable[[Request], Awaitable[Response]]):  # type: ignore[no-untyped-def]
         # Authorization is decided from settings alone, so an unauthenticated
         # caller gets 401 whether or not the database happens to be up. A 500
         # would confirm the endpoint exists and is wired to something.
@@ -537,17 +537,34 @@ def _build_routes(settings: Settings, services: Services, mcp_app: Any) -> list[
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             if not services.db.is_open:
                 return JSONResponse({"error": "unavailable"}, status_code=503)
-            return await handler(request, services)
+            return await handler(request)
 
         return endpoint
+
+    async def lease(request: Request) -> Response:
+        return await worker_api.lease_jobs(
+            request,
+            settings=settings,
+            db=services.db,
+            store=services.store,
+            sync_queue=services.sync_queue,
+        )
+
+    async def ack(request: Request) -> Response:
+        return await worker_api.ack_job(request, settings=settings, sync_queue=services.sync_queue)
+
+    async def edits(request: Request) -> Response:
+        return await worker_api.push_edits(
+            request, settings=settings, notes=services.notes, sync_queue=services.sync_queue
+        )
 
     return [
         Route("/", root, methods=["GET"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/readyz", readyz, methods=["GET"]),
-        Route("/worker/jobs/lease", worker_route(worker_api.lease_jobs), methods=["POST"]),
-        Route("/worker/jobs/ack", worker_route(worker_api.ack_job), methods=["POST"]),
-        Route("/worker/edits", worker_route(worker_api.push_edits), methods=["POST"]),
+        Route("/worker/jobs/lease", worker_route(lease), methods=["POST"]),
+        Route("/worker/jobs/ack", worker_route(ack), methods=["POST"]),
+        Route("/worker/edits", worker_route(edits), methods=["POST"]),
         Route("/artifacts/download", local_download, methods=["GET"]),
         Route("/artifacts/upload", local_upload, methods=["PUT", "POST"]),
         *build_ingest_routes(
@@ -620,7 +637,12 @@ def create_app(settings: Settings | None = None, *, services: Services | None = 
             async with (
                 mcp_app.router.lifespan_context(app),
                 background_refresh(db, services.embeddings, settings),
-                background_classify(services),
+                background_classify(
+                    settings=settings,
+                    db=db,
+                    classification=services.classification,
+                    router=services.router,
+                ),
             ):
                 yield
         finally:

@@ -9,8 +9,10 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
+from subzero.db.pool import Database
 from subzero.importers.sensitivity import raise_to
-from subzero.services import Services
+from subzero.notes.service import NoteService
+from subzero.obsidian.paths import VaultPaths
 from subzero.sessions.index import (
     PROVIDER_TITLES,
     SessionIndexRow,
@@ -108,10 +110,16 @@ def _rows_from(records: list[Any]) -> dict[str, list[SessionIndexRow]]:
 
 
 async def _write_index(
-    services: Services, provider: str, title: str, rows: list[SessionIndexRow]
+    provider: str,
+    title: str,
+    rows: list[SessionIndexRow],
+    *,
+    db: Database,
+    notes: NoteService,
+    vault_paths: VaultPaths,
 ) -> dict[str, Any]:
     slug = slugify(title)
-    existing = await services.db.fetchrow("SELECT id, note_class FROM notes WHERE slug = $1", slug)
+    existing = await db.fetchrow("SELECT id, note_class FROM notes WHERE slug = $1", slug)
     if existing is not None and existing["note_class"] != "session_index":
         raise RuntimeError(
             f"Refusing to replace an existing {existing['note_class']} note "
@@ -120,9 +128,9 @@ async def _write_index(
     shown, older = prepare_session_index(rows)
     skipped = sum(1 for row in rows if row.message_count <= 0)
     body = render_session_index(provider, rows)
-    path = services.vault_paths.session_index(title)
+    path = vault_paths.session_index(title)
     sensitivity = index_sensitivity(rows)
-    note_id, created, version = await services.notes.upsert(
+    note_id, created, version = await notes.upsert(
         title=title,
         content=body,
         note_class="session_index",
@@ -131,7 +139,7 @@ async def _write_index(
         provenance="system",
         author="system",
     )
-    await services.db.execute(
+    await db.execute(
         """
         UPDATE notes
         SET note_class = 'session_index',
@@ -153,25 +161,28 @@ async def _write_index(
     }
 
 
-async def fill_vault(services: Services) -> dict[str, Any]:
+async def fill_vault(
+    *, db: Database, notes: NoteService, vault_paths: VaultPaths, wiki: WikiService
+) -> dict[str, Any]:
     """Write the session indexes and maps, then render the wiki."""
     providers = [provider for provider, _title in PROVIDER_TITLES]
-    records = await services.db.fetch(_INDEX_SQL, providers)
+    records = await db.fetch(_INDEX_SQL, providers)
     grouped = _rows_from(records)
     indexes = [
-        await _write_index(services, provider, title, grouped[provider])
+        await _write_index(
+            provider, title, grouped[provider], db=db, notes=notes, vault_paths=vault_paths
+        )
         for provider, title in PROVIDER_TITLES
     ]
 
-    wiki = WikiService(services)
     home_id = await wiki.add_moc(
         "Home",
         description="Session indexes and notes already in the vault.",
     )
-    home_path = services.vault_paths.moc("Home")
-    await services.db.execute("UPDATE mocs SET vault_path = $2 WHERE id = $1", home_id, home_path)
+    home_path = vault_paths.moc("Home")
+    await db.execute("UPDATE mocs SET vault_path = $2 WHERE id = $1", home_id, home_path)
 
-    projects = await services.db.fetch(
+    projects = await db.fetch(
         """
         SELECT p.id, p.name, p.description
         FROM projects p
@@ -193,12 +204,12 @@ async def fill_vault(services: Services) -> dict[str, Any]:
             description=(project["description"] or "").strip() or None,
             parent="Home",
         )
-        path = services.vault_paths.moc(title)
-        await services.db.execute("UPDATE mocs SET vault_path = $2 WHERE id = $1", moc_id, path)
+        path = vault_paths.moc(title)
+        await db.execute("UPDATE mocs SET vault_path = $2 WHERE id = $1", moc_id, path)
         area_ids[project["id"]] = moc_id
         moc_titles.append(title)
 
-    notes = await services.db.fetch(
+    note_rows = await db.fetch(
         """
         SELECT id, note_class, project_id
         FROM notes
@@ -206,7 +217,7 @@ async def fill_vault(services: Services) -> dict[str, Any]:
         """
     )
     memberships = 0
-    for note in notes:
+    for note in note_rows:
         section = _section_for(note["note_class"])
         if await wiki.place_note(moc_id=home_id, note_id=note["id"], section=section):
             memberships += 1

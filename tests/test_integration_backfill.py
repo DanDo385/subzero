@@ -3,6 +3,7 @@ concurrent import and reclassification from stored messages."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import zipfile
 from pathlib import Path
@@ -18,7 +19,7 @@ from subzero.importers.reclassify import (
     reclassify_conversations,
     stale_conversations,
 )
-from subzero.importers.runner import ImportRunner
+from subzero.services import build_services
 
 pytestmark = requires_db
 
@@ -58,9 +59,11 @@ class CountingJev:
 
 
 def _swap_classifier(services, fake) -> ClassificationService:
-    service = ClassificationService(services.db, fake, services.settings)
-    services.classification = service
-    return service
+    """Rebuild the services around `fake`, in place, so every collaborator shares it."""
+    rebuilt = build_services(services.settings, services.db, classifier=fake)
+    for field in dataclasses.fields(rebuilt):
+        setattr(services, field.name, getattr(rebuilt, field.name))
+    return services.classification
 
 
 def _claude_zip(path: Path, conversations: list[dict[str, Any]]) -> Path:
@@ -137,7 +140,7 @@ async def test_import_screens_sensitivity_before_classifying(services, tmp_path:
         ],
     )
 
-    report = await ImportRunner(services).run(archive, provider="claude", store_archive=False)
+    report = await services.importer.run(archive, provider="claude", store_archive=False)
 
     assert report.conversations_imported == 3
     assert report.conversations_screened_sensitive == 2
@@ -162,8 +165,8 @@ async def test_concurrent_import_imports_everything_once(services, tmp_path: Pat
         [_conversation(f"c{i}", f"Question number {i} about MCP transports.") for i in range(23)],
     )
 
-    report = await ImportRunner(services).run(archive, provider="claude", store_archive=False)
-    again = await ImportRunner(services).run(archive, provider="claude", store_archive=False)
+    report = await services.importer.run(archive, provider="claude", store_archive=False)
+    again = await services.importer.run(archive, provider="claude", store_archive=False)
 
     assert report.errors == []
     assert report.conversations_imported == 23
@@ -180,10 +183,10 @@ async def test_reclassify_finds_stale_versions_and_keeps_summaries(
     fake = CountingJev()
     _swap_classifier(services, fake)
     archive = _claude_zip(tmp_path / "e.zip", [_conversation("one", "Design the MOC renderer.")])
-    await ImportRunner(services).run(archive, provider="claude", store_archive=False)
+    await services.importer.run(archive, provider="claude", store_archive=False)
     conversation_id = await services.db.fetchval("SELECT id FROM conversations")
 
-    assert await stale_conversations(services, limit=10) == []
+    assert await stale_conversations(limit=10, db=services.db) == []
 
     # Simulate deep extraction having written a better summary, then a
     # question-set change making the old classification stale.
@@ -197,9 +200,11 @@ async def test_reclassify_finds_stale_versions_and_keeps_summaries(
         conversation_id,
     )
     await services.db.execute("UPDATE classification_events SET questions_version = 'old'")
-    assert await stale_conversations(services, limit=10) == [conversation_id]
+    assert await stale_conversations(limit=10, db=services.db) == [conversation_id]
 
-    report = await reclassify_conversations(services, [conversation_id])
+    report = await reclassify_conversations(
+        [conversation_id], settings=services.settings, db=services.db, router=services.router
+    )
 
     assert report.errors == []
     row = await services.db.fetchrow(
@@ -210,7 +215,7 @@ async def test_reclassify_finds_stale_versions_and_keeps_summaries(
     assert row["open_questions"] == ["Where do orphans go?"]
     # It classified the stored summary, not a fresh excerpt.
     assert fake.states[-1]["summary"].startswith("Extracted:")
-    assert await stale_conversations(services, limit=10) == []
+    assert await stale_conversations(limit=10, db=services.db) == []
 
 
 @pytest.mark.parametrize("level", ["private", "highly_sensitive"])
@@ -222,7 +227,7 @@ async def test_import_default_sensitivity_applies_to_everything(
     services.settings.import_default_sensitivity = level  # type: ignore[assignment]
     archive = _claude_zip(tmp_path / "e.zip", [_conversation("p", "How do I index pgvector?")])
 
-    await ImportRunner(services).run(archive, provider="claude", store_archive=False)
+    await services.importer.run(archive, provider="claude", store_archive=False)
 
     stored = await services.db.fetchval("SELECT sensitivity::text FROM conversations")
     assert stored == level

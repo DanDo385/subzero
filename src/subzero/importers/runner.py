@@ -26,7 +26,10 @@ from typing import Any
 
 from subzero.artifacts.archives import ArchiveLimits
 from subzero.artifacts.keys import archive_key
-from subzero.classifier.policy import Routing, Verdict
+from subzero.artifacts.service import ArtifactService
+from subzero.classifier.service import ClassificationService
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.importers.adapters import IMPORTERS, detect_importer
 from subzero.importers.base import (
     ConversationImporter,
@@ -34,10 +37,10 @@ from subzero.importers.base import (
     NormalizedAttachment,
     NormalizedConversation,
 )
-from subzero.importers.sensitivity import ScreenResult, screen_texts
+from subzero.importers.routing import ConversationRouter
 from subzero.logging_setup import get_logger
-from subzero.models import CheckpointFact
-from subzero.services import Services
+from subzero.sessions.service import SessionService
+from subzero.storage.base import ObjectStore
 from subzero.util import sha256_bytes, truncate_for_budget
 
 logger = get_logger(__name__)
@@ -100,181 +103,25 @@ def classification_transcript(conversation: NormalizedConversation, max_chars: i
     return f"{head}\n\n[... {omitted} characters from the middle omitted ...]\n\n{tail}"
 
 
-def transcript_budget(services: Services) -> int:
-    """Leave room in Jev's state for the title, excerpt and other fields."""
-    return max(4_000, services.settings.jev_max_state_chars - 4_000)
-
-
-async def screen_conversation(services: Services, conversation_id: Any, texts: list[str]) -> str:
-    """Run the deterministic sensitivity screen and record it on the row.
-
-    Only ever raises the stored level (GREATEST over the ordered enum), so a
-    re-import can never make a conversation less private than it was.
-    """
-    settings = services.settings
-    default = settings.import_default_sensitivity
-    result = (
-        screen_texts(texts, default=default)
-        if settings.import_sensitivity_screen
-        else ScreenResult(level=default)
-    )
-    stored = await services.db.fetchval(
-        """
-        UPDATE conversations
-        SET sensitivity = GREATEST(sensitivity, $2::sz_sensitivity),
-            metadata = metadata || jsonb_build_object('sensitivity_screen', $3::jsonb)
-        WHERE id = $1
-        RETURNING sensitivity::text
-        """,
-        conversation_id,
-        result.level,
-        result.reasons,
-    )
-    return str(stored or result.level)
-
-
-async def route_conversation(
-    services: Services,
-    *,
-    conversation_id: Any,
-    provider: str,
-    title: str | None,
-    summary: str,
-    message_count: int,
-    sensitivity: str,
-    report: ImportReport,
-    use_cache: bool = True,
-    transcript: str = "",
-) -> Routing | None:
-    """Classify one stored conversation and act on the routing.
-
-    Shared by the importer and by ``reclassify-conversations``. Every write is
-    idempotent - the summary is upserted, memories deduplicate on content,
-    review items on (object, reason) - so running it again on the same
-    conversation only refreshes what changed.
-    """
-    if not summary:
-        return None
-
-    state = {
-        "title": title or "",
-        "provider": provider,
-        "summary": summary,
-        "decisions": [],
-        "facts": [],
-        "tasks": [],
-        "message_count": message_count,
-        "sensitivity": sensitivity,
-        "stated_project": None,
-    }
-    if transcript:
-        state["transcript"] = transcript
-    # What is already known, so relation_to_existing has something to compare
-    # against. Titles only: cheap, local, and enough to spot a duplicate.
-    if title:
-        # A memory-lab note made from this very session is not "existing".
-        own = f"{title.strip()} ("
-        state["existing_similar_notes"] = [
-            n
-            for n in await services.notes.similar_titles(title, limit=6)
-            if not str(n.get("title", "")).startswith(own)
-        ][:5]
-    result, routing, event_id = await services.classification.classify_checkpoint(
-        state, object_id=conversation_id, historical_import=True, use_cache=use_cache
-    )
-
-    project_id = (
-        await services.projects.resolve(routing.project_slug) if routing.project_slug else None
-    )
-    async with services.db.transaction() as conn:
-        # A conversation that already has a summary - from an earlier run, or
-        # written by deep extraction - keeps its text, open questions and
-        # context. Only the fields classification owns are refreshed.
-        refreshed = await conn.fetchval(
-            """
-            UPDATE session_summaries
-            SET project_id = coalesce($2, project_id),
-                sensitivity = GREATEST(sensitivity, $3::sz_sensitivity),
-                classification_status = $4::sz_classification_status,
-                updated_at = now()
-            WHERE conversation_id = $1
-            RETURNING id
-            """,
-            conversation_id,
-            project_id,
-            sensitivity,
-            "needs_review" if routing.needs_review else "classified",
-        )
-        if refreshed is None:
-            await services.sessions._upsert_summary(
-                conn,
-                conversation_id=conversation_id,
-                provider=provider,
-                project_id=project_id,
-                title=title,
-                summary=summary,
-                open_questions=[],
-                important_context=[],
-                sensitivity=sensitivity,
-                needs_review=routing.needs_review,
-            )
-        if project_id:
-            await conn.execute(
-                "UPDATE conversations SET project_id = $2 WHERE id = $1",
-                conversation_id,
-                project_id,
-            )
-    report.summaries_created += 1
-
-    # Historical imports create memories only when the classifier is
-    # confident the conversation carries durable value. The alternative -
-    # a memory per old chat - buries the useful ones.
-    if routing.save_memory is Verdict.YES and routing.importance >= 0.6 and not result.degraded:
-        fact = CheckpointFact(
-            content=truncate_for_budget(f"{title or 'Earlier conversation'}: {summary}", 220),
-            kind="knowledge",
-            subject=routing.project_slug or (title or None),
-            provenance="imported_metadata",
-        )
-        saved = await services.memories.save(
-            content=fact.content,
-            kind=fact.kind,
-            subject=fact.subject,
-            project_id=project_id,
-            provenance="imported_metadata",
-            sensitivity=sensitivity,
-            importance=routing.importance,
-            source_provider=provider,
-            source_conversation_id=conversation_id,
-        )
-        if saved.outcome == "created":
-            report.memories_created += 1
-
-    if (
-        not result.degraded
-        and routing.deep_extract_p >= services.settings.extraction_min_probability
-    ):
-        report.deep_extraction_candidates += 1
-
-    if routing.needs_review:
-        queued = await services.classification.queue_review(
-            object_type="conversation",
-            object_id=conversation_id,
-            reason=routing.review_reasons[0] if routing.review_reasons else "low_confidence",
-            question=f"Imported {provider} conversation {title!r}: where does it belong?",
-            suggested=routing.as_json(),
-            confidence=routing.confidence,
-            classification_event_id=event_id,
-        )
-        if queued:
-            report.reviews_queued += 1
-    return routing
-
-
 class ImportRunner:
-    def __init__(self, services: Services) -> None:
-        self._services = services
-        settings = services.settings
+    def __init__(
+        self,
+        *,
+        artifacts: ArtifactService,
+        classification: ClassificationService,
+        db: Database,
+        router: ConversationRouter,
+        sessions: SessionService,
+        settings: Settings,
+        store: ObjectStore,
+    ) -> None:
+        self._artifacts = artifacts
+        self._classification = classification
+        self._db = db
+        self._router = router
+        self._sessions = sessions
+        self._settings = settings
+        self._store = store
         self._limits = ArchiveLimits(
             max_entries=settings.max_archive_entries,
             max_total_bytes=settings.max_archive_uncompressed_bytes,
@@ -322,7 +169,7 @@ class ImportRunner:
         report = ImportReport(provider=provider, archive_sha256=digest)
         report.limitations = importer.limitations()
 
-        existing = await self._services.db.fetchrow(
+        existing = await self._db.fetchrow(
             "SELECT id, import_status, report FROM source_documents WHERE sha256 = $1", digest
         )
         if existing and existing["import_status"] == "imported":
@@ -340,7 +187,7 @@ class ImportRunner:
         # Parsing is sequential; storing and classifying run a few at a time,
         # because each conversation is dominated by a Jev round trip. At most
         # 2 x concurrency parsed conversations are held in memory.
-        concurrency = max(1, self._services.settings.import_concurrency)
+        concurrency = max(1, self._settings.import_concurrency)
         semaphore = asyncio.Semaphore(concurrency)
         pending: set[asyncio.Task[None]] = set()
 
@@ -367,7 +214,7 @@ class ImportRunner:
         # Conversations the parser could not read are named, never dropped silently.
         report.errors.extend(getattr(importer, "problems", []))
 
-        await self._services.db.execute(
+        await self._db.execute(
             """
             UPDATE source_documents
             SET import_status = 'imported', conversation_count = $2,
@@ -385,21 +232,21 @@ class ImportRunner:
         self, archive: Path, *, provider: str, digest: str, store_archive: bool
     ) -> Any:
         object_key = None
-        if store_archive and self._services.settings.storage_backend == "supabase":
+        if store_archive and self._settings.storage_backend == "supabase":
             object_key = archive_key(provider=provider, filename=archive.name, sha256=digest)
             try:
                 payload = await asyncio.to_thread(archive.read_bytes)
-                await self._services.store.put(
+                await self._store.put(
                     object_key,
                     payload,
                     mime_type="application/zip",
-                    bucket=self._services.settings.supabase_archive_bucket,
+                    bucket=self._settings.supabase_archive_bucket,
                 )
             except Exception:
                 logger.exception("could not archive the original export; continuing")
                 object_key = None
 
-        return await self._services.db.fetchval(
+        return await self._db.fetchval(
             """
             INSERT INTO source_documents (
                 provider, original_filename, byte_size, sha256, object_key, import_status
@@ -418,10 +265,9 @@ class ImportRunner:
         )
 
     async def _import_one(self, conversation: NormalizedConversation, report: ImportReport) -> None:
-        services = self._services
         # The conversation, its messages and how current it is land together.
-        async with services.db.transaction() as conn:
-            conversation_id, created = await services.sessions.ensure_conversation(
+        async with self._db.transaction() as conn:
+            conversation_id, created = await self._sessions.ensure_conversation(
                 provider=conversation.provider,
                 provider_conversation_id=conversation.provider_conversation_id or None,
                 title=conversation.title,
@@ -430,7 +276,7 @@ class ImportRunner:
                 started_at=conversation.created_at,
                 conn=conn,
             )
-            inserted = await services.sessions.add_messages(
+            inserted = await self._sessions.add_messages(
                 conversation_id,
                 [
                     {
@@ -463,8 +309,7 @@ class ImportRunner:
         report.conversations_skipped += 0 if created else 1
         report.messages_imported += inserted
 
-        sensitivity = await screen_conversation(
-            services,
+        sensitivity = await self._router.screen(
             conversation_id,
             [conversation.title or "", *(m.content for m in conversation.messages)],
         )
@@ -486,8 +331,7 @@ class ImportRunner:
         if not created:
             return
 
-        await route_conversation(
-            services,
+        await self._router.route(
             conversation_id=conversation_id,
             provider=conversation.provider,
             title=conversation.title,
@@ -495,7 +339,7 @@ class ImportRunner:
             message_count=len(conversation.messages),
             sensitivity=sensitivity,
             report=report,
-            transcript=classification_transcript(conversation, transcript_budget(services)),
+            transcript=classification_transcript(conversation, self._router.transcript_budget()),
         )
 
     async def _import_attachment(
@@ -507,10 +351,9 @@ class ImportRunner:
         sensitivity: str,
         report: ImportReport,
     ) -> None:
-        services = self._services
 
         if not attachment.captured:
-            await services.artifacts.register_reference(
+            await self._artifacts.register_reference(
                 title=attachment.filename,
                 description=(
                     f"Referenced in an imported {conversation.provider} conversation. "
@@ -534,11 +377,11 @@ class ImportRunner:
 
         assert attachment.data is not None
         digest = sha256_bytes(attachment.data)
-        duplicate = await services.artifacts.find_by_hash(digest)
+        duplicate = await self._artifacts.find_by_hash(digest)
         if duplicate is not None:
             # Same bytes already stored, possibly from another provider's
             # export. Link it to this conversation instead of storing twice.
-            await services.artifacts.relate(
+            await self._artifacts.relate(
                 duplicate,
                 relation="related_to_conversation",
                 target_type="conversation",
@@ -548,7 +391,7 @@ class ImportRunner:
             )
             return
 
-        record = await services.artifacts.save_files(
+        record = await self._artifacts.save_files(
             title=attachment.filename,
             description=f"Imported from a {conversation.provider} export.",
             files={attachment.filename: attachment.data},
@@ -561,7 +404,7 @@ class ImportRunner:
 
         # Artifacts from a bulk import are classified but never auto-promoted
         # to the vault; historical thresholds apply.
-        await services.classification.classify_artifact(
+        await self._classification.classify_artifact(
             {
                 "title": record.title,
                 "artifact_type": record.artifact_type,

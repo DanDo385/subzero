@@ -56,7 +56,14 @@ async def test_draining_a_queued_artifact_keeps_its_sensitivity_and_records_it(s
     )
     await services.db.execute("UPDATE reclassification_queue SET next_attempt_at = now()")
 
-    done, total = await drain_reclassification_queue(services, limit=10)
+    done, total = await drain_reclassification_queue(
+        limit=10,
+        settings=services.settings,
+        db=services.db,
+        artifacts=services.artifacts,
+        filing=services.filing,
+        router=services.router,
+    )
 
     assert (done, total) == (1, 1)
     assert [s["sensitivity"] for s in seen] == ["highly_sensitive"]
@@ -86,7 +93,14 @@ async def test_draining_a_live_checkpoint_classifies_it_and_clears_it(services):
     )
     await services.db.execute("UPDATE reclassification_queue SET next_attempt_at = now()")
 
-    done, total = await drain_reclassification_queue(services, limit=10)
+    done, total = await drain_reclassification_queue(
+        limit=10,
+        settings=services.settings,
+        db=services.db,
+        artifacts=services.artifacts,
+        filing=services.filing,
+        router=services.router,
+    )
 
     assert (done, total) == (1, 1)
     assert await services.db.fetchval("SELECT count(*) FROM reclassification_queue") == 0
