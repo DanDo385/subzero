@@ -79,6 +79,10 @@ enforce a scope with `auth=require_scopes(...)`, and delegate to a service in
 (project next steps, rendered into vault notes). Business logic and SQL
 belong in the service, never in the tool module. Field descriptions are prompt surface, the model
 reads them, so they are written as instructions to the caller.
+Tool exceptions reach clients through `mcp/errors.py`: raise a `SubzeroError` with a message
+written for the caller; anything else becomes "Internal error ... Reference <request id>" in
+production. `/readyz` is 503 while migrations are pending (`db/schema_status.py`), so on deploy
+run `subzero migrate` before restarting the server.
 
 **`models.py` is the MCP boundary.** Pydantic types with `extra="forbid"`; the `Literal` unions
 there (`Provenance`, `Sensitivity`, `StorageStatus`, `ArtifactType`, …) are the vocabulary the rest
