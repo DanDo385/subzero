@@ -220,8 +220,65 @@ class ClassificationService:
             duration_ms=0,
         )
 
-    def cache_key(self, kind: str, state: dict[str, Any], candidates: dict[str, str]) -> str:
-        """Identity of one question: same state, options, questions and model."""
+    async def home_candidates(self, *, limit: int | None = None) -> dict[str, str]:
+        """Lessons and setups already in use, most filed first.
+
+        Offered to Jev so a session whose author typed no sigils can still be
+        filed against vocabulary the vault already has. Only homes that exist
+        are offered: Jev chooses from a list, it does not invent one.
+        """
+        rows = await self._db.fetch(
+            """
+            SELECT home, count(*) AS n
+            FROM (
+                SELECT metadata->>'home' AS home FROM notes WHERE metadata ? 'home'
+                UNION ALL
+                SELECT metadata->>'home' FROM conversations WHERE metadata ? 'home'
+            ) homes
+            WHERE home LIKE 'lesson/%' OR home LIKE 'setup/%'
+            GROUP BY home
+            ORDER BY n DESC, home
+            LIMIT $1
+            """,
+            limit or self._settings.jev_max_home_candidates,
+        )
+        return {row["home"]: f"{row['home']}, {row['n']} filed here" for row in rows}
+
+    async def concept_candidates(self, *, limit: int | None = None) -> dict[str, str]:
+        """Concepts already tagged, most used first. Same rule as homes."""
+        rows = await self._db.fetch(
+            """
+            WITH tags AS (
+                SELECT jsonb_array_elements_text(metadata->'tags') AS tag
+                FROM notes WHERE metadata ? 'tags'
+                UNION ALL
+                SELECT jsonb_array_elements_text(metadata->'tags')
+                FROM conversations WHERE metadata ? 'tags'
+            )
+            SELECT substr(tag, 9) AS concept, count(*) AS n
+            FROM tags
+            WHERE tag LIKE 'concept/%' AND length(tag) > 9
+            GROUP BY concept
+            ORDER BY n DESC, concept
+            LIMIT $1
+            """,
+            limit or self._settings.jev_max_concept_candidates,
+        )
+        return {row["concept"]: f"concept/{row['concept']}, {row['n']} tagged" for row in rows}
+
+    def cache_key(
+        self,
+        kind: str,
+        state: dict[str, Any],
+        candidates: dict[str, str],
+        key_extras: dict[str, Any] | None = None,
+    ) -> str:
+        """Identity of one question: same state, options, questions and model.
+
+        ``key_extras`` carries the other candidate lists (homes, concepts). An
+        answer cached against one offered list must not be reused when the
+        list changed, or the new questions would go unasked.
+        """
         return sha256_text(
             json.dumps(
                 {
@@ -231,6 +288,7 @@ class ClassificationService:
                     "model": self._settings.jev_model,
                     "state": {k: v for k, v in state.items() if k != "input_hash"},
                     "candidates": candidates,
+                    "extras": key_extras or {},
                 },
                 sort_keys=True,
                 default=str,
@@ -245,13 +303,14 @@ class ClassificationService:
         candidates: dict[str, str],
         *,
         use_cache: bool = True,
+        key_extras: dict[str, Any] | None = None,
     ) -> tuple[ClassificationResult, dict[str, Any]]:
         """Ask, or answer from the cache. Returns the result and the metadata
         to record with it (the cache key and whether it was a hit)."""
         # Only Jev answers are worth caching: rules are free and deterministic,
         # and a degraded or privacy-blocked result must be asked again.
         cacheable = self._settings.classification_cache and self._classifier.name == "jev"
-        key = self.cache_key(kind, state, candidates) if cacheable else None
+        key = self.cache_key(kind, state, candidates, key_extras) if cacheable else None
         result = await self._cached(key) if key and use_cache else None
         cache_hit = result is not None
         if result is None:
@@ -283,9 +342,12 @@ class ClassificationService:
         object_id: UUID | None,
         historical_import: bool,
         use_cache: bool = True,
+        key_extras: dict[str, Any] | None = None,
     ) -> tuple[ClassificationResult, Routing, UUID | None]:
         candidates = await self.project_candidates()
-        result, extra = await self.ask_cached(kind, ask, state, candidates, use_cache=use_cache)
+        result, extra = await self.ask_cached(
+            kind, ask, state, candidates, use_cache=use_cache, key_extras=key_extras
+        )
         routing = self.policy(historical_import=historical_import).route(result)
         event_id = await self.record(
             result, routing, object_type=kind, object_id=object_id, extra=extra
@@ -304,13 +366,21 @@ class ClassificationService:
         historical_import: bool = False,
         use_cache: bool = True,
     ) -> tuple[ClassificationResult, Routing, UUID | None]:
+        homes = await self.home_candidates()
+        concepts = await self.concept_candidates()
+        classifier = self._classifier
+
+        async def ask(state_: dict[str, Any], candidates: dict[str, str]) -> ClassificationResult:
+            return await classifier.classify_checkpoint(state_, candidates, homes, concepts)
+
         return await self._classify(
             "checkpoint",
-            self._classifier.classify_checkpoint,
+            ask,
             state,
             object_id=object_id,
             historical_import=historical_import,
             use_cache=use_cache,
+            key_extras={"homes": homes, "concepts": concepts},
         )
 
     async def classify_artifact(

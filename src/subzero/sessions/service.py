@@ -355,6 +355,20 @@ class SessionService:
             state, historical_import=historical_import
         )
 
+        # Jev fills only the gaps the sigils left. A typed sigil always beats a
+        # model judgement, and neither can invent a name: Jev chooses a home or
+        # a concept from the ones already in use, offered as Choice criteria.
+        if not home and routing.home:
+            home = routing.home
+            notes_out.append(f"Filed under {home} by the classifier; no sigil named one.")
+        if routing.concept and routing.concept not in (concepts or []):
+            concepts = [*(concepts or []), routing.concept]
+        classifier_extra_homes = [routing.home_tag] if routing.home_tag else []
+        if routing.home and home != routing.home:
+            # A confident home that lost to a typed sigil still tags: the
+            # session is about both, it is only filed under one.
+            classifier_extra_homes.append(routing.home)
+
         # The summary's vector is computed here, outside the transaction. An
         # embedding call is a network round trip that can take seconds, and
         # holding row locks and a pooled connection across it is how a slow
@@ -467,6 +481,9 @@ class SessionService:
                         )
                         continue
                 extra_homes.append(path)
+            for path in classifier_extra_homes:
+                if path != chosen_home and path not in extra_homes:
+                    extra_homes.append(path)
             metadata = home_metadata(
                 chosen_home,
                 saved["slug"],

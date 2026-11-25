@@ -66,6 +66,16 @@ class Routing:
     #: The raw deep_extraction probability. Triage ranks by this rather than
     #: by the Noul yes/no bands, which are tuned for acting, not for ranking.
     deep_extract_p: float = 0.5
+    #: The lesson or setup home Jev picked from the vocabulary already in use,
+    #: when its confidence cleared the auto band. A typed sigil always beats it.
+    home: str | None = None
+    home_band: Band = Band.DEFER
+    #: A home Jev picked but was not confident enough to file under. Filing is
+    #: visible; a tag is reversible, so the review band tags instead of filing.
+    home_tag: str | None = None
+    #: The existing concept Jev named for a session that typed no #concept.
+    concept: str | None = None
+    concept_band: Band = Band.DEFER
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -85,6 +95,11 @@ class Routing:
             "confidence": round(self.confidence, 3),
             "deep_extract": self.deep_extract.value,
             "deep_extract_p": round(self.deep_extract_p, 3),
+            "home": self.home,
+            "home_band": self.home_band.value,
+            "home_tag": self.home_tag,
+            "concept": self.concept,
+            "concept_band": self.concept_band.value,
         }
 
 
@@ -132,6 +147,24 @@ class PolicyEngine:
             project = None
         elif project and project_band is Band.REVIEW:
             review_reasons.append("ambiguous_project")
+
+        home_choice, home_conf = result.choice("home")
+        home_band = self.band(home_conf, action="visible")
+        if home_choice == UNASSIGNED:
+            home_choice = None
+        # Filing a session under a lesson or setup is visible, so only the auto
+        # band files. The review band still tags: a tag is reversible, and an
+        # untagged session is the failure this question exists to prevent.
+        home = home_choice if home_choice and home_band is Band.AUTO else None
+        home_tag = home_choice if home_choice and home_band is Band.REVIEW else None
+
+        concept_choice, concept_conf = result.choice("concept")
+        concept_band = self.band(concept_conf, action=ACTION_REVERSIBLE)
+        if concept_choice == UNASSIGNED:
+            concept_choice = None
+        # A concept is a tag, the most reversible action there is, so the review
+        # band still applies it; only a defer drops it.
+        concept = concept_choice if concept_choice and concept_band is not Band.DEFER else None
 
         destination, destination_conf = result.choice("destination")
         destination_band = self.band(destination_conf, action="visible")
@@ -183,7 +216,7 @@ class PolicyEngine:
             review_reasons.append("classifier_degraded")
 
         needs_review = bool(review_reasons)
-        confidence = max(project_conf, destination_conf)
+        confidence = max(project_conf, destination_conf, home_conf, concept_conf)
 
         if result.degraded:
             action = "fallback"
@@ -211,6 +244,11 @@ class PolicyEngine:
             confidence=confidence,
             deep_extract=deep_extract,
             deep_extract_p=deep_extract_p,
+            home=home,
+            home_band=home_band,
+            home_tag=home_tag,
+            concept=concept,
+            concept_band=concept_band,
         )
 
     def artifact_project(self, result: ClassificationResult) -> tuple[str | None, Band]:

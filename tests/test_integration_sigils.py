@@ -130,3 +130,50 @@ async def test_an_unknown_extra_project_tags_nothing(services) -> None:
     assert "lesson/cfa2" in metadata["tags"]
     assert "projects/ghost" not in metadata["tags"]
     assert any("No project matches %ghost" in n for n in result.notes)
+
+
+async def test_a_session_without_sigils_is_filed_by_the_classifier(services, monkeypatch) -> None:
+    """Nothing typed: a confident home files the session and the concept tags it."""
+    from dataclasses import replace
+
+    original = services.classification.classify_checkpoint
+
+    async def classify(state, **kwargs):
+        result, routing, event_id = await original(state, **kwargs)
+        return result, replace(routing, home="lesson/cfa2", concept="duration"), event_id
+
+    monkeypatch.setattr(services.classification, "classify_checkpoint", classify)
+    await services.sessions.checkpoint(
+        provider="claude",
+        principal=ME,
+        provider_conversation_id="jev-1",
+        title="Duration without sigils",
+        summary="Macaulay against modified, with the convexity caveat.",
+    )
+    metadata = await _home_and_tags(services, "jev-1")
+    assert metadata["home"] == "lesson/cfa2"
+    assert {"concept/duration"} <= set(metadata["tags"])
+
+
+async def test_a_sigil_beats_the_classifier_but_still_keeps_it(services, monkeypatch) -> None:
+    """A typed home files; the classifier's different home becomes a tag."""
+    from dataclasses import replace
+
+    original = services.classification.classify_checkpoint
+
+    async def classify(state, **kwargs):
+        result, routing, event_id = await original(state, **kwargs)
+        return result, replace(routing, home="lesson/cfa2", concept="duration"), event_id
+
+    monkeypatch.setattr(services.classification, "classify_checkpoint", classify)
+    await services.sessions.checkpoint(
+        provider="claude",
+        principal=ME,
+        provider_conversation_id="jev-2",
+        title="^ifoa/bonds duration",
+        summary="Same content, but the author filed it themselves.",
+    )
+    metadata = await _home_and_tags(services, "jev-2")
+    assert metadata["home"] == "lesson/ifoa"
+    assert "lesson/cfa2" in metadata["tags"]
+    assert "concept/duration" in metadata["tags"]

@@ -100,7 +100,11 @@ class Classifier(Protocol):
     ) -> ClassificationResult: ...
 
     async def classify_checkpoint(
-        self, state: dict[str, Any], project_candidates: dict[str, str]
+        self,
+        state: dict[str, Any],
+        project_candidates: dict[str, str],
+        home_candidates: dict[str, str] | None = None,
+        concept_candidates: dict[str, str] | None = None,
     ) -> ClassificationResult: ...
 
     async def classify_artifact(

@@ -26,7 +26,7 @@ from typing import Any
 
 from typesafe_sdk import Choice, Noul, Score
 
-QUESTIONS_VERSION = "2026-11-23.1"
+QUESTIONS_VERSION = "2026-11-24.1"
 
 #: Offered whenever a Choice ranges over projects, so "none of these" is
 #: always reachable.
@@ -106,12 +106,22 @@ ARTIFACT_CATEGORY_CRITERIA: dict[str, str] = {
 # --------------------------------------------------------------------------
 
 
-def checkpoint_questions(project_candidates: dict[str, str]) -> dict[str, Any]:
+def checkpoint_questions(
+    project_candidates: dict[str, str],
+    home_candidates: dict[str, str] | None = None,
+    concept_candidates: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Questions asked once per substantive checkpoint or imported session.
 
     ``project_candidates`` maps project slug -> one-line description, already
     narrowed by retrieval (see SUBZERO_JEV_MAX_PROJECT_CANDIDATES). Passing an
     unbounded universe of projects makes the Choice worse, not better.
+
+    ``home_candidates`` and ``concept_candidates`` are the lessons, setups and
+    concepts already in use. They exist so a session whose author typed no
+    sigils can still be filed and tagged against vocabulary the vault already
+    has, instead of landing untagged. Jev only ever chooses from what is
+    offered; it cannot invent a lesson or a concept.
     """
     questions: dict[str, Any] = {
         "save_durable_memory": Noul(
@@ -189,6 +199,38 @@ def checkpoint_questions(project_candidates: dict[str, str]) -> dict[str, Any]:
                 "about that work, not merely adjacent to it."
             ),
             criteria={**project_candidates, UNASSIGNED: _unassigned_text("conversation")},
+        )
+    if home_candidates:
+        questions["home"] = Choice(
+            instructions=(
+                "Which existing lesson or setup home does this session belong "
+                "to? Choose one only if the session is substantively part of "
+                "that lesson or setup, not merely touching it. A session is "
+                "filed under one home; if several fit, choose the closest."
+            ),
+            criteria={
+                **home_candidates,
+                UNASSIGNED: (
+                    "None of the listed lessons or setups. Choose this when the "
+                    "session is general, spans several of them, or belongs to a "
+                    "home that is not listed."
+                ),
+            },
+        )
+    if concept_candidates:
+        questions["concept"] = Choice(
+            instructions=(
+                "Which single existing concept best names what this session is "
+                "about? Choose one only if the session develops or applies that "
+                "concept, not merely mentions it in passing."
+            ),
+            criteria={
+                **concept_candidates,
+                UNASSIGNED: (
+                    "None of the listed concepts. Choose this when the session's "
+                    "subject is not one of them, or it introduces a new one."
+                ),
+            },
         )
     return questions
 

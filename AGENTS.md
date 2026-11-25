@@ -88,10 +88,14 @@ of the code and the SQL agree on.
 (`classifier/rules.py`) answer anything code can answer — MIME, extension, file tree, hashes,
 duplicates. Jev (`classifier/jev.py`, TypeSafe) answers only typed semantic questions and returns
 probabilities; it never returns prose, a path or an action. `classifier/policy.py` maps answers to
-actions through confidence bands scaled by an action-class multiplier. Every question and threshold
-lives in `classifier/questions.py` on purpose — those two files are what a human reviews. When Jev
-is unavailable the result is marked `degraded`, the fallback deliberately refuses to guess a project
-or write to the vault, and the object is queued for reclassification.
+actions through confidence bands scaled by an action-class multiplier. For a session whose author
+typed no sigils, Jev is also offered the lessons, setups and concepts already in use and may file
+or tag it against them: a confident home files, an uncertain one only tags, a concept tags unless
+it is deferred. A typed sigil always beats Jev, and Jev only ever chooses from names that already
+exist. Every question and threshold lives in `classifier/questions.py` on purpose — those two files
+are what a human reviews. When Jev is unavailable the result is marked `degraded`, the fallback
+deliberately refuses to guess a project or write to the vault, and the object is queued for
+reclassification.
 
 **`session_checkpoint` is the shared write path** (`sessions/service.py`, the largest module). One
 transaction, and idempotent through deterministic keys: `(provider, provider_conversation_id)` for

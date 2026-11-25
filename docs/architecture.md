@@ -514,6 +514,14 @@ Every question and every threshold lives in one reviewable file,
 to check. Independent questions about the same state go in **one** request —
 Jev ingests the state once and evaluates them in parallel.
 
+A session whose author typed no sigils is still filed and tagged: Jev is offered
+the lessons, setups and concepts already in use as two more Choices in the same
+request, bounded the way the project list is. A confident home files the
+session, an uncertain one only tags it, and a concept tags it unless the
+confidence defers. Sigils always win, and Jev can only choose names that
+already exist, so the vocabulary grows the way it always has: by someone typing
+a sigil once.
+
 | Primitive | Used for |
 | --- | --- |
 | `Noul` | one independent yes/no, e.g. "does this create a concrete unfinished action?" |
