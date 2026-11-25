@@ -177,7 +177,7 @@ subzero/
 │   ├── config.py             # settings + startup refusals
 │   ├── email.py              # immutable previews, AgentMail adapter, durable receipts
 │   ├── server.py             # Starlette app, routes, lifespan
-│   ├── services.py           # explicit service wiring
+│   ├── services.py           # composition root: builds every service once
 │   ├── models.py             # the shapes that cross the MCP boundary
 │   ├── ingest.py             # /api/v1/ingest: the extension's write path, sync-state
 │   ├── sigils.py             # %project ^lesson &setup #concept @person >agent
