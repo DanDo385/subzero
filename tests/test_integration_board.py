@@ -51,9 +51,9 @@ async def test_dispatch_and_message_from_the_page(board, services) -> None:
     base, _ = board
     headers = {"x-subzero-board": "1"}
     job = await asyncio.to_thread(
-        _post, f"{base}/dispatch", json={"goal": "^zig plan >claude"}, headers=headers
+        _post, f"{base}/dispatch", json={"goal": "Plan the Zig lesson"}, headers=headers
     )
-    assert job.json()["target"] == "claude" and job.json()["mode"] == "scout"
+    assert job.json()["target"] == "crew" and job.json()["mode"] == "scout"
     sent = await asyncio.to_thread(
         _post, f"{base}/send", json={"to": "me", "body": "hi"}, headers=headers
     )

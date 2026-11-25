@@ -19,7 +19,6 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
 from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
 from subzero.classifier.policy import Verdict
@@ -39,93 +38,18 @@ from subzero.models import (
     CheckpointTask,
 )
 from subzero.projects.service import ProjectService
+from subzero.sessions.conversations import ConversationStore
 from subzero.retrieval import inference
 from subzero.tasks import upsert_task
 from subzero.util import sha256_text, truncate_for_budget, utcnow
 
 logger = get_logger(__name__)
 
-#: Batch insert for add_messages. $3..$10 are parallel arrays, one entry per
-#: message; WITH ORDINALITY keeps the caller's order for the sequence numbers.
-_INSERT_MESSAGES_SQL = """
-WITH incoming AS (
-    SELECT *
-    FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
-                $8::text[], $9::timestamptz[], $10::text[])
-         WITH ORDINALITY AS m(provider_message_id, model, role, content, content_sha256,
-                              provenance, created_at, metadata, ord)
-),
-fresh AS (
-    SELECT i.*
-    FROM incoming i
-    WHERE i.provider_message_id IS NULL
-       OR NOT EXISTS (
-            SELECT 1 FROM messages e
-            WHERE e.conversation_id = $1 AND e.provider_message_id = i.provider_message_id)
-),
-next_free AS (
-    SELECT coalesce(max(sequence), -1) + 1 AS n FROM messages WHERE conversation_id = $1
-)
-INSERT INTO messages (
-    conversation_id, provider, provider_message_id, model, role,
-    content, content_sha256, provenance, sequence, created_at, metadata
-)
-SELECT $1, $2, f.provider_message_id, f.model, f.role,
-       f.content, f.content_sha256, f.provenance::sz_provenance,
-       next_free.n + row_number() OVER (ORDER BY f.ord) - 1,
-       coalesce(f.created_at, now()), f.metadata::jsonb
-FROM fresh f, next_free
-ORDER BY f.ord
-ON CONFLICT (conversation_id, provider_message_id)
-    WHERE provider_message_id IS NOT NULL
-DO NOTHING
-RETURNING id
-"""
-
-
-def _message_rows(messages: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
-    """add_messages input as rows for _INSERT_MESSAGES_SQL: empty messages
-    dropped, a provider message id repeated in one batch kept once."""
-    rows: list[tuple[Any, ...]] = []
-    seen: set[str] = set()
-    for message in messages:
-        content = (message.get("content") or "").strip()
-        if not content:
-            continue
-        message_id = message.get("provider_message_id")
-        if message_id is not None:
-            message_id = str(message_id)
-            if message_id in seen:
-                continue
-            seen.add(message_id)
-        role = message.get("role") or "user"
-        provenance = message.get("provenance") or (
-            "user_statement"
-            if role == "user"
-            else "tool_result"
-            if role == "tool"
-            else "assistant_generated"
-        )
-        rows.append(
-            (
-                message_id,
-                message.get("model"),
-                role,
-                content,
-                sha256_text(content),
-                provenance,
-                message.get("created_at"),
-                json.dumps(message.get("metadata") or {}),
-            )
-        )
-    return rows
-
-
 #: How much of a summary is worth sending to the classifier.
 _CLASSIFIER_SUMMARY_TOKENS = 3000
 
 
-class SessionService:
+class SessionService(ConversationStore):
     def __init__(
         self,
         db: Database,
@@ -136,114 +60,12 @@ class SessionService:
         embeddings: EmbeddingService,
         audit: AuditService,
     ) -> None:
-        self._db = db
+        super().__init__(db)
         self._memories = memories
         self._projects = projects
         self._classification = classification
         self._embeddings = embeddings
         self._audit = audit
-
-    # ------------------------------------------------------ conversations
-
-    async def ensure_conversation(
-        self,
-        *,
-        provider: str,
-        provider_conversation_id: str | None,
-        title: str | None = None,
-        model: str | None = None,
-        project_id: UUID | None = None,
-        imported: bool = False,
-        started_at: Any = None,
-        conn: asyncpg.Connection | None = None,
-    ) -> tuple[UUID, bool]:
-        """Idempotent on (provider, provider_conversation_id).
-
-        When the provider gives us no conversation id - which several of them
-        do not - we mint a stable synthetic one from the provider, the title
-        and the day, so repeated checkpoints in one session still collapse
-        onto one conversation instead of creating a new row each time.
-        """
-        executor = conn or self._db
-        external_id = provider_conversation_id or (
-            f"synthetic:{sha256_text(f'{provider}:{title or ""}:{utcnow():%Y-%m-%d}')[:32]}"
-        )
-        row = await executor.fetchrow(
-            """
-            INSERT INTO conversations (
-                provider, provider_conversation_id, title, model, project_id,
-                imported, started_at, import_key
-            ) VALUES ($1,$2,$3,$4,$5,$6,coalesce($7, now()),$8)
-            ON CONFLICT (provider, provider_conversation_id)
-                WHERE provider_conversation_id IS NOT NULL
-            DO UPDATE SET
-                -- A capture without a title or model (blank, as page-read
-                -- providers often send) never erases the stored one.
-                title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
-                model = coalesce(nullif(btrim(EXCLUDED.model), ''), conversations.model),
-                project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
-                updated_at = now()
-            RETURNING id, project_id, metadata, (xmax = 0) AS created
-            """,
-            provider,
-            external_id,
-            title,
-            model,
-            project_id,
-            imported,
-            started_at,
-            f"{provider}:{external_id}",
-        )
-        if row is None:  # pragma: no cover - the upsert always returns a row
-            raise RuntimeError("conversation upsert returned no row")
-        if not (row["metadata"] or {}).get("home"):
-            slug = await executor.fetchval(
-                "SELECT slug FROM projects WHERE id = $1", row["project_id"]
-            )
-            await executor.execute(
-                "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
-                row["id"],
-                home_metadata(None, slug),
-            )
-        return row["id"], bool(row["created"])
-
-    async def add_messages(
-        self,
-        conversation_id: UUID,
-        messages: list[dict[str, Any]],
-        *,
-        provider: str,
-        conn: asyncpg.Connection | None = None,
-    ) -> int:
-        """Insert raw messages (layer 1). Idempotent on provider message id.
-
-        One statement for the whole batch, however many messages: against a
-        remote database (Supabase is ~200 ms away from a home machine) a
-        round trip per message made re-sending a long conversation take
-        tens of seconds. Messages already stored are skipped; new ones take
-        the next free sequence numbers in the order given, without gaps.
-        """
-        rows = _message_rows(messages)
-        if not rows:
-            return 0
-        if conn is None:
-            async with self._db.transaction() as own:
-                return await self.add_messages(
-                    conversation_id, messages, provider=provider, conn=own
-                )
-        # Numbering reads max(sequence), so two writers for one conversation
-        # must take turns: the second waits here, then reads the first's rows.
-        # NO KEY UPDATE serialises writers without blocking foreign-key checks.
-        await conn.execute(
-            "SELECT 1 FROM conversations WHERE id = $1 FOR NO KEY UPDATE", conversation_id
-        )
-        inserted = await conn.fetch(
-            _INSERT_MESSAGES_SQL,
-            conversation_id,
-            provider,
-            *(list(column) for column in zip(*rows, strict=True)),
-        )
-        return len(inserted)
 
     # -------------------------------------------------------- checkpoint
 
@@ -302,24 +124,6 @@ class SessionService:
         def bump(bucket: dict[str, int], key: str, n: int = 1) -> None:
             if n:
                 bucket[key] = bucket.get(key, 0) + n
-
-        # ---- 0. sigils the user typed beat any model judgement -----------
-        # %project only names a project (matched below, never created); a
-        # ^lesson or &setup home is used as is; #concepts and @people tag.
-        # Every sigil typed is kept: the first home-kind one files the session
-        # and the rest tag it in the metadata build below, so a session about
-        # two lessons, or a project and a setup, is not narrowed to whichever
-        # sigil came first.
-        marks = sigils.parse_all(title, summary)
-        people: list[str] | None = list(marks.people) or None
-        if marks.any:
-            if marks.project and not project and not (home or "").startswith("projects/"):
-                project = marks.project
-            if not home and marks.home and not marks.home.startswith("projects/"):
-                home = marks.home
-            if concepts is None and marks.concepts:
-                concepts = list(marks.concepts)
-            notes_out.append("Sigils read: " + " ".join(marks.found))
 
         # ---- 1. classify first, so routing informs what we write ---------
         # A project the caller names outright decides where the session goes.
@@ -452,21 +256,6 @@ class SessionService:
             # An explicit project can replace the initial unassigned home.
             default_home = None if (explicit and not home) else previous.get("home")
             chosen_home = home or default_home
-            # The homes sigils named beyond the one this session is filed
-            # under. A named project has to exist to tag anything, the same
-            # rule as routing; lessons and setups are names, not rows.
-            extra_homes: list[str] = []
-            for path in marks.homes:
-                if chosen_home and path == chosen_home:
-                    continue
-                if path.startswith("projects/"):
-                    slug = path.removeprefix("projects/")
-                    if await self._projects.resolve(slug, conn=conn) is None:
-                        notes_out.append(
-                            f"No project matches %{slug}; it was read but tags nothing."
-                        )
-                        continue
-                extra_homes.append(path)
             metadata = home_metadata(
                 chosen_home,
                 saved["slug"],
@@ -477,10 +266,6 @@ class SessionService:
                     for t in previous.get("tags", [])
                     if t.startswith("concept/")
                 ],
-                people
-                if people is not None
-                else [t for t in previous.get("tags", []) if t.startswith("person/")],
-                extra_homes=extra_homes or None,
             )
             await conn.execute(
                 "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
@@ -893,43 +678,6 @@ class SessionService:
             ):
                 count += 1
         return count
-
-    # ------------------------------------------------------------- reads
-
-    async def recent_summaries(
-        self, *, limit: int = 10, provider: str | None = None, project_id: UUID | None = None
-    ) -> list[dict[str, Any]]:
-        rows = await self._db.fetch(
-            """
-            SELECT s.id, s.title, s.summary, s.provider, s.updated_at,
-                   s.open_questions, c.provider_conversation_id, p.slug AS project_slug
-            FROM session_summaries s
-            JOIN conversations c ON c.id = s.conversation_id
-            LEFT JOIN projects p ON p.id = s.project_id
-            WHERE ($1::text IS NULL OR s.provider = $1)
-              AND ($2::uuid IS NULL OR s.project_id = $2)
-            ORDER BY s.updated_at DESC LIMIT $3
-            """,
-            provider,
-            project_id,
-            limit,
-        )
-        return [dict(r) for r in rows]
-
-    async def conversation_messages(
-        self, conversation_id: UUID, *, limit: int = 50
-    ) -> list[dict[str, Any]]:
-        rows = await self._db.fetch(
-            """
-            SELECT role, content, provenance, sequence, created_at, model
-            FROM messages WHERE conversation_id = $1
-            ORDER BY sequence LIMIT $2
-            """,
-            conversation_id,
-            limit,
-        )
-        return [dict(r) for r in rows]
-
 
 def question_key(text: str) -> str:
     """Compare questions loosely: case, spacing and trailing punctuation ignored."""

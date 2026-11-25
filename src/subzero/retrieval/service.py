@@ -34,10 +34,10 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
+from subzero.homes import validate_home
 from subzero.models import (
     ConflictReport,
     ContextItem,
@@ -724,6 +724,7 @@ class RetrievalService:
         user_message: str | None = None,
         token_budget: int | None = None,
         project: str | None = None,
+        home: str | None = None,
     ) -> ContextPackage:
         """The package that starts a chat: handoff, then relevant items, then raw.
 
@@ -737,17 +738,11 @@ class RetrievalService:
             notes.append(
                 "user_message is deprecated; pass query (key terms). Reduced to key terms."
             )
-        # %project picks the project; ^lesson or &setup picks a home whose own
-        # sessions become the handoff. Sigil words stay as search terms.
-        marks = sigils.parse(text)
-        home = None
-        if marks.any:
-            text = marks.plain
-            if marks.project and not project:
-                project = marks.project
-            if marks.home and not marks.home.startswith("projects/"):
-                home = marks.home
-            notes.append("Sigils read: " + " ".join(marks.found))
+        if home is not None:
+            validate_home(home)
+            if home.startswith("projects/"):
+                project = project or home.removeprefix("projects/")
+                home = None
         return await self._build_package(
             query=text,
             token_budget=token_budget or self._settings.default_token_budget,
@@ -782,7 +777,8 @@ class RetrievalService:
 
         # -- which project ------------------------------------------------
         rows = await self._project_rows()
-        choice, focus, candidates = self._choose_project(project, parsed.text, rows)
+        project_query = "" if home and not project else parsed.text
+        choice, focus, candidates = self._choose_project(project, project_query, rows)
 
         # -- 1. handoff candidates ---------------------------------------
         handoffs: list[list[ContextItem]] = []

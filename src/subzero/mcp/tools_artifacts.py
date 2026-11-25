@@ -19,13 +19,12 @@ from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
 from subzero.artifacts.filing import classify_and_file, queue_vault_mirror
-from subzero.artifacts.keys import artifact_prefix, object_key, sanitize_relative_path
+from subzero.artifacts.keys import sanitize_relative_path
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
 from subzero.errors import ValidationError
 from subzero.models import ArtifactRecord
 from subzero.services import get_services
-from subzero.util import guess_mime
 
 #: Inline base64 is allowed only for genuinely small payloads. Anything bigger
 #: goes through a signed upload so bytes never sit in a tool argument.
@@ -253,35 +252,20 @@ def register(mcp: FastMCP) -> None:
                 f"{services.settings.max_artifact_file_bytes}."
             )
 
-        safe_path = sanitize_relative_path(filename)
-        mime = mime_type or guess_mime(filename)
-        record = await services.artifacts.register_reference(
+        begun = await services.artifacts.begin_signed_upload(
             title=title,
+            filename=filename,
+            byte_size=byte_size,
+            mime_type=mime_type,
             description=description,
-            status="pending_import",
-            source_provider=principal.provider if principal.provider != "unknown" else None,
-            source_type="uploaded_by_user",
             project_id=await services.projects.resolve(project),
-            expected_files=[{"filename": filename, "mime_type": mime, "byte_size": byte_size}],
+            project_slug=project,
+            source_provider=principal.provider if principal.provider != "unknown" else None,
         )
-        prefix = artifact_prefix(
-            artifact_slug=record.slug, version=record.version, project_slug=project
-        )
-        key = object_key(prefix, safe_path)
-        ticket = await services.store.signed_upload_ticket(
-            key, mime_type=mime, expires_in=services.settings.signed_url_ttl_seconds
-        )
-        await services.db.execute(
-            "UPDATE artifacts SET storage_prefix = $2 WHERE id = $1", record.id, prefix
-        )
-        await services.db.execute(
-            "UPDATE artifact_files SET object_key = $3 WHERE artifact_id = $1 AND relative_path = $2",
-            record.id,
-            safe_path,
-            key,
-        )
+        ticket = begun["ticket"]
+        safe_path = begun["relative_path"]
         return {
-            "artifact_id": str(record.id),
+            "artifact_id": str(begun["artifact_id"]),
             "relative_path": safe_path,
             "upload_url": ticket.upload_url,
             "method": ticket.method,

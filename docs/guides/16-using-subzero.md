@@ -98,9 +98,7 @@ scratch file.
 
 You can name a project, or let the server match one.
 
-**You name it.** Pass the project's slug or name, or type a project sigil
-(the next section). A `%` name only points at a project that already exists.
-It does not create one. An unknown name is reported, not invented.
+**You name it.** Pass an existing project's slug or name. An unknown name is reported, not invented.
 
 **The server matches words.** With no name, it tries, in order: the exact
 slug, name, or alias; a repository path in the text; the name written loosely
@@ -112,49 +110,14 @@ own.
 
 That match is enough for reading and saving when one project is obviously the
 subject. It is the wrong tool when the word is ambiguous. "Claude" can be the
-app, a topic, or the agent who should do the work. A sigil is the exact
-address for those cases.
+app, a topic, or the agent who should do the work. Use the explicit tool field when the name is ambiguous.
 
-## Sigils
+## Homes for a chat or coding folder
 
-A sigil is a symbol at the start of a word. Code reads it. The model does not
-guess. You can skip them in ordinary chat and rely on the name match above.
-
-| You type | It means | It files as |
-| --- | --- | --- |
-| `%portfolio-site` | an existing project | home `projects/portfolio-site` |
-| `^cfa2/fixed-income` | a lesson | home `lesson/cfa2`, concept `fixed-income` |
-| `&neovim` | a tool or setup | home `setup/neovim` |
-| `#lsp` | a concept tag | tag `concept/lsp` |
-| `@morgan` | a person | tag `person/morgan` |
-| `>claude` | who should do the work | that agent |
-
-The first `%`, `^`, or `&` is the home. `#` and `@` are extra tags, and you
-can type more than one. `>` names the agent for a job.
-
-A sigil counts only at the start of a word. These are left alone: `C#`,
-`x^2`, `50%`, `a@b.com`, and a URL. Quotes do not start a sigil, so code like
-`printf("%s")` is not a project.
-
-Known dispatch targets are `claude`, `codex`, `grok`, `gemini`, `pi`, `me`,
-and `crew`. With no `>` in the goal, a confident classification can pick the
-agent. Otherwise the job goes to `crew`. Anything that touches the network,
-credentials, deletion, or a deploy starts as **scout** (read, plan, report)
-even if you asked to ship it.
-
-**On your computer, you do not type them.** A one-line file named `.subzero`
-at the top of a repo supplies the home for coding sessions started in that
-folder:
-
-```bash
-echo "%portfolio-site" > ~/Code/portfolio-site/.subzero
-echo "^cfa2/fixed-income" > ~/Code/cfa2/.subzero
-```
-
-The nearest `.subzero` above the current folder wins. ChatGPT, Claude,
-Gemini, Grok, and Muse do not see that file. In those apps you type the sigil
-when the name match is not enough, or you say the project name and let the
-server match it.
+Use the `home` field to request a lesson or setup handoff, such as `lesson/cfa2`
+or `setup/neovim`. Use `concepts` when saving to add topic tags. For a coding
+session, put the home on the first line of `.subzero` in the repo or worktree.
+See the [agent setup guide](15-agents-messages-and-the-board.md#3-tell-a-folder-what-it-is).
 
 ## Skills, prompts, and tools
 
@@ -312,7 +275,7 @@ Details of pairing, hooks, and the board are guide 15. The practical rules:
 - `agent_message` writes the message and returns. It does not appear in the
   middle of a turn the agent has already started. With hooks installed, the
   session receives it at the next prompt, under "Messages for you".
-- A home such as `^cfa2` or `%portfolio-site` reaches sessions working in that
+- A home such as `lesson/cfa2` or `projects/portfolio-site` reaches sessions working in that
   home. A message sent before a session existed is not replayed when that
   session later starts.
 - A session name that matches two live sessions is refused. The reply lists
@@ -366,7 +329,7 @@ are in [Privacy and costs](../privacy-and-costs.md).
 - It will not start a dispatched job. Queued means waiting.
 - It will not drive herdr, your editor, or your browser unless you ask a
   coding agent to do a specific thing, and that agent is actually running.
-- It will not create a project because a `%` sigil mentioned one.
+- It will not create a project just because a chat mentioned one.
 
 ## From the terminal
 
@@ -380,9 +343,9 @@ step 1). Run them from the project folder.
 | `uv run subzero migrate --status` | Which migrations are applied and which are pending. It does not write. |
 | `subzero agents` | Running sessions, open jobs, messages for you. |
 | `subzero inbox` | Messages addressed to you. |
-| `subzero msg ^cfa2 "use the new syntax"` | A message to every session in that home. |
+| `subzero msg lesson/cfa2 "use the new syntax"` | A message to every session in that home. |
 | `subzero msg me "ready for review"` | A message on your board. |
-| `subzero dispatch "%portfolio-site add a dark mode toggle >claude"` | A queued job. |
+| `subzero dispatch --home projects/portfolio-site --to claude "Add a dark mode toggle"` | A queued job. |
 | `subzero agent status waiting "your line here"` | This session's own your-turn sign. |
 | `subzero board` | The live board at `http://127.0.0.1:7777`. It never receives the device token. |
 

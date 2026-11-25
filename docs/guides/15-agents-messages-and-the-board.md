@@ -48,7 +48,7 @@ What each hook does:
 
 | When | It |
 | --- | --- |
-| A session starts | registers it, then adds the **master prompt**: subzero's rules and sigils, your MEMORY.md and MACHINES.md, where you left off in this project or lesson, and any messages waiting |
+| A session starts | registers it, then adds the **master prompt**: subzero's rules, your MEMORY.md and MACHINES.md, where you left off in this project or lesson, and any messages waiting |
 | You send a prompt | marks it working and adds any new messages from other sessions |
 | A turn ends | marks it idle (a lesson's "your turn" stays up) |
 | The session ends | marks it done; on the board it walks to the vault |
@@ -57,47 +57,39 @@ A hook never blocks Claude Code: if the server can't be reached it prints nothin
 reason to `~/.cache/subzero/hook-errors.log`. These hooks follow Claude Code's documented hook
 format (JSON on stdin; text printed at session start or prompt time is added to the context).
 
-**See the master prompt yourself:** `subzero prompt` (add `--query "^cfa2"` for a lesson).
+**See the master prompt yourself:** `subzero prompt` (add `--home lesson/cfa2` for a lesson).
 
 ## 3. Tell a folder what it is
 
-Put a one-line `.subzero` file at the top of a repo or worktree with its sigils:
+Put a one-line `.subzero` file at the top of a repo or worktree with its home:
 
 ```bash
-echo "^zig #comptime" > ~/Code/zig-lessons/.subzero
-echo "%Code/portfolio-site" > ~/Code/portfolio-site/.subzero
+echo "lesson/zig" > ~/Code/zig-lessons/.subzero
+echo "projects/portfolio-site" > ~/Code/portfolio-site/.subzero
 ```
 
-Sessions started there land in that lesson or project, get its handoff, and receive messages sent
-to `^zig` or `%Code/portfolio-site`.
+Sessions started there get that home and its handoff. To move a live session, run
+`subzero agent status working --home lesson/zig`.
 
-## 4. Sigils, everywhere
+## 4. Choose a home and an agent
 
-| Type | Means | Goes to |
-| --- | --- | --- |
-| `%Code/portfolio-site` | project | that project (must already exist; it is never created for you) |
-| `^cfa2/fixed-income` | lesson | home `lesson/cfa2`, concept `fixed-income` |
-| `&tailscale` | setup or tool | home `setup/tailscale` |
-| `#comptime` | concept | tag `concept/comptime` |
-| `@handle` | person | tag `person/handle` |
-| `>claude` `>codex` `>grok` `>gemini` `>pi` `>me` `>crew` | who does a job | that agent |
-
-They work in chat apps, in Claude Code, in the CLI and on the board. When there's no sigil, Jev
-decides; when Jev isn't sure, things go to the inbox (saves) or to `crew` (jobs).
+Use an existing project name in chat, or pass a home such as `lesson/zig` or
+`setup/tailscale` in the `home` field. Choose an agent with the dispatch
+`target` field or the CLI `--to` option. Ordinary goal text uses automatic routing.
 
 ## 5. Dispatch work, send messages
 
 ```bash
-subzero dispatch "%Code/portfolio-site add a dark mode toggle >claude"
-subzero dispatch "^zig scaffold the arena allocator lesson"      # Jev picks the agent
-subzero dispatch "&tailscale tighten the ACL" --ship             # still starts as scout: it's risky
-subzero msg ^zig "use 0.15 syntax"                               # every session in that lesson
+subzero dispatch --home projects/portfolio-site --to claude "Add a dark mode toggle"
+subzero dispatch --home lesson/zig "Scaffold the arena allocator lesson"      # Jev picks the agent
+subzero dispatch --home setup/tailscale --ship "Tighten the ACL"             # still starts as scout: it's risky
+subzero msg lesson/zig "use 0.15 syntax"                               # every session in that lesson
 subzero msg me "PR #14 is ready"                                 # shows on your board and phone
 subzero agents                                                   # who's running, open jobs
 subzero inbox                                                    # messages for you
 ```
 
-From your phone, ask any connected app: "/dispatch ^zig write the allocator test >claude". It calls
+From your phone, ask any connected app: "Have Claude write the allocator test for my Zig lesson". It calls
 the `dispatch` tool and tells you which agent got it.
 
 **Scout or ship.** Jobs are `scout` (read, plan, report) unless you say `--ship`. Anything that
@@ -165,7 +157,7 @@ and nothing runs.
 
 ## 6. Lessons where you type the important part
 
-In a lesson folder (`^zig`, `^cfa2`, ...) the master prompt tells the agent to write the
+In a lesson folder (for example, `lesson/zig` or `lesson/cfa2`) the master prompt tells the agent to write the
 scaffolding but leave the lines that teach the idea as `TODO(you): ...`, then run:
 
 ```bash
@@ -185,7 +177,7 @@ subzero board
 It opens `http://127.0.0.1:7777`: agents arrive at the dock, walk to their project or lesson room,
 show **Your turn** when a lesson waits on you, and walk to the vault when their session ends, where
 new notes land on the shelf. Queued jobs sit in their room with the agent they're for and how it
-was chosen (`sigil`, `jev 0.82`, or `default`).
+was chosen (`explicit`, `jev 0.82`, or `default`).
 
 | Key | Does |
 | --- | --- |

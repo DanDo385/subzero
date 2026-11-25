@@ -1,0 +1,1 @@
+"""Shared fixtures and fakes for database-backed tests."""

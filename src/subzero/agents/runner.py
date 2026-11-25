@@ -356,7 +356,7 @@ class Runner:
                 job = self._claim()
                 if job is None:
                     if not loop:
-                        self._echo(f"Nothing queued for >{', >'.join(self.targets)}.")
+                        self._echo(f"Nothing queued for {', '.join(self.targets)}.")
                         return 0
                     self._sleep(interval)
                     continue
@@ -386,7 +386,7 @@ class Runner:
         ]
         self._echo(f"Environment OK. Roots: {', '.join(self._roots)}")
         if not queued:
-            self._echo(f"Nothing queued for >{', >'.join(self.targets)}; nothing would be claimed.")
+            self._echo(f"Nothing queued for {', '.join(self.targets)}; nothing would be claimed.")
             return 0
         for job in queued:
             self._echo(f"would claim job {str(job['id'])[:8]} [{job.get('kind') or 'goal'}]:")

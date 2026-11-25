@@ -25,6 +25,7 @@ are stored through the same canonical writers as imported conversations.
 | `Email delivery is uncertain` | The safe retry window has expired. Reconcile the sending inbox in AgentMail before taking further action. |
 | `The approved send time has passed` | Check the original schedule in AgentMail if a send was attempted. For an unsent draft, review and confirm a new time. |
 | `This sensitivity level cannot be sent to AgentMail` | The content's privacy level is blocked by `SUBZERO_NO_EXTERNAL_SENSITIVITY`. Keep it local; do not lower the level just to send it. |
+| `Home must be projects/{slug}, lesson/{category}, setup/{tool}, or other` | Use a home in that format for CLI options, API calls, or the first line of a `.subzero` file. |
 | `A project home must match an existing project` | Use `project_search` to find the existing project slug or select `other`. |
 | `This object already has a different vault path` | No second copy was queued. Keep the original home, or relocate the managed file and update its tracked path before retrying. Files are not auto-moved. |
 | Vault result is `busy`, `failed` or `conflict` | The note is not confirmed written. Inspect `sync_status` and the helper's log; preserve human edits when resolving conflicts. |
