@@ -7,8 +7,16 @@ from support.eval import bootstrap, item_keys, layer
 
 async def test_handoff_comes_before_search_results(seeded_mcp_world) -> None:
     client, seeded = seeded_mcp_world
+    await client.call_tool(
+        "memory_save",
+        {
+            "project": "harbor-notes",
+            "content": "The sync fixture uses the word spectrophotometer.",
+            "provenance": "user_statement",
+        },
+    )
     package = await bootstrap(
-        client, project="harbor-notes", query="open source", token_budget=1600
+        client, project="harbor-notes", query="spectrophotometer", token_budget=3200
     )
     keys = item_keys(package, seeded)
     handoff = layer(package, "handoff")
