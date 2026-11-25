@@ -101,7 +101,7 @@ async def db(settings: Settings):
 async def services(settings: Settings, db):
     from subzero.services import build_services, set_services
 
-    built = await build_services(settings, db)
+    built = build_services(settings, db)
     set_services(built)
     try:
         yield built

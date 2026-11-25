@@ -53,7 +53,7 @@ from subzero.logging_setup import (
     request_id_var,
 )
 from subzero.mcp import register_all
-from subzero.services import build_services, get_services, set_services
+from subzero.services import Services, build_services, get_services, set_services
 from subzero.storage import build_object_store
 from subzero.storage.local import LocalObjectStore
 
@@ -94,10 +94,10 @@ agents_status shows running coding sessions and who is waiting on the user.
 """
 
 
-def build_mcp(settings: Settings, db: Database) -> FastMCP:
-    # `db` is not open yet. The OAuth store only uses it once a request
+def build_mcp(settings: Settings, services: Services) -> FastMCP:
+    # `services.db` is not open yet. Nothing touches it until a request
     # arrives, so the server and every route exist before the database does.
-    auth = build_auth_provider(settings, client_storage=PostgresKeyValue(db))
+    auth = build_auth_provider(settings, client_storage=PostgresKeyValue(services.db))
     mcp = FastMCP(
         name="Subzero",
         instructions=SERVER_INSTRUCTIONS,
@@ -112,7 +112,7 @@ def build_mcp(settings: Settings, db: Database) -> FastMCP:
         # Tool results are data, not secrets to leak in a traceback.
         mask_error_details=settings.is_prod,
     )
-    register_all(mcp)
+    register_all(mcp, services)
     return mcp
 
 
@@ -578,7 +578,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # an unauthenticated request get a 401 rather than a 404 when the database
     # is unreachable, so a database outage cannot look like "no such endpoint".
     db = Database(settings)
-    mcp = build_mcp(settings, db)
+    services = build_services(settings, db)
+    mcp = build_mcp(settings, services)
     mcp_app = mcp.http_app(
         path=settings.mcp_path,
         stateless_http=True,  # Cloud Run scales to zero; no sticky sessions.
@@ -592,7 +593,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         await db.open()
-        services = await build_services(settings, db)
         set_services(services)
 
         if settings.storage_backend == "supabase":

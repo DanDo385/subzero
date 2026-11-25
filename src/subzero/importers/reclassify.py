@@ -259,8 +259,6 @@ async def drain_reclassification_queue(services: Services, *, limit: int = 50) -
     be, with its stored sensitivity, so the privacy check before any external
     call sees the real level.
     """
-    from subzero.artifacts.filing import classify_and_file
-
     async with services.db.transaction() as conn:
         rows = await conn.fetch(
             """
@@ -294,7 +292,7 @@ async def drain_reclassification_queue(services: Services, *, limit: int = 50) -
     for artifact_id in artifacts:
         record = await services.artifacts.get(artifact_id)
         if record is not None:
-            filed = await classify_and_file(services, record, stated_project=record.project)
+            filed = await services.filing.classify_and_file(record, stated_project=record.project)
             if filed["degraded"]:
                 continue
             done += 1

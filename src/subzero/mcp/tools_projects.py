@@ -8,13 +8,14 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
 from subzero.models import ProjectRecord
-from subzero.services import get_services
+from subzero.projects.service import ProjectService
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> None:
     # ------------------------------------------------------------ projects
 
     @mcp.tool(
@@ -31,7 +32,7 @@ def register(mcp: FastMCP) -> None:
         limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return.")] = 50,
     ) -> list[ProjectRecord]:
         """The user's projects, most recently active first."""
-        return await get_services().projects.list_all(status=status, limit=limit)
+        return await projects.list_all(status=status, limit=limit)
 
     @mcp.tool(
         name="project_search",
@@ -44,7 +45,7 @@ def register(mcp: FastMCP) -> None:
         limit: Annotated[int, Field(ge=1, le=50, description="Maximum results to return.")] = 10,
     ) -> list[ProjectRecord]:
         """Find a project by name. Call before project_create."""
-        return await get_services().projects.search(query, limit=limit)
+        return await projects.search(query, limit=limit)
 
     @mcp.tool(
         name="project_get",
@@ -57,9 +58,8 @@ def register(mcp: FastMCP) -> None:
     ) -> dict:
         """Full current state of one project: goals, live decisions, open tasks
         and recent activity. This is the fastest way to resume work on it."""
-        services = get_services()
-        project_id = await services.projects.require(project)
-        return await services.projects.snapshot(project_id)
+        project_id = await projects.require(project)
+        return await projects.snapshot(project_id)
 
     @mcp.tool(
         name="project_create",
@@ -76,22 +76,21 @@ def register(mcp: FastMCP) -> None:
     ) -> ProjectRecord:
         """Create a project. Call project_search first - a second project for
         work that already has one splits its history."""
-        services = get_services()
         principal = current_principal()
-        project_id, created = await services.projects.create(
+        project_id, created = await projects.create(
             name=name,
             description=description,
             goals=goals,
             source_provider=principal.provider if principal.provider != "unknown" else None,
         )
-        await services.audit.record(
+        await audit.record(
             tool="project_create",
             action="create" if created else "read",
             object_type="project",
             object_id=project_id,
             principal=principal,
         )
-        return await services.projects.get(str(project_id))
+        return await projects.get(str(project_id))
 
     @mcp.tool(
         name="project_update",
@@ -114,18 +113,15 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> ProjectRecord:
         """Change a project's status, goals or description."""
-        services = get_services()
-        result = await services.projects.update(
-            project, status=status, goals=goals, description=description
-        )
-        await services.audit.record(
+        result = await projects.update(project, status=status, goals=goals, description=description)
+        await audit.record(
             tool="project_update",
             action="update",
             object_type="project",
             object_id=result["id"],
             previous_version=result["previous"],
         )
-        return await services.projects.get(project)
+        return await projects.get(project)
 
     @mcp.tool(
         name="project_event_add",
@@ -144,10 +140,9 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict:
         """Append an event to a project's log. Identical events are not repeated."""
-        services = get_services()
         principal = current_principal()
-        project_id = await services.projects.require(project)
-        event_id = await services.projects.add_event(
+        project_id = await projects.require(project)
+        event_id = await projects.add_event(
             project_id,
             summary=summary,
             event_type=event_type,

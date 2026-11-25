@@ -6,7 +6,6 @@ import json
 from typing import Any
 from uuid import UUID
 
-import pytest
 from fastmcp import FastMCP
 from fastmcp.server.mixins.mcp_operations import _normalize_call_tool_result
 from mcp.types import TextContent
@@ -37,11 +36,6 @@ class _Retrieval:
         return self.package
 
 
-class _Services:
-    def __init__(self, retrieval: _Retrieval | None = None) -> None:
-        self.retrieval = retrieval
-
-
 def _package(*, truncated: bool, tokens: int, contents: list[str]) -> ContextPackage:
     return ContextPackage(
         query="what did I decide about the secret architecture",
@@ -62,13 +56,15 @@ def _package(*, truncated: bool, tokens: int, contents: list[str]) -> ContextPac
     )
 
 
-@pytest.fixture
-def mcp(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
-    holder: dict[str, Any] = {}
-    monkeypatch.setattr(tools_context, "get_services", lambda: holder["services"])
+def _mcp(retrieval: _Retrieval) -> FastMCP:
+    """The context tools wired to a stand-in retrieval; the tools under test use nothing else."""
     server = FastMCP("token-cut-test")
-    tools_context.register(server)
-    server._holder = holder  # type: ignore[attr-defined]
+    tools_context.register(
+        server,
+        db=None,  # type: ignore[arg-type]
+        embeddings=None,  # type: ignore[arg-type]
+        retrieval=retrieval,  # type: ignore[arg-type]
+    )
     return server
 
 
@@ -97,11 +93,9 @@ def _wire(result: Any) -> tuple[str, dict[str, Any]]:
     return text, structured
 
 
-async def test_context_bootstrap_text_omits_the_package(mcp: FastMCP) -> None:
+async def test_context_bootstrap_text_omits_the_package() -> None:
     secret = "Supabase is canonical structured state"
-    mcp._holder["services"] = _Services(  # type: ignore[attr-defined]
-        retrieval=_Retrieval(_package(truncated=False, tokens=40, contents=[secret]))
-    )
+    mcp = _mcp(_Retrieval(_package(truncated=False, tokens=40, contents=[secret])))
     tool = await _tool(mcp, "context_bootstrap")
     assert tool.output_schema == {"type": "object", "additionalProperties": True}
 
@@ -118,11 +112,9 @@ async def test_context_bootstrap_text_omits_the_package(mcp: FastMCP) -> None:
     assert structured["truncated"] is False
 
 
-async def test_context_bootstrap_line_marks_truncation(mcp: FastMCP) -> None:
-    mcp._holder["services"] = _Services(  # type: ignore[attr-defined]
-        retrieval=_Retrieval(
-            _package(truncated=True, tokens=900, contents=["one body", "another body"])
-        )
+async def test_context_bootstrap_line_marks_truncation() -> None:
+    mcp = _mcp(
+        _Retrieval(_package(truncated=True, tokens=900, contents=["one body", "another body"]))
     )
     tool = await _tool(mcp, "context_bootstrap")
 

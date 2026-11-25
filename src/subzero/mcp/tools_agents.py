@@ -9,13 +9,14 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.agents.service import AgentService
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
-from subzero.services import get_services
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None:
     @mcp.tool(
         name="dispatch",
         tags={"agents", "write"},
@@ -73,7 +74,7 @@ def register(mcp: FastMCP) -> None:
         agent it went to. Their board shows it being picked up.
         """
         principal = current_principal()
-        job = await get_services().agents.dispatch(
+        job = await agents.dispatch(
             goal,
             mode=mode,
             created_by=principal.provider or "chat",
@@ -148,8 +149,7 @@ def register(mcp: FastMCP) -> None:
         which target it went to.
         """
         principal = current_principal()
-        services = get_services()
-        job = await services.agents.queue_command(
+        job = await agents.queue_command(
             command,
             worktree=worktree,
             space=space,
@@ -157,7 +157,7 @@ def register(mcp: FastMCP) -> None:
             target=target,
             created_by=principal.provider or "chat",
         )
-        await services.audit.record(
+        await audit.record(
             tool="agent_run",
             action="create",
             object_type="dispatch_job",
@@ -222,15 +222,14 @@ def register(mcp: FastMCP) -> None:
         the user it is queued and which target it went to.
         """
         principal = current_principal()
-        services = get_services()
-        job = await services.agents.queue_session(
+        job = await agents.queue_session(
             worktree=worktree,
             space=space,
             first_command=first_command,
             target=target,
             created_by=principal.provider or "chat",
         )
-        await services.audit.record(
+        await audit.record(
             tool="agent_open",
             action="create",
             object_type="dispatch_job",
@@ -261,9 +260,7 @@ def register(mcp: FastMCP) -> None:
     ) -> ToolResult:
         """Send a message to a running coding session. It sees it on its next prompt."""
         principal = current_principal()
-        message = await get_services().agents.send(
-            to=to, body=body, from_label=principal.provider or "chat"
-        )
+        message = await agents.send(to=to, body=body, from_label=principal.provider or "chat")
         return text_and_structured("Sent.", message)
 
     @mcp.tool(
@@ -280,7 +277,7 @@ def register(mcp: FastMCP) -> None:
         done, or if anyone is waiting on them. Sessions with status 'waiting'
         need the user (for example, to type code they are learning).
         """
-        board = await get_services().agents.board()
+        board = await agents.board()
         live = [s for s in board["sessions"] if s["status"] != "done"]
         waiting = [s for s in live if s["status"] == "waiting"]
         open_jobs = [j for j in board["jobs"] if j["status"] in ("queued", "claimed")]

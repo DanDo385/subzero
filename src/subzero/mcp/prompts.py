@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-from subzero.services import get_services
+from subzero.db.pool import Database
 
 
 def _skills_dir() -> Path | None:
@@ -26,7 +26,7 @@ def _skills_dir() -> Path | None:
     return None
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, *, db: Database) -> None:
     # The same short workflow is used by app Skills and slash-command clients.
     def action_guide(name: str) -> str:
         directory = _skills_dir()
@@ -143,8 +143,7 @@ def register(mcp: FastMCP) -> None:
     @mcp.resource("subzero://status", mime_type="application/json")
     async def status() -> dict:
         """Current shape of the user's context: counts, not content."""
-        services = get_services()
-        row = await services.db.fetchrow(
+        row = await db.fetchrow(
             """
             SELECT
               (SELECT count(*) FROM memories WHERE status = 'active') AS memories,

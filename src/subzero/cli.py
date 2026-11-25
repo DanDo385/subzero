@@ -45,7 +45,7 @@ from subzero.wiki.service import WikiService
 
 async def _with_services(settings: Settings):
     db = await Database.connect(settings)
-    services = await build_services(settings, db)
+    services = build_services(settings, db)
     set_services(services)
     return services
 
@@ -428,7 +428,7 @@ def check() -> None:
             else:
                 click.secho("  database: connected, schema up to date", fg="green")
 
-            services = await build_services(settings, db)
+            services = build_services(settings, db)
             set_services(services)
 
             if settings.storage_backend == "supabase":

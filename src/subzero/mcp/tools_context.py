@@ -15,12 +15,16 @@ from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
 from subzero.auth import scopes
+from subzero.db.pool import Database
+from subzero.embeddings.service import EmbeddingService
 from subzero.mcp.compact import dump
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
-from subzero.services import get_services
+from subzero.retrieval.service import RetrievalService
 
 
-def register(mcp: FastMCP) -> None:
+def register(
+    mcp: FastMCP, *, db: Database, embeddings: EmbeddingService, retrieval: RetrievalService
+) -> None:
     @mcp.tool(
         name="context_bootstrap",
         tags={"context", "read"},
@@ -70,8 +74,7 @@ def register(mcp: FastMCP) -> None:
         truncated. The text result is one line of counts; the package is the
         structured result.
         """
-        services = get_services()
-        package = await services.retrieval.bootstrap(
+        package = await retrieval.bootstrap(
             query, user_message=user_message, token_budget=token_budget, project=project
         )
         payload = dump(package)
@@ -117,8 +120,7 @@ def register(mcp: FastMCP) -> None:
         over an assistant's summary and recent items over old ones. An empty
         result means nothing matched: say so rather than guess.
         """
-        services = get_services()
-        items = await services.retrieval.search(
+        items = await retrieval.search(
             query,
             limit=limit,
             project=project,
@@ -139,8 +141,7 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[str | None, Field(description="Filter by project.")] = None,
     ) -> list[dict[str, Any]]:
         """Newest session summaries. Use for catch-up, not for a specific topic."""
-        services = get_services()
-        items = await services.retrieval.recent(limit=limit, provider=provider, project=project)
+        items = await retrieval.recent(limit=limit, provider=provider, project=project)
         return [dump(item) for item in items]
 
     @mcp.tool(
@@ -162,10 +163,7 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[str | None, Field(description="Project slug or name.")] = None,
     ) -> dict[str, Any]:
         """Budgeted package about one topic. Prefer this over include_messages."""
-        services = get_services()
-        package = await services.retrieval.for_topic(
-            topic, token_budget=token_budget, project=project
-        )
+        package = await retrieval.for_topic(topic, token_budget=token_budget, project=project)
         return dump(package)
 
     @mcp.tool(
@@ -203,10 +201,7 @@ def register(mcp: FastMCP) -> None:
         """
         from subzero.retrieval.semantic import deep_search
 
-        services = get_services()
-        result = await deep_search(
-            services.db, services.embeddings, query, limit=limit, provider=provider
-        )
+        result = await deep_search(db, embeddings, query, limit=limit, provider=provider)
         payload: dict[str, Any] = {
             "query": result.query,
             "semantic": result.semantic,

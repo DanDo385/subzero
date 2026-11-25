@@ -9,9 +9,11 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
 from subzero.homes import Home
+from subzero.memory.service import MemoryService
 from subzero.models import (
     CheckpointArtifactRef,
     CheckpointDecision,
@@ -22,10 +24,18 @@ from subzero.models import (
     MemoryRecord,
     MemorySaveResult,
 )
-from subzero.services import get_services
+from subzero.projects.service import ProjectService
+from subzero.sessions.service import SessionService
 
 
-def register(mcp: FastMCP) -> None:
+def register(
+    mcp: FastMCP,
+    *,
+    audit: AuditService,
+    memories: MemoryService,
+    projects: ProjectService,
+    sessions: SessionService,
+) -> None:
     @mcp.tool(
         name="memory_save",
         tags={"memory", "write"},
@@ -95,10 +105,9 @@ def register(mcp: FastMCP) -> None:
         Prefer session_checkpoint when you have several things to record at
         once; it does this plus projects and tasks in one transaction.
         """
-        services = get_services()
         principal = current_principal()
-        project_id = await services.projects.resolve(project)
-        result = await services.memories.save(
+        project_id = await projects.resolve(project)
+        result = await memories.save(
             content=content,
             kind=kind,
             subject=subject,
@@ -108,7 +117,7 @@ def register(mcp: FastMCP) -> None:
             importance=importance,
             source_provider=principal.provider if principal.provider != "unknown" else None,
         )
-        await services.audit.record(
+        await audit.record(
             tool="memory_save",
             action="create" if result.outcome == "created" else "update",
             object_type="memory",
@@ -136,11 +145,10 @@ def register(mcp: FastMCP) -> None:
         Narrower than context_search: use it when you specifically want stable
         facts and preferences rather than summaries, notes or decisions.
         """
-        services = get_services()
-        return await services.memories.search(
+        return await memories.search(
             query,
             limit=limit,
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             kind=kind,
         )
 
@@ -159,14 +167,13 @@ def register(mcp: FastMCP) -> None:
 
         Use to answer "when did I say that" or "what did this used to say".
         """
-        services = get_services()
-        record = await services.memories.get(memory_id)
+        record = await memories.get(memory_id)
         if record is None:
             return {"error": "No memory with that id."}
         return {
             "memory": record.model_dump(mode="json"),
-            "revisions": await services.memories.history(memory_id),
-            "audit": await services.audit.history(object_type="memory", object_id=memory_id),
+            "revisions": await memories.history(memory_id),
+            "audit": await audit.history(object_type="memory", object_id=memory_id),
         }
 
     @mcp.tool(
@@ -290,8 +297,7 @@ def register(mcp: FastMCP) -> None:
         reports exactly what was created, updated and skipped, and how the
         content was classified and routed.
         """
-        services = get_services()
-        return await services.sessions.checkpoint(
+        return await sessions.checkpoint(
             provider=provider,
             principal=current_principal(),
             provider_conversation_id=provider_conversation_id,
@@ -324,9 +330,8 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[str | None, Field(description="Filter by project.")] = None,
     ) -> list[dict]:
         """Recent session summaries with their open questions."""
-        services = get_services()
-        return await services.sessions.recent_summaries(
+        return await sessions.recent_summaries(
             limit=limit,
             provider=provider,
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
         )

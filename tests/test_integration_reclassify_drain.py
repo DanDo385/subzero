@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any
 
 from conftest import requires_db
-from subzero.artifacts.filing import classify_and_file
 from subzero.importers.reclassify import drain_reclassification_queue
 
 pytestmark = requires_db
@@ -44,7 +43,7 @@ async def test_classifying_an_artifact_passes_its_stored_sensitivity(services):
     seen = _record_artifact_states(services)
     record = await _sensitive_artifact(services)
 
-    await classify_and_file(services, record, stated_project=None)
+    await services.filing.classify_and_file(record, stated_project=None)
 
     assert [s["sensitivity"] for s in seen] == ["highly_sensitive"]
 

@@ -16,18 +16,36 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
+from subzero.classifier.service import ClassificationService
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.errors import ValidationError
 from subzero.memorylab.triage import BUCKET_NOTE_CLASS
-from subzero.services import get_services
+from subzero.notes.service import NoteService
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
+from subzero.projects.service import ProjectService
 from subzero.util import slugify
 
 #: The sensitivity levels the notes table accepts (sz_sensitivity).
 SENSITIVITIES = ("normal", "private", "highly_sensitive")
 
 
-def register(mcp: FastMCP) -> None:
+def register(
+    mcp: FastMCP,
+    *,
+    audit: AuditService,
+    classification: ClassificationService,
+    db: Database,
+    notes: NoteService,
+    projects: ProjectService,
+    settings: Settings,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+) -> None:
     @mcp.tool(
         name="inbox_add",
         tags={"inbox", "write"},
@@ -95,20 +113,17 @@ def register(mcp: FastMCP) -> None:
             raise ValidationError("sensitivity must be normal, private or highly_sensitive.")
         if provenance not in ("user_statement", "assistant_generated"):
             raise ValidationError("provenance must be user_statement or assistant_generated.")
-        services = get_services()
         principal = current_principal()
-        project_id = await services.projects.require(project) if project else None
+        project_id = await projects.require(project) if project else None
 
-        blocked = sensitivity in services.settings.no_external_sensitivity
+        blocked = sensitivity in settings.no_external_sensitivity
         # A blocked note gets no vault home at all: nothing may ever place it
         # in the vault, and a stored path would invite exactly that.
-        vault_path = None if blocked else services.vault_paths.note(note_class="inbox", title=title)
+        vault_path = None if blocked else vault_paths.note(note_class="inbox", title=title)
 
         slug = slugify(title, fallback="note")
-        prior_version = await services.db.fetchval(
-            "SELECT version FROM notes WHERE slug = $1", slug
-        )
-        note_id, created, version = await services.notes.upsert(
+        prior_version = await db.fetchval("SELECT version FROM notes WHERE slug = $1", slug)
+        note_id, created, version = await notes.upsert(
             title=title,
             content=content,
             note_class="inbox",
@@ -122,15 +137,15 @@ def register(mcp: FastMCP) -> None:
         extra: dict[str, object] = {"parked_by": principal.provider}
         if why_uncertain is not None:
             extra["why_uncertain"] = why_uncertain
-        await services.db.execute(
+        await db.execute(
             "UPDATE notes SET metadata = metadata || $2::jsonb WHERE id = $1",
             note_id,
             extra,  # the pool's jsonb codec encodes dicts; never json.dumps here
         )
 
         queued = False
-        if services.settings.obsidian_enabled and vault_path is not None and not unchanged:
-            job_id = await services.sync_queue.enqueue(
+        if settings.obsidian_enabled and vault_path is not None and not unchanged:
+            job_id = await sync_queue.enqueue(
                 job_type="write_note",
                 object_type="note",
                 object_id=note_id,
@@ -139,7 +154,7 @@ def register(mcp: FastMCP) -> None:
             )
             queued = job_id is not None
 
-        review_id = await services.classification.queue_review(
+        review_id = await classification.queue_review(
             object_type="note",
             object_id=note_id,
             reason="unplaceable",
@@ -148,7 +163,7 @@ def register(mcp: FastMCP) -> None:
             suggested={"destination": "project"} if project_id else None,
             confidence=None,
         )
-        await services.audit.record(
+        await audit.record(
             tool="inbox_add",
             action="create" if created else "update",
             object_type="note",
@@ -169,7 +184,7 @@ def register(mcp: FastMCP) -> None:
                 f"'{sensitivity}' is listed in SUBZERO_NO_EXTERNAL_SENSITIVITY, so "
                 "the note has no vault path and nothing was queued."
             )
-        elif not services.settings.obsidian_enabled:
+        elif not settings.obsidian_enabled:
             detail = (
                 "Stored in Subzero. Obsidian sync is disabled on this server, so "
                 "nothing was queued for the vault."

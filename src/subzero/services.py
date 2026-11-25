@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from subzero.agents.service import AgentService
+from subzero.artifacts.filing import ArtifactFiling
 from subzero.artifacts.service import ArtifactService
 from subzero.audit.service import AuditService
 from subzero.auth.kv import PostgresKeyValue
@@ -46,6 +47,7 @@ class Services:
     memories: MemoryService
     notes: NoteService
     artifacts: ArtifactService
+    filing: ArtifactFiling
     classification: ClassificationService
     retrieval: RetrievalService
     review: ReviewService
@@ -64,7 +66,7 @@ class Services:
         await self.db.close()
 
 
-async def build_services(settings: Settings, db: Database) -> Services:
+def build_services(settings: Settings, db: Database) -> Services:
     store = build_object_store(settings)
     classifier = build_classifier(settings)
     embeddings = EmbeddingService(build_embedding_provider(settings), settings)
@@ -88,6 +90,14 @@ async def build_services(settings: Settings, db: Database) -> Services:
         audit=audit,
     )
     bridge = BridgeService(db)
+    filing = ArtifactFiling(
+        artifacts=artifacts,
+        classification=classification,
+        projects=projects,
+        settings=settings,
+        sync_queue=sync_queue,
+        vault_paths=vault_paths,
+    )
 
     return Services(
         settings=settings,
@@ -100,6 +110,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
         memories=memories,
         notes=notes,
         artifacts=artifacts,
+        filing=filing,
         classification=classification,
         retrieval=retrieval,
         review=review,
