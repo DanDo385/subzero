@@ -288,6 +288,13 @@ class NoteService:
         assert row is not None
         return _record(row, include_content=include_content)
 
+    async def merge_metadata(self, note_id: UUID, patch: dict[str, Any]) -> None:
+        await self._db.execute(
+            "UPDATE notes SET metadata = metadata || $2::jsonb WHERE id = $1",
+            note_id,
+            patch,
+        )
+
     async def search(
         self,
         query: str,

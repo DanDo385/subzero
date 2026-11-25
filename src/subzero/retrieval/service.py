@@ -25,11 +25,9 @@ statements and some arithmetic.
 
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 import asyncpg
@@ -45,413 +43,58 @@ from subzero.models import (
     LayerReport,
     ProjectCandidate,
     ProjectChoice,
-    Provenance_,
 )
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference, semantic
+from subzero.retrieval.items import (
+    COMPACT_BELOW as _COMPACT_BELOW,
+)
+from subzero.retrieval.items import (
+    KIND_WEIGHT,
+    PROVENANCE_WEIGHT,
+)
+from subzero.retrieval.items import (
+    MAX_CONFLICT_REPORTS as _MAX_CONFLICT_REPORTS,
+)
+from subzero.retrieval.items import (
+    MAX_ITEM_TOKENS as _MAX_ITEM_TOKENS,
+)
+from subzero.retrieval.items import (
+    NOTHING_MATCHED as _NOTHING_MATCHED,
+)
+from subzero.retrieval.items import (
+    PACKAGE_OVERHEAD as _PACKAGE_OVERHEAD,
+)
+from subzero.retrieval.items import (
+    cost as _cost,
+)
+from subzero.retrieval.items import (
+    item as _item,
+)
+from subzero.retrieval.items import (
+    now as _now,
+)
+from subzero.retrieval.items import (
+    recency as _recency,
+)
+from subzero.retrieval.items import (
+    wire_tokens as _wire_tokens,
+)
 from subzero.retrieval.query import ParsedQuery, parse
+from subzero.retrieval.sql import (
+    CONFLICT_SQL as _CONFLICT_SQL,
+)
+from subzero.retrieval.sql import (
+    HANDOFF_SQL as _HANDOFF_SQL,
+)
+from subzero.retrieval.sql import (
+    HOME_HANDOFF_SQL as _HOME_HANDOFF_SQL,
+)
+from subzero.retrieval.sql import (
+    SEARCH_SQL as _SEARCH_SQL,
+)
 from subzero.sessions.service import question_key
-from subzero.util import estimate_tokens, truncate_for_budget
-
-#: Per-item ceiling so one enormous note cannot eat the whole package.
-_MAX_ITEM_TOKENS = 450
-#: Starting estimate for the package's own fields (project, layers, notes).
-#: The finished package is measured and trimmed to the budget anyway.
-_PACKAGE_OVERHEAD = 110
-#: Below this budget, items leave out fields the package already implies.
-_COMPACT_BELOW = 400
-#: Conflict reports per package; the rest are dropped, newest-statement first kept.
-_MAX_CONFLICT_REPORTS = 3
-
-#: Who said it. The user's own words outrank a model's conclusions; text
-#: lifted from imported chats (titles, transcript openings) ranks lowest.
-PROVENANCE_WEIGHT = {
-    "user_statement": 1.0,
-    "system": 0.9,
-    "tool_result": 0.8,
-    "external_source": 0.8,
-    "assistant_generated": 0.7,
-    "imported_metadata": 0.45,
-}
-KIND_WEIGHT = {
-    "decision": 1.0,
-    "memory": 0.95,
-    "task": 0.9,
-    "note": 0.85,
-    "artifact": 0.8,
-    "summary": 0.8,
-    "message": 0.5,
-}
-#: Recency half-weight age: an item this many days old keeps 75% of its score.
-_RECENCY_DAYS = 90.0
-
-_NOTHING_MATCHED = (
-    "Nothing in Subzero matched. Answer from the current conversation; "
-    "do not assume prior context exists."
-)
-
-
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _recency(when: datetime | None) -> float:
-    if when is None:
-        return 0.75
-    age = max(0.0, (_now() - when).total_seconds() / 86400)
-    return 0.5 + 0.5 * math.exp(-age / _RECENCY_DAYS)
-
-
-def _item(
-    *,
-    kind: str,
-    row: asyncpg.Record | dict[str, Any],
-    content: str,
-    title: str | None = None,
-    score: float | None = None,
-    provenance_kind: str = "assistant_generated",
-    max_tokens: int = _MAX_ITEM_TOKENS,
-    layer: str | None = None,
-) -> ContextItem:
-    trimmed = truncate_for_budget(content.strip(), max_tokens)
-    questions = [str(q) for q in (_get(row, "open_questions") or []) if str(q).strip()]
-    status = _get(row, "status")
-    effective = _get(row, "effective_at")
-    recorded = effective or _get(row, "updated_at") or _get(row, "created_at")
-    item = ContextItem(
-        type=kind,  # type: ignore[arg-type]
-        id=row["id"],
-        title=title,
-        content=trimmed,
-        score=round(score, 4) if score is not None else None,
-        project=_get(row, "project_slug"),
-        provenance=Provenance_(
-            kind=_get(row, "provenance") or provenance_kind,  # type: ignore[arg-type]
-            provider=_get(row, "source_provider") or _get(row, "provider"),
-            conversation_id=_get(row, "source_conversation_id") or _get(row, "conversation_id"),
-            recorded_at=recorded.replace(microsecond=0) if recorded else None,
-            confidence=_get(row, "confidence"),
-        ),
-        effective_at=effective,
-        layer=layer,
-        status="superseded" if kind == "decision" and status == "superseded" else None,
-        superseded_by=_get(row, "superseded_by"),
-        open_questions=questions,
-        reason=_get(row, "reason"),
-    )
-    item.estimated_tokens = _cost(item)
-    return item
-
-
-def _get(row: asyncpg.Record | dict[str, Any], key: str) -> Any:
-    try:
-        return row[key]
-    except (KeyError, IndexError):
-        return None
-
-
-def _wire_tokens(model: ContextItem | ContextPackage) -> int:
-    """Tokens the object costs as sent: the tool's JSON at 3.6 characters a token."""
-    # Imported here: the mcp package imports the tools, which import services.
-    from subzero.mcp.compact import dump
-
-    return estimate_tokens(json.dumps(dump(model)))
-
-
-def _cost(item: ContextItem) -> int:
-    return _wire_tokens(item)
-
-
-# --------------------------------------------------------------- the SQL
-
-#: Columns every search branch returns, in this order.
-_RANK_COLS = """
-    coalesce(ts_rank_cd({tsv}, q.r), 0)::float8 AS rank,
-    (SELECT count(*) FROM unnest(q.terms) t
-      WHERE {tsv} @@ t)::int AS coverage,
-    coalesce({tsv} @@ q.ph, false) AS phrase_hit,
-    ({id} = ANY($5::uuid[])) AS exact
-"""
-
-#: The project filter: tagged to the project, or untagged but naming it.
-_IN_PROJECT = """
-    ($6::uuid IS NULL
-     OR {pid} = $6
-     OR ($10::bool AND {pid} IS NULL)
-     OR ({pid} IS NULL AND q.pn IS NOT NULL AND {tsv} @@ q.pn))
-"""
-
-
-def _branch(select: str, tsv: str, id_col: str, pid: str) -> str:
-    rank = _RANK_COLS.format(tsv=tsv, id=id_col)
-    scope = _IN_PROJECT.format(pid=pid, tsv=tsv)
-    return select.format(rank=rank, scope=scope, tsv=tsv, id=id_col)
-
-
-# Built once from constant fragments; caller input only ever arrives as $n.
-_SEARCH_SQL = "".join(
-    (
-        """
-WITH q AS (
-    SELECT to_tsquery('english', NULLIF($1, '')) AS m,
-           to_tsquery('english', NULLIF($2, '')) AS r,
-           to_tsquery('english', NULLIF($4, '')) AS ph,
-           to_tsquery('english', NULLIF($11, '')) AS pn,
-           -- Parsed once per statement instead of once per term per candidate
-           -- row: coverage below counts how many of the query's own words a
-           -- row matches, and re-parsing them for every row of all seven
-           -- branches was the bulk of this statement's cost.
-           (SELECT array_agg(to_tsquery('english', t))
-              FROM unnest($3::text[]) t) AS terms
-)
-SELECT u.*, p.slug AS project_slug
-FROM (
-""",
-        _branch(
-            """
-    (SELECT 'memory'::text AS kind, x.id, NULL::text AS title, x.content AS body,
-            x.provenance::text AS provenance, x.project_id, x.updated_at AS effective_at,
-            NULL::text AS status, NULL::uuid AS superseded_by,
-            x.source_provider AS provider, x.source_conversation_id AS conversation_id,
-            x.confidence::float8 AS confidence, NULL::jsonb AS open_questions,
-            {rank}
-     FROM memories x, q
-     WHERE x.status = 'active' AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT $8)
-""",
-            "x.search_tsv",
-            "x.id",
-            "x.project_id",
-        ),
-        "UNION ALL",
-        _branch(
-            """
-    (SELECT 'decision', x.id, NULL, x.statement || coalesce(E'\\n\\nWhy: ' || x.rationale, ''),
-            x.provenance::text, x.project_id, x.decided_at, x.status,
-            (SELECT o.id FROM decisions o WHERE o.supersedes_id = x.id
-              ORDER BY o.decided_at DESC LIMIT 1),
-            x.source_provider, x.source_conversation_id, NULL::float8, NULL::jsonb,
-            {rank}
-     FROM decisions x, q
-     WHERE x.status IN ('active', 'superseded')
-       AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT $8)
-""",
-            "x.search_tsv",
-            "x.id",
-            "x.project_id",
-        ),
-        "UNION ALL",
-        _branch(
-            """
-    (SELECT 'summary', x.id, x.title, x.summary, x.provenance::text,
-            coalesce(x.project_id, c.project_id), x.updated_at, NULL, NULL,
-            x.provider, x.conversation_id, NULL, x.open_questions,
-            {rank}
-     FROM session_summaries x JOIN conversations c ON c.id = x.conversation_id, q
-     WHERE (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND ($7::text IS NULL OR x.provider = $7)
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT $8)
-""",
-            "x.search_tsv",
-            "x.id",
-            "coalesce(x.project_id, c.project_id)",
-        ),
-        "UNION ALL",
-        _branch(
-            """
-    (SELECT 'note', x.id, x.title, x.content, x.provenance::text, x.project_id, x.updated_at,
-            NULL, NULL, x.source_provider, x.source_conversation_id, NULL, NULL,
-            {rank}
-     FROM notes x, q
-     WHERE x.note_class NOT IN ('session_index', 'archive')
-       AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT $8)
-""",
-            "x.search_tsv",
-            "x.id",
-            "x.project_id",
-        ),
-        "UNION ALL",
-        _branch(
-            """
-    (SELECT 'task', x.id, NULL, x.text || coalesce(E'\\n' || x.notes, ''),
-            x.provenance::text, x.project_id, x.updated_at, NULL, NULL,
-            x.source_provider, x.source_conversation_id, NULL, NULL,
-            {rank}
-     FROM tasks x, q
-     WHERE x.status IN ('open', 'blocked')
-       AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT $8)
-""",
-            "x.search_tsv",
-            "x.id",
-            "x.project_id",
-        ),
-        "UNION ALL",
-        _branch(
-            """
-    (SELECT 'artifact', x.id, x.title, coalesce(x.description, x.title), 'system',
-            x.project_id, x.updated_at, NULL, NULL, NULL, NULL, NULL, NULL,
-            {rank}
-     FROM artifacts x, q
-     WHERE (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT $8)
-""",
-            "x.search_tsv",
-            "x.id",
-            "x.project_id",
-        ),
-        "UNION ALL",
-        _branch(
-            """
-    (SELECT 'message', x.id, c.title, x.content, x.provenance::text, c.project_id,
-            x.created_at, NULL, NULL, x.provider, x.conversation_id, NULL, NULL,
-            {rank}
-     FROM messages x JOIN conversations c ON c.id = x.conversation_id, q
-     WHERE $9::bool AND (x.search_tsv @@ q.m OR x.id = ANY($5::uuid[]))
-       AND ($7::text IS NULL OR x.provider = $7)
-       AND {scope}
-     ORDER BY exact DESC, rank DESC LIMIT least($8, 8))
-""",
-            "x.search_tsv",
-            "x.id",
-            "c.project_id",
-        ),
-        """
-) u
-LEFT JOIN projects p ON p.id = u.project_id
-""",
-    )
-)
-
-#: One statement for a project's handoff: newest summaries (tagged, or untagged
-#: but naming the project), open tasks, active decisions.
-_HANDOFF_SQL = """
-WITH pn AS (SELECT to_tsquery('english', NULLIF($2, '')) AS q)
-SELECT * FROM (
-    (SELECT 'summary'::text AS kind, s.id, s.title, s.summary AS body,
-            s.provenance::text AS provenance, s.updated_at AS effective_at,
-            s.provider, s.conversation_id, s.open_questions,
-            NULL::text AS status, NULL::uuid AS superseded_by,
-            (coalesce(s.project_id, c.project_id) IS NULL) AS untagged, 0 AS priority
-     FROM session_summaries s JOIN conversations c ON c.id = s.conversation_id, pn
-     WHERE coalesce(s.project_id, c.project_id) = $1
-        OR (coalesce(s.project_id, c.project_id) IS NULL AND pn.q IS NOT NULL
-            AND s.search_tsv @@ pn.q)
-     ORDER BY s.updated_at DESC LIMIT $3)
-    UNION ALL
-    (SELECT 'task', t.id, NULL, t.text || coalesce(E'\\n' || t.notes, ''),
-            t.provenance::text, t.updated_at, t.source_provider, t.source_conversation_id,
-            NULL, NULL, NULL, false, t.priority
-     FROM tasks t
-     WHERE t.project_id = $1 AND t.status IN ('open', 'blocked')
-     ORDER BY t.priority DESC, t.due_date NULLS LAST, t.created_at LIMIT $4)
-    UNION ALL
-    (SELECT 'decision', d.id, NULL, d.statement || coalesce(E'\\n\\nWhy: ' || d.rationale, ''),
-            d.provenance::text, d.decided_at, d.source_provider, d.source_conversation_id,
-            NULL, d.status, NULL, false, 0
-     FROM decisions d
-     WHERE d.project_id = $1 AND d.status = 'active'
-     ORDER BY d.decided_at DESC LIMIT $5)
-    UNION ALL
-    -- Questions a session of this project marked resolved; hidden from every
-    -- summary's open questions below.
-    (SELECT 'resolved', s.id, NULL, r.q, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, 0
-     FROM session_summaries s JOIN conversations c ON c.id = s.conversation_id,
-          jsonb_array_elements_text(coalesce(s.metadata->'resolved_questions', '[]'::jsonb))
-            AS r(q)
-     WHERE coalesce(s.project_id, c.project_id) = $1)
-) h
-"""
-
-#: A lesson or setup home's handoff: its newest session summaries.
-_HOME_HANDOFF_SQL = """
-SELECT s.id, s.title, s.summary AS body, s.provenance::text AS provenance,
-       s.updated_at AS effective_at, s.provider, s.conversation_id, s.open_questions,
-       NULL::text AS status, NULL::uuid AS superseded_by, NULL::text AS project_slug
-FROM session_summaries s JOIN conversations c ON c.id = s.conversation_id
-WHERE c.metadata->>'home' = $1
-ORDER BY s.updated_at DESC
-LIMIT $2
-"""
-
-#: Newer rows in the same project that share several topic words with a
-#: returned decision. Project-name words do not count as shared topic, and
-#: neither do words found in at least 30% of the decisions and sessions of a
-#: project with 20 or more (the user's own name, the product's jargon): those say nothing
-#: about whether two items are about the same thing.
-_CONFLICT_SQL = """
-WITH x AS (
-    SELECT id, project_id, decided_at, search_tsv FROM decisions
-    WHERE id = ANY($1::uuid[]) AND status = 'active'
-), docs AS (
-    -- A sample is enough to tell which words are everywhere: the newest 150
-    -- decisions and 150 sessions keep this cheap on a large project.
-    (SELECT o.project_id, o.search_tsv FROM decisions o
-     WHERE o.status = 'active' AND o.project_id IN (SELECT project_id FROM x)
-     ORDER BY o.decided_at DESC LIMIT 150)
-    UNION ALL
-    (SELECT s.project_id, s.search_tsv FROM session_summaries s
-     WHERE s.project_id IN (SELECT project_id FROM x)
-     ORDER BY s.updated_at DESC LIMIT 150)
-), sizes AS (
-    SELECT project_id, count(*) AS n FROM docs GROUP BY project_id
-), common AS (
-    SELECT docs.project_id, l
-    FROM docs JOIN sizes USING (project_id), unnest(tsvector_to_array(docs.search_tsv)) l
-    WHERE sizes.n >= 20
-    GROUP BY docs.project_id, sizes.n, l
-    HAVING count(*) >= 0.3 * sizes.n
-), d AS (
-    SELECT x.id, x.project_id, x.decided_at,
-           ARRAY(SELECT l FROM unnest(tsvector_to_array(x.search_tsv)) l
-                 WHERE l ~ '^[a-z0-9]+$'
-                   AND l <> ALL(tsvector_to_array(to_tsvector('english',
-                         coalesce(p.name, '') || ' ' || replace(coalesce(p.slug, ''), '-', ' '))))
-                   AND l NOT IN (SELECT common.l FROM common
-                                 WHERE common.project_id = x.project_id))
-             AS lex
-    FROM x LEFT JOIN projects p ON p.id = x.project_id
-)
-SELECT d.id AS older_id, d.lex AS older_lex, cand.*
-FROM d CROSS JOIN LATERAL (
-    SELECT * FROM (
-        SELECT 'decision'::text AS kind, o.id, o.statement AS body,
-               o.provenance::text AS provenance, o.decided_at AS effective_at,
-               tsvector_to_array(o.search_tsv) AS lex
-        FROM decisions o
-        WHERE o.status = 'active' AND o.id <> d.id AND o.decided_at > d.decided_at
-          AND o.project_id IS NOT DISTINCT FROM d.project_id
-          AND o.search_tsv @@ to_tsquery('simple', NULLIF(array_to_string(d.lex, ' | '), ''))
-        UNION ALL
-        SELECT 'summary', s.id, coalesce(s.title || ': ', '') || s.summary, s.provenance::text,
-               s.updated_at, tsvector_to_array(s.search_tsv)
-        FROM session_summaries s JOIN conversations c ON c.id = s.conversation_id
-        WHERE s.updated_at > d.decided_at
-          AND coalesce(s.project_id, c.project_id) IS NOT DISTINCT FROM d.project_id
-          AND s.search_tsv @@ to_tsquery('simple', NULLIF(array_to_string(d.lex, ' | '), ''))
-        UNION ALL
-        SELECT 'memory', m.id, m.content, m.provenance::text, m.updated_at,
-               tsvector_to_array(m.search_tsv)
-        FROM memories m
-        WHERE m.status = 'active' AND m.updated_at > d.decided_at
-          AND m.provenance <> 'imported_metadata'
-          AND m.project_id IS NOT DISTINCT FROM d.project_id
-          AND m.search_tsv @@ to_tsquery('simple', NULLIF(array_to_string(d.lex, ' | '), ''))
-    ) c
-    ORDER BY cardinality(ARRAY(SELECT unnest(d.lex) INTERSECT SELECT unnest(c.lex))) DESC,
-             (c.provenance = 'user_statement') DESC, (c.kind = 'decision') DESC,
-             c.effective_at DESC
-    LIMIT 2
-) cand
-"""
+from subzero.util import truncate_for_budget
 
 
 def _name_query(project: inference.ProjectRow | None) -> str:

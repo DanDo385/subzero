@@ -89,6 +89,4 @@ async def test_read_only_client_cannot_save_memory(read_only_mcp_client) -> None
     assert "memory_save" not in names
 
     with pytest.raises(ToolError):
-        await read_only_mcp_client.call_tool(
-            "memory_save", {"content": "should never be written"}
-        )
+        await read_only_mcp_client.call_tool("memory_save", {"content": "should never be written"})

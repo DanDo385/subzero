@@ -678,6 +678,7 @@ class SessionService(ConversationStore):
                 count += 1
         return count
 
+
 def question_key(text: str) -> str:
     """Compare questions loosely: case, spacing and trailing punctuation ignored."""
     return " ".join(str(text).lower().split()).rstrip("?.!: ")

@@ -1,7 +1,7 @@
 """Integration tests for the browser extension ingest endpoint.
 
-These tests run against a real database (SUBZERO_TEST_DATABASE_URL).
-They verify idempotent upsert, message dedup, and device token auth.
+Core journeys also live in tests/e2e/test_capture.py. This module keeps edge
+cases (handoff, screening, batch ordering, muse) until they are folded into e2e.
 """
 
 from __future__ import annotations

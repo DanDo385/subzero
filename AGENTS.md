@@ -39,7 +39,8 @@ Two tiers, split by whether a database is needed:
 
 - Unit tests (`test_paths`, `test_archives`, `test_classifier`, `test_auth`, `test_obsidian`,
   `test_importers`, `test_http_security`) need nothing external.
-- `test_integration_*` and `tests/e2e/*` carry `pytestmark = requires_db` (from `tests/support/db.py`)
+- `test_integration_*` and `tests/e2e/*` carry `pytestmark = requires_db`; prefer
+  `tests/e2e/` for new journeys (shared fixtures in `tests/support/`) (from `tests/support/db.py`)
   and **skip** unless `SUBZERO_TEST_DATABASE_URL` is set. The `db` fixture drops and recreates the
   `public` schema on every test, and `support.db.test_dsn` aborts the whole run if the database name
   does not contain `test`. E2e journeys share `tests/support/app.py` (loopback MCP/HTTP clients) and
@@ -77,8 +78,8 @@ and health routes. Its lifespan opens the asyncpg pool and calls `build_services
 **Tools are thin.** `mcp/tools_*.py` only declare the schema (`Annotated[... , Field(description=)]`),
 enforce a scope with `auth=require_scopes(...)`, and delegate to a service in
 `memory/ sessions/ projects/ notes/ artifacts/ retrieval/ review/` or to `tasks.py`
-(project next steps, rendered into vault notes). Business logic and SQL
-belong in the service, never in the tool module. Field descriptions are prompt surface, the model
+(project next steps, rendered into vault notes). Business logic and SQL belong in the service, or a
+sibling such as `notes/inbox.py`, `review/filing.py`, or `retrieval/sql.py`, never in the tool module. Field descriptions are prompt surface, the model
 reads them, so they are written as instructions to the caller.
 
 **`models.py` is the MCP boundary.** Pydantic types with `extra="forbid"`; the `Literal` unions
