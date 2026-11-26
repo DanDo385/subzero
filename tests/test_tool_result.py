@@ -1,4 +1,4 @@
-"""context_bootstrap sends one line of text and keeps the object structured."""
+"""Text-only and structured MCP clients receive the same bootstrap package."""
 
 from __future__ import annotations
 
@@ -92,15 +92,13 @@ def _wire(result: Any) -> tuple[str, dict[str, Any]]:
     assert normalized.structured_content == structured
     text = content[0].text
     assert "\n" not in text
-    assert text != json.dumps(structured)
-    assert json.dumps(structured) not in text
     return text, structured
 
 
-async def test_context_bootstrap_text_omits_the_package(mcp: FastMCP) -> None:
-    secret = "Supabase is canonical structured state"
+async def test_context_bootstrap_text_contains_the_package(mcp: FastMCP) -> None:
+    decision = "Supabase is canonical structured state"
     mcp._holder["services"] = _Services(  # type: ignore[attr-defined]
-        retrieval=_Retrieval(_package(truncated=False, tokens=40, contents=[secret]))
+        retrieval=_Retrieval(_package(truncated=False, tokens=40, contents=[decision]))
     )
     tool = await _tool(mcp, "context_bootstrap")
     assert tool.output_schema == {"type": "object", "additionalProperties": True}
@@ -109,16 +107,14 @@ async def test_context_bootstrap_text_omits_the_package(mcp: FastMCP) -> None:
         await tool.run({"user_message": "what did I decide about the secret architecture"})
     )
 
-    assert text == "1 item, 40 of 1200 tokens"
-    assert secret not in text
-    assert "secret architecture" not in text
-    assert structured["items"][0]["content"] == secret
+    assert json.loads(text) == structured
+    assert structured["items"][0]["content"] == decision
     assert structured["estimated_tokens"] == 40
     assert structured["token_budget"] == 1200
     assert structured["truncated"] is False
 
 
-async def test_context_bootstrap_line_marks_truncation(mcp: FastMCP) -> None:
+async def test_context_bootstrap_preserves_truncation_metadata(mcp: FastMCP) -> None:
     mcp._holder["services"] = _Services(  # type: ignore[attr-defined]
         retrieval=_Retrieval(
             _package(truncated=True, tokens=900, contents=["one body", "another body"])
@@ -128,8 +124,7 @@ async def test_context_bootstrap_line_marks_truncation(mcp: FastMCP) -> None:
 
     text, structured = _wire(await tool.run({"user_message": "catch me up"}))
 
-    assert text == "2 items, 900 of 1200 tokens, truncated"
-    assert "one body" not in text
+    assert json.loads(text) == structured
     assert structured["truncated"] is True
     assert len(structured["items"]) == 2
 

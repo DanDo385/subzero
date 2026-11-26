@@ -8,15 +8,17 @@ cross the MCP boundary.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.agent_context import Document, read_agent_context
 from subzero.auth import scopes
 from subzero.mcp.compact import dump
-from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
+from subzero.mcp.result import ToolResult, object_output_schema
 from subzero.services import get_services
 
 
@@ -67,21 +69,37 @@ def register(mcp: FastMCP) -> None:
         matching query, then raw transcript excerpts only if nothing else
         matched. Says which project it used and why, which layers ran, and
         flags decisions a newer item may overrule. Raise token_budget only if
-        truncated. The text result is one line of counts; the package is the
-        structured result.
+        truncated. When configured, the package includes a short read-only
+        excerpt from the owner's dotfiles. Read either full document with
+        context_read_guidance. The package is available as text and structured data.
         """
         services = get_services()
         package = await services.retrieval.bootstrap(
             query, user_message=user_message, token_budget=token_budget, project=project
         )
         payload = dump(package)
-        items = payload.get("items") or []
-        count = len(items)
-        noun = "item" if count == 1 else "items"
-        line = f"{count} {noun}, {payload['estimated_tokens']} of {payload['token_budget']} tokens"
-        if payload.get("truncated"):
-            line = f"{line}, truncated"
-        return text_and_structured(line, payload)
+        return ToolResult(
+            content=json.dumps(payload, separators=(",", ":")), structured_content=payload
+        )
+
+    @mcp.tool(
+        name="context_read_guidance",
+        tags={"context", "read"},
+        auth=require_scopes(scopes.CONTEXT_READ),
+        annotations={"readOnlyHint": True, "openWorldHint": False},
+    )
+    async def context_read_guidance(
+        document: Annotated[
+            Document, Field(description="agents for workflow guidance, machines for fleet details.")
+        ] = "agents",
+    ) -> dict[str, Any]:
+        """Open a read-only dotfiles document when it is relevant to this task.
+
+        To edit the source during an authorized task, open the corresponding
+        file in the writable dotfiles checkout with the normal editor or Git workflow.
+        """
+        guidance = await read_agent_context(get_services().settings, document)
+        return dump(guidance) if guidance else {"status": "unavailable", "document": document}
 
     @mcp.tool(
         name="context_search",
