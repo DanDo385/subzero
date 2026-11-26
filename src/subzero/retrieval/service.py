@@ -35,10 +35,12 @@ from uuid import UUID
 import asyncpg
 
 from subzero import sigils
+from subzero.agent_context import read_agent_context
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
 from subzero.models import (
+    AgentContext,
     ConflictReport,
     ContextItem,
     ContextPackage,
@@ -748,13 +750,20 @@ class RetrievalService:
             if marks.home and not marks.home.startswith("projects/"):
                 home = marks.home
             notes.append("Sigils read: " + " ".join(marks.found))
+        budget = token_budget or self._settings.default_token_budget
+        guidance = None
+        if budget >= 600:
+            guidance = await read_agent_context(self._settings, "agents")
+            if guidance:
+                guidance.content = truncate_for_budget(guidance.content, min(120, budget // 8))
         return await self._build_package(
             query=text,
-            token_budget=token_budget or self._settings.default_token_budget,
+            token_budget=budget,
             project=project,
             include_handoff=True,
             notes=notes,
             home=home,
+            guidance=guidance,
         )
 
     async def _build_package(
@@ -766,6 +775,7 @@ class RetrievalService:
         include_handoff: bool,
         notes: list[str] | None = None,
         home: str | None = None,
+        guidance: AgentContext | None = None,
     ) -> ContextPackage:
         """Gather candidates from every layer, then fill the budget by priority.
 
@@ -888,7 +898,8 @@ class RetrievalService:
             order += h[5:]
         order += relevant[2:] + semantic + raw
 
-        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD)
+        guidance_cost = estimate_tokens(guidance.model_dump_json()) if guidance else 0
+        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD + guidance_cost)
         chosen: dict[UUID, ContextItem] = {}
         left_out = 0
 
@@ -1029,6 +1040,7 @@ class RetrievalService:
 
         package = ContextPackage(
             query=truncate_for_budget(query, 60),
+            agent_context=guidance,
             items=items,
             token_budget=token_budget,
             estimated_tokens=0,

@@ -77,6 +77,15 @@ class Settings(BaseSettings):
     #: Funnel marks each internet request, so this has no effect elsewhere.
     funnel_mcp_only: bool = True
 
+    #: Optional read-only source for shared agent guidance. Local edits are
+    #: visible on the next read. The cloud source reads a published Git ref.
+    dotfiles_root: Path | None = None
+    dotfiles_github_repo: str = Field(
+        default="", pattern=r"^(?:[A-Za-z0-9-]+/[A-Za-z0-9_][A-Za-z0-9_.-]*)?$"
+    )
+    dotfiles_github_ref: str = "main"
+    dotfiles_github_token: SecretStr = SecretStr("")
+
     # ------------------------------------------------------------- database
     database_url: SecretStr = SecretStr("")
     db_pool_min_size: int = 1

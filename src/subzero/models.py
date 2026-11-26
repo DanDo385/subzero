@@ -224,10 +224,20 @@ class ConflictReport(Base):
     advice: str
 
 
+class AgentContext(Base):
+    """An owner-configured guidance document or its bootstrap excerpt."""
+
+    path: str
+    source: Literal["local", "github"]
+    sha256: str
+    content: str
+
+
 class ContextPackage(Base):
     """Compact package returned by context_bootstrap / context_for_topic."""
 
     query: str
+    agent_context: AgentContext | None = None
     items: list[ContextItem] = Field(default_factory=list)
     token_budget: int
     estimated_tokens: int
