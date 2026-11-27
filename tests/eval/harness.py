@@ -221,6 +221,15 @@ def score(
         if got_kind != kind:
             failures.append(f"{k} provenance {got_kind}, wanted {kind}")
 
+    if expect.get("confidence") and case["tool"] == "search" and answer.items:
+        bad = [
+            seeded.key_for(i["id"])
+            for i in answer.items
+            if i.get("retrieval_confidence") != expect["confidence"]
+        ]
+        if bad:
+            failures.append(f"confidence {expect['confidence']} not on: {bad}")
+
     if case["tool"] == "bootstrap":
         budget = case["args"].get("token_budget", 1200)
         wire = int(answer.raw_size / 3.6) + 1

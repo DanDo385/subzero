@@ -183,6 +183,11 @@ class ContextItem(Base):
     open_questions: list[str] = Field(default_factory=list)
     #: Why this item is here when that is not obvious (e.g. an untagged session).
     reason: str | None = None
+    #: Retrieval confidence for the query that found this item: "low" means
+    #: nothing matched every query term (and, where meaning search ran, the
+    #: closest meaning match was weak), so try different terms. Always set on
+    #: items from a search; handoff items carry none.
+    retrieval_confidence: Literal["ok", "low"] | None = None
 
 
 class ProjectCandidate(Base):

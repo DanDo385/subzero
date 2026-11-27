@@ -44,7 +44,7 @@ from subzero.models import (
     ContextPackage,
 )
 from subzero.projects.service import ProjectService
-from subzero.retrieval import inference, semantic
+from subzero.retrieval import fusion, inference, semantic
 from subzero.retrieval.inference import name_tsquery
 from subzero.retrieval.items import (
     KIND_WEIGHT,
@@ -180,14 +180,22 @@ class RetrievalService:
         # common word ("notes") is not enough to call a row relevant.
         needed = min(3, math.ceil(wanted / 3)) if wanted >= 3 else 1
         scored: list[tuple[float, asyncpg.Record]] = []
+        best_coverage = 0
+        exact_hit = False
+        phrase_hit = False
         for row in rows:
             if row["id"] in exclude:
                 continue
             if row["exact"]:
                 text = 100.0
+                exact_hit = True
+                best_coverage = wanted
             elif row["coverage"] < needed and not row["phrase_hit"]:
                 continue
             else:
+                if row["phrase_hit"]:
+                    phrase_hit = True
+                best_coverage = max(best_coverage, int(row["coverage"]))
                 coverage = min(1.0, row["coverage"] / wanted)
                 text = (
                     0.15
@@ -208,6 +216,14 @@ class RetrievalService:
             scored.append((score, row))
         scored.sort(key=lambda pair: pair[0], reverse=True)
 
+        # Page-level signal, repeated on every item: "low" means nothing here
+        # matched every query term, so the caller should try different terms.
+        confidence = fusion.keyword_page_confidence(
+            wanted=wanted,
+            best_coverage=best_coverage,
+            exact_hit=exact_hit,
+            phrase_hit=phrase_hit,
+        )
         items: list[ContextItem] = []
         seen_text: set[str] = set()
         for score, row in scored:
@@ -223,6 +239,7 @@ class RetrievalService:
                     title=row["title"],
                     score=score,
                     max_tokens=max_item_tokens,
+                    retrieval_confidence=confidence,
                 )
             )
             if len(items) >= limit:

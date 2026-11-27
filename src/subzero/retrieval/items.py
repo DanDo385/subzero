@@ -80,6 +80,7 @@ def item(
     provenance_kind: str = "assistant_generated",
     max_tokens: int = MAX_ITEM_TOKENS,
     layer: str | None = None,
+    retrieval_confidence: str | None = None,
 ) -> ContextItem:
     trimmed = truncate_for_budget(content.strip(), max_tokens)
     questions = [str(q) for q in (get(row, "open_questions") or []) if str(q).strip()]
@@ -106,6 +107,7 @@ def item(
         superseded_by=get(row, "superseded_by"),
         open_questions=questions,
         reason=get(row, "reason"),
+        retrieval_confidence=retrieval_confidence,  # type: ignore[arg-type]
     )
     ctx.estimated_tokens = cost(ctx)
     return ctx

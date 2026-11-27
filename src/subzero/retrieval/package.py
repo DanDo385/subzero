@@ -445,6 +445,9 @@ class PackageBuilder:
                     title=hit.title,
                     score=hit.similarity,
                     max_tokens=item_cap,
+                    # The layer drops everything under MIN_SIMILARITY, so a
+                    # hit that survived is by definition not a weak one.
+                    retrieval_confidence="ok",
                 )
             )
             if len(items) == 3:

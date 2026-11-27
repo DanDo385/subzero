@@ -166,7 +166,8 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         over an assistant's summary and recent items over old ones. An empty
         result means nothing matched: retry once with fewer or different
         terms (or memory_deep_search for meaning rather than words), then
-        say so rather than guess.
+        say so rather than guess. Every item carries retrieval_confidence:
+        "low" means nothing matched every term, so try different terms.
         """
         items = await retrieval.search(
             query,
@@ -260,12 +261,16 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         know ("that idea about...", "when did I talk about..."). Returns the
         best-matching conversations, each with a few verbatim excerpts and its
         conversation_id. Costs more than context_search; do not call it for
-        every request. If "semantic" is false, only exact words were matched.
+        every request. "arms" says which half ran (keyword always, semantic
+        only when the query could be embedded); "confidence" is "low" when
+        the semantic arm found nothing, so try different terms.
         """
         result = await retrieval.deep_search(query, limit=limit, provider=provider)
         payload: dict[str, Any] = {
             "query": result.query,
             "semantic": result.semantic,
+            "arms": result.arms,
+            "confidence": result.confidence,
             "conversations": result.conversations,
         }
         if result.note:

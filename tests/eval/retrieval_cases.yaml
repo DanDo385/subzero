@@ -109,6 +109,14 @@ cases:
     args: {query: "who lives where -Lisbon"}
     expect: {include: [m_brother], exclude: [m_sister]}
 
+  - id: weak-partial-match
+    category: ranking
+    tool: search
+    args: {query: "harbor notes sync conflicts phone laptop zebrafish"}
+    expect:
+      order: [s_hn_sync, m_hn_import]
+      confidence: low
+
   - id: quoted-phrase
     category: negation
     tool: search
@@ -188,7 +196,7 @@ cases:
     category: provenance
     tool: search
     args: {query: "CRDT"}
-    expect: {first: n_crdt, provenance: {n_crdt: external_source}}
+    expect: {first: n_crdt, provenance: {n_crdt: external_source}, confidence: ok}
 
   # ------------------------------------------------------------- tasks
   - id: task-search

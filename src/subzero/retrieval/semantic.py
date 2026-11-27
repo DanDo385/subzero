@@ -25,6 +25,7 @@ from uuid import UUID
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.logging_setup import get_logger
+from subzero.retrieval.fusion import rrf
 
 logger = get_logger(__name__)
 
@@ -33,8 +34,6 @@ QUERY_EMBED_TIMEOUT_S = 2.0
 #: Cosine similarity below which a "nearest" message is noise, for
 #: text-embedding-3-small at 1536 dimensions.
 MIN_SIMILARITY = 0.30
-#: Reciprocal rank fusion constant (the usual 60).
-_RRF_K = 60
 
 _SEMANTIC_SQL = """
 SELECT m.id, m.conversation_id, m.role, m.content, m.created_at, m.provider,
@@ -99,6 +98,12 @@ class DeepSearchResult:
     query: str
     semantic: bool
     note: str | None
+    #: Which arms ran: always "keyword", plus "semantic" when the query was
+    #: embedded. A keyword-only page never passes for a fused one.
+    arms: list[str] = field(default_factory=list)
+    #: "low" when the semantic arm was missing or found nothing: try
+    #: different terms. Nothing is filtered.
+    confidence: str = "ok"
     conversations: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -162,15 +167,21 @@ async def deep_search(
         await semantic_messages(db, vector, limit=pool, provider=provider) if vector else []
     )
 
+    scores = rrf(
+        [
+            [row["id"] for row in text_rows],
+            [vhit.id for vhit in vector_hits],
+        ]
+    )
     fused: dict[UUID, MessageHit] = {}
-    for rank, row in enumerate(text_rows):
+    for row in text_rows:
         hit = fused.setdefault(row["id"], MessageHit.from_row(row))
         hit.text_rank = float(row["text_rank"])
-        hit.score += 1.0 / (_RRF_K + rank + 1)
-    for rank, vhit in enumerate(vector_hits):
+        hit.score = scores[hit.id]
+    for vhit in vector_hits:
         hit = fused.setdefault(vhit.id, vhit)
         hit.similarity = vhit.similarity
-        hit.score += 1.0 / (_RRF_K + rank + 1)
+        hit.score = scores[hit.id]
 
     by_conversation: dict[UUID, list[MessageHit]] = {}
     for hit in sorted(fused.values(), key=lambda h: h.score, reverse=True):
@@ -208,6 +219,12 @@ async def deep_search(
             if not embeddings.enabled
             else "Full-text only: the query could not be embedded just now."
         )
+    arms = ["keyword"] + (["semantic"] if vector is not None else [])
     return DeepSearchResult(
-        query=query, semantic=vector is not None, note=note, conversations=conversations
+        query=query,
+        semantic=vector is not None,
+        note=note,
+        arms=arms,
+        confidence="ok" if vector_hits else "low",
+        conversations=conversations,
     )
