@@ -1,9 +1,9 @@
-"""Memory path over MCP: save, search, checkpoint, handoff, read-only refusal."""
+"""Memory path over MCP: save, search, checkpoint, handoff.
+
+Read-only scope: tests/e2e/test_mcp.py.
+"""
 
 from __future__ import annotations
-
-import pytest
-from fastmcp.exceptions import ToolError
 
 
 async def test_memory_save_and_search_round_trip(mcp_client) -> None:
@@ -84,9 +84,3 @@ async def test_unknown_project_does_not_create_project(mcp_client, services) -> 
     assert count == 0
 
 
-async def test_read_only_client_cannot_save_memory(read_only_mcp_client) -> None:
-    names = {t.name for t in await read_only_mcp_client.list_tools()}
-    assert "memory_save" not in names
-
-    with pytest.raises(ToolError):
-        await read_only_mcp_client.call_tool("memory_save", {"content": "should never be written"})

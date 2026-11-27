@@ -1,4 +1,7 @@
-"""Agent sessions, messages and dispatch, through the service and over HTTP."""
+"""Agent sessions, messages and dispatch, through the service and over HTTP.
+
+Risky ship→scout smoke: tests/e2e/test_agents.py.
+"""
 
 from __future__ import annotations
 
@@ -191,14 +194,6 @@ async def test_symbols_in_goal_do_not_choose_a_target_or_home(services) -> None:
     job = await services.agents.dispatch(goal)
     assert job["goal"] == goal
     assert (job["target"], job["routed_by"], job["home"]) == ("crew", "default", None)
-
-
-async def test_risky_ship_starts_as_scout(services) -> None:
-    job = await services.agents.dispatch(
-        "lock down the tailscale ACL on hetzner", target="crew", mode="ship"
-    )
-    assert job["mode"] == "scout"
-    assert job["notes"]
 
 
 async def test_unknown_target_is_refused(services) -> None:

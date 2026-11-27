@@ -41,7 +41,9 @@ Two tiers, split by whether a database is needed:
   importers, http_security, and similar) and need nothing external.
 - `test_integration_*` and `tests/e2e/*` carry `pytestmark = requires_db`; prefer
   `tests/e2e/` for new journeys (shared fixtures in `tests/support/`) (from `tests/support/db.py`)
-  and **skip** unless `SUBZERO_TEST_DATABASE_URL` is set. The `db` fixture drops and recreates the
+  and **skip** unless `SUBZERO_TEST_DATABASE_URL` is set. Drop a duplicate integration test once
+  the same behavior is covered in e2e; keep integration for service-level edge cases the journey
+  does not exercise. The `db` fixture drops and recreates the
   `public` schema on every test, and `support.db.test_dsn` aborts the whole run if the database name
   does not contain `test`. E2e journeys share `tests/support/app.py` (loopback MCP/HTTP clients) and
   `tests/support/pair.py`; they exercise adapters, not in-process `services.*` alone.

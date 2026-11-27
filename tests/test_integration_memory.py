@@ -103,11 +103,6 @@ async def test_project_slug_collapses_name_variants(services) -> None:
     assert await services.projects.resolve(str(first)) == first
 
 
-async def test_unknown_project_resolves_to_none_not_a_new_row(services) -> None:
-    assert await services.projects.resolve("no-such-project") is None
-    assert await services.projects.list_all() == []
-
-
 async def test_project_events_deduplicate(services) -> None:
     project_id, _ = await services.projects.create(name="Alpha")
     first = await services.projects.add_event(project_id, summary="Kicked off")

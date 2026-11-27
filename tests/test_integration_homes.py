@@ -1,4 +1,7 @@
-"""Explicit homes for saved sessions and handoffs."""
+"""Explicit homes for saved sessions and handoffs.
+
+Unknown project on checkpoint: tests/e2e/test_memory.py.
+"""
 
 from __future__ import annotations
 
@@ -46,22 +49,6 @@ async def test_symbols_in_session_text_do_not_set_home_or_tags(services) -> None
         summary="Mostly about #comptime with @someone.",
     )
     assert await _home_and_tags(services, "zig-1") == {"home": "other", "tags": ["other"]}
-
-
-async def test_unknown_project_never_creates_a_project(services) -> None:
-    result = await services.sessions.checkpoint(
-        provider="claude",
-        principal=ME,
-        provider_conversation_id="p-1",
-        title="Planning",
-        project="does-not-exist",
-        summary="Sketched the idea.",
-    )
-    assert (
-        await services.db.fetchval("SELECT count(*) FROM projects WHERE slug = 'does-not-exist'")
-        == 0
-    )
-    assert any("No project matches" in n for n in result.notes)
 
 
 async def test_known_project_home_routes_the_session(services) -> None:

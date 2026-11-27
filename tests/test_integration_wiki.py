@@ -1,4 +1,7 @@
-"""The wiki graph: links, Maps of Content, rendering and vault round trips."""
+"""The wiki graph: links, Maps of Content, rendering and vault round trips.
+
+Title-mention links without Jev: tests/e2e/test_wiki.py.
+"""
 
 from __future__ import annotations
 
@@ -65,24 +68,6 @@ async def _note(services, title: str, content: str) -> Any:
 
 def _use(services, fake: ScriptedJev) -> None:
     services.classification = ClassificationService(services.db, fake, services.settings)
-
-
-async def test_a_title_mention_links_without_asking_jev(services) -> None:
-    fake = ScriptedJev({})
-    _use(services, fake)
-    source = await _note(services, "MCP OAuth", "Clients use PKCE during the flow.")
-    target = await _note(services, "PKCE", "Proof Key for Code Exchange.")
-
-    report = await WikiService(services).build_links()
-
-    edge = await services.db.fetchrow(
-        "SELECT status, source FROM note_edges WHERE source_note_id = $1 AND target_note_id = $2",
-        source,
-        target,
-    )
-    assert edge["status"] == "accepted" and edge["source"] == "title_mention"
-    assert ("MCP OAuth", "PKCE") not in fake.link_calls
-    assert report.title_links == 1
 
 
 async def test_jev_confidence_bands_decide_links(services) -> None:

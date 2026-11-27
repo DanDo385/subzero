@@ -1,12 +1,11 @@
 """Integration tests for the browser extension ingest endpoint.
 
-Core journeys also live in tests/e2e/test_capture.py. This module keeps edge
-cases (handoff, screening, batch ordering, muse) until they are folded into e2e.
+Pairing/401 smoke: tests/e2e/test_capture.py. This module keeps handoff,
+screening, batch ordering, muse, and multi-provider ingest.
 """
 
 from __future__ import annotations
 
-import asyncio
 from uuid import UUID
 
 import httpx
@@ -41,30 +40,11 @@ async def test_legacy_unauthenticated_registration_is_disabled(http_client):
     assert response.status_code == 404
 
 
-async def test_pairing_code_is_single_use_under_concurrent_requests(http_client, pairing_code):
-    async def pair():
-        return await http_client.post(
-            "/api/v1/auth/pair-device", json={"pairing_code": pairing_code}
-        )
-
-    first, second = await asyncio.gather(pair(), pair())
-    assert sorted([first.status_code, second.status_code]) == [200, 403]
-
-
 async def test_pairing_rejects_unknown_code(http_client):
     response = await http_client.post(
         "/api/v1/auth/pair-device", json={"pairing_code": "UNKNOWN42"}
     )
     assert response.status_code == 403
-
-
-async def test_unauthorized_ingest(http_client):
-    """Ingest without a token returns 401."""
-    resp = await http_client.post(
-        "/api/v1/ingest/conversation",
-        json={"provider": "claude", "provider_conversation_id": "x"},
-    )
-    assert resp.status_code == 401
 
 
 async def test_unauthorized_handoff(http_client):

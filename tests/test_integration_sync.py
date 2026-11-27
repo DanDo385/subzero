@@ -1,4 +1,7 @@
-"""Integration: sync job queue, worker API, classification persistence, audit."""
+"""Integration: sync job queue, worker API, classification persistence, audit.
+
+Traversal enqueue smoke: tests/e2e/test_vault.py.
+"""
 
 from __future__ import annotations
 
@@ -11,26 +14,6 @@ pytestmark = requires_db
 
 
 # --------------------------------------------------------------- sync queue
-
-
-async def test_enqueue_validates_the_path(services) -> None:
-    from subzero.errors import PathSecurityError
-
-    note_id, _, _ = await services.notes.upsert(title="A note", content="body")
-    try:
-        await services.sync_queue.enqueue(
-            job_type="write_note",
-            object_type="note",
-            object_id=note_id,
-            vault_path="../../escape.md",
-            payload={},
-        )
-    except PathSecurityError:
-        pass
-    else:
-        raise AssertionError("a traversal path was accepted into the queue")
-
-    assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 0
 
 
 async def test_a_newer_job_supersedes_an_open_one_for_the_same_path(services) -> None:
