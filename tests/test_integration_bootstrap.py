@@ -10,49 +10,24 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 
 from conftest import requires_db
-from eval.fixture import Seeded, seed
+from eval.fixture import seed
+from support.eval import bootstrap
+from support.eval import item_keys as _keys
+from support.eval import layer as _layer
 
 pytestmark = requires_db
 
 
 @pytest.fixture
-def unthrottled(settings):
-    settings.rate_limit_per_minute = 1_000_000
-    settings.rate_limit_burst = 1_000_000
-    return settings
-
-
-@pytest.fixture
-async def world(unthrottled, db, live_server):
-    seeded = await seed(db)
-    async with Client(
-        StreamableHttpTransport(
-            url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
-        )
-    ) as client:
-        yield client, seeded
-
-
-async def _bootstrap(client: Any, **args: Any) -> dict[str, Any]:
-    result = await client.call_tool("context_bootstrap", args)
-    return result.structured_content or {}
-
-
-def _keys(package: dict[str, Any], seeded: Seeded) -> list[str | None]:
-    return [seeded.key_for(i["id"]) for i in package.get("items", [])]
-
-
-def _layer(package: dict[str, Any], name: str) -> dict[str, Any]:
-    return next(layer for layer in package["layers"] if layer["name"] == name)
+async def world(seeded_mcp_world):
+    yield seeded_mcp_world
 
 
 async def test_problem_1_handoff_comes_first_with_open_questions(world) -> None:
     client, seeded = world
-    package = await _bootstrap(
+    package = await bootstrap(
         client, project="harbor-notes", query="open source", token_budget=1600
     )
     keys = _keys(package, seeded)
@@ -80,7 +55,7 @@ async def test_problem_1_handoff_comes_first_with_open_questions(world) -> None:
 
 async def test_problem_2_newer_statement_is_flagged_not_hidden(world) -> None:
     client, seeded = world
-    package = await _bootstrap(client, project="harbor-notes", query="open source v2")
+    package = await bootstrap(client, project="harbor-notes", query="open source v2")
     by_key = {seeded.key_for(i["id"]): i for i in package["items"]}
 
     older = by_key["d_hn_alone"]
@@ -104,7 +79,7 @@ async def test_problem_3_small_budgets_still_get_the_handoff(world) -> None:
     # The budget covers the whole result as sent, ids and all. 200 fits one
     # handoff item; from 400 the newest session leads.
     for budget in (200, 400, 600):
-        package = await _bootstrap(client, project="harbor-notes", token_budget=budget)
+        package = await bootstrap(client, project="harbor-notes", token_budget=budget)
         keys = _keys(package, seeded)
         assert keys, budget
         assert package["layers_used"] == ["handoff"], budget
@@ -115,7 +90,7 @@ async def test_problem_3_small_budgets_still_get_the_handoff(world) -> None:
 
 async def test_problem_4_untagged_sessions_reach_the_handoff(world) -> None:
     client, seeded = world
-    package = await _bootstrap(client, project="harbor-notes")
+    package = await bootstrap(client, project="harbor-notes")
     item = next(i for i in package["items"] if seeded.key_for(i["id"]) == "s_hn_untagged")
     assert "untagged" in item["reason"]
 
@@ -131,7 +106,7 @@ async def test_problem_4_untagged_sessions_reach_the_handoff(world) -> None:
             "project": "harbr notes",  # a misspelling still finds the project
         },
     )
-    package = await _bootstrap(client, project="harbor-notes")
+    package = await bootstrap(client, project="harbor-notes")
     first = package["items"][0]
     assert first["title"] == "Tombstone design"
     assert package["project"]["slug"] == "harbor-notes"
@@ -160,7 +135,7 @@ async def test_checkpoint_with_unknown_project_says_so(world) -> None:
 )
 async def test_problem_5_project_is_inferred_and_explained(world, text: str, slug: str) -> None:
     client, _ = world
-    package = await _bootstrap(client, query=text)
+    package = await bootstrap(client, query=text)
     assert package["project"]["slug"] == slug
     assert package["project"]["source"] == "inferred"
     assert package["project"]["reason"]
@@ -168,7 +143,7 @@ async def test_problem_5_project_is_inferred_and_explained(world, text: str, slu
 
 async def test_ambiguous_project_gets_both_short_handoffs(world) -> None:
     client, seeded = world
-    package = await _bootstrap(client, query="atlas status")
+    package = await bootstrap(client, query="atlas status")
     assert package["project"]["source"] == "none"
     assert {c["slug"] for c in package["project"]["candidates"]} == {"atlas-ledger", "atlas-mobile"}
     assert {"s_al_tax", "s_am_push"} <= set(_keys(package, seeded))
@@ -176,7 +151,7 @@ async def test_ambiguous_project_gets_both_short_handoffs(world) -> None:
 
 async def test_old_callers_passing_user_message_still_work(world) -> None:
     client, seeded = world
-    package = await _bootstrap(
+    package = await bootstrap(
         client,
         user_message=(
             "Hi! Quick one about the Harbor Notes app: where are we deploying the server "
@@ -191,7 +166,7 @@ async def test_old_callers_passing_user_message_still_work(world) -> None:
 
 async def test_unrelated_question_returns_nothing_and_says_so(world) -> None:
     client, _ = world
-    package = await _bootstrap(client, query="a good name for a cat")
+    package = await bootstrap(client, query="a good name for a cat")
     assert package.get("items", []) == []
     assert any("do not assume prior context" in n for n in package["notes"])
 
@@ -231,7 +206,7 @@ async def test_open_questions_accumulate_and_resolved_ones_leave_the_handoff(wor
     )
     # A later checkpoint of the same session with no questions keeps the first one.
     await client.call_tool("session_checkpoint", {**base, "summary": "Second pass."})
-    package = await _bootstrap(client, project="harbor-notes")
+    package = await bootstrap(client, project="harbor-notes")
     assert package["items"][0]["open_questions"] == ["Which license?"]
 
     # Resolving: one of this session's own questions, and one from an older session.
@@ -246,7 +221,7 @@ async def test_open_questions_accumulate_and_resolved_ones_leave_the_handoff(wor
             ],
         },
     )
-    package = await _bootstrap(client, project="harbor-notes", token_budget=2000)
+    package = await bootstrap(client, project="harbor-notes", token_budget=2000)
     by_key = {seeded.key_for(i["id"]): i for i in package["items"]}
     assert "open_questions" not in by_key["s_hn_sync"]  # answered in a later session
     assert "open_questions" not in package["items"][0]

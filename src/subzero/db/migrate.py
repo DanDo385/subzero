@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 
@@ -111,6 +112,21 @@ async def apply_migrations(conn: asyncpg.Connection, directory: Path | None = No
             newly_applied.append(migration.version)
 
     return newly_applied
+
+
+async def pending_migrations(db: Any, directory: Path | None = None) -> list[str]:
+    """Versions in ``migrations/`` that the database has not applied. Read only.
+
+    Unlike :func:`migration_status` this never creates ``schema_migrations``,
+    so a running server can ask it on every readiness probe. A database with
+    no ``schema_migrations`` table has applied nothing. ``db`` is anything with
+    ``fetchval``/``fetch``: a connection, a pool or the server's ``Database``.
+    """
+    known = [m.version for m in load_migrations(directory)]
+    if not await db.fetchval("SELECT to_regclass('schema_migrations') IS NOT NULL"):
+        return known
+    applied = {row["version"] for row in await db.fetch("SELECT version FROM schema_migrations")}
+    return [version for version in known if version not in applied]
 
 
 async def migration_status(conn: asyncpg.Connection, directory: Path | None = None) -> dict:

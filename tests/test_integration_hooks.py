@@ -95,7 +95,7 @@ async def test_hooks_install_refuses_broken_json(home) -> None:
 async def test_a_lesson_session_from_start_to_end(connected, services) -> None:
     lesson = connected / "zig-lessons"
     lesson.mkdir()
-    (lesson / ".subzero").write_text("^zig #comptime\n")
+    (lesson / ".subzero").write_text("lesson/zig\n")
     payload = {"session_id": "cc-42", "cwd": str(lesson), "hook_event_name": "SessionStart"}
 
     started = await _run("hook", "session-start", stdin=json.dumps(payload))
@@ -109,10 +109,14 @@ async def test_a_lesson_session_from_start_to_end(connected, services) -> None:
     assert row["home"] == "lesson/zig"
 
     # Another session messages everyone in the lesson; it arrives on the next prompt.
-    sent = await _run("msg", "^zig", "use", "0.15", "syntax")
+    sent = await _run("msg", "lesson/zig", "use", "0.15", "syntax")
     assert sent.exit_code == 0, sent.output
-    turn = await _run("hook", "prompt", stdin=json.dumps({**payload, "prompt": "go on"}))
+    turn = await _run("hook", "prompt", stdin=json.dumps({**payload, "prompt": "^cfa2 go on"}))
     assert "use 0.15 syntax" in turn.output
+    assert (
+        await services.db.fetchval("SELECT home FROM agent_sessions WHERE id = $1", row["id"])
+        == "lesson/zig"
+    )
 
     # The agent hands the keyboard over; the end of its turn must not clear that.
     waiting = await _run(
@@ -140,8 +144,10 @@ async def test_a_lesson_session_from_start_to_end(connected, services) -> None:
 
 
 async def test_dispatch_claim_done_from_the_cli(connected) -> None:
-    queued = await _run("dispatch", "^zig", "write", "the", "allocator", "test", ">claude")
-    assert "for >claude as scout (sigil)" in queued.output
+    queued = await _run(
+        "dispatch", "--home", "lesson/zig", "--to", "claude", "write the allocator test"
+    )
+    assert "for claude as scout (explicit)" in queued.output
     runner_dir = connected / "runner"
     runner_dir.mkdir()
     session_id = (
@@ -149,7 +155,7 @@ async def test_dispatch_claim_done_from_the_cli(connected) -> None:
     ).output.strip()
     claimed = await _run("claim", "--as", "claude", "--session", session_id)
     job = json.loads(claimed.output)
-    assert job["goal"].startswith("^zig write")
+    assert job["home"] == "lesson/zig" and job["goal"] == "write the allocator test"
     holding = await _run("claim", "--as", "claude", "--session", session_id)
     assert "already holds job" in holding.output
     assert (await _run("done", job["id"], "--result", "PR #12")).exit_code == 0
@@ -172,7 +178,7 @@ def test_prompt_offline_has_the_rules_and_stays_small(home, tmp_path: Path) -> N
     (tmp_path / "AGENTS.md").write_text("# AGENTS.md\n\nRun the tests.\n" + "x" * 20000)
     text = prompt.build(cwd=str(tmp_path))
     assert text.startswith("# subzero")
-    assert "Run the tests." in text and "^cfa2/fixed-income" in text
+    assert "Run the tests." in text and "Name the project when there is one" in text
     assert len(text) <= prompt.MAX_CHARS + 20
     assert "## AGENTS.md" in text
     assert "## AGENTS.md" not in prompt.build(cwd=str(tmp_path), agents_md=False)
@@ -191,6 +197,6 @@ async def test_the_short_id_from_the_prompt_works_everywhere(connected, services
     assert sent.exit_code == 0, sent.output
     label = await services.db.fetchval("SELECT from_label FROM agent_messages")
     assert label != "me"
-    await _run("dispatch", "scaffold", "it", ">claude")
+    await _run("dispatch", "--to", "claude", "scaffold it")
     claimed = await _run("claim", "--as", "claude", "--session", short)
     assert json.loads(claimed.output)["goal"].startswith("scaffold it")

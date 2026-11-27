@@ -173,6 +173,7 @@ async def dispatch(agents: AgentService, request: Request, device: dict[str, Any
         _str(body, "goal") or "",
         mode=_str(body, "mode") or "scout",
         target=_str(body, "target"),
+        home=_str(body, "home"),
         space=_str(body, "space"),
         worktree=_str(body, "worktree"),
         created_by=_str(body, "created_by") or str(device.get("device_name") or "cli"),
@@ -206,7 +207,10 @@ async def bootstrap(retrieval: RetrievalService, request: Request, device: dict[
     except ValueError as exc:
         raise ValidationError("budget must be a number.") from exc
     package = await retrieval.bootstrap(
-        params.get("q") or None, project=params.get("project") or None, token_budget=budget
+        params.get("q") or None,
+        project=params.get("project") or None,
+        home=params.get("home") or None,
+        token_budget=budget,
     )
     return package.model_dump(mode="json", exclude_none=True)
 

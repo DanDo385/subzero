@@ -3,86 +3,18 @@ concurrent import and reclassification from stored messages."""
 
 from __future__ import annotations
 
-import dataclasses
-import json
-import zipfile
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from conftest import requires_db
-from subzero.classifier.base import Answer, ClassificationResult
-from subzero.classifier.questions import QUESTIONS_VERSION
-from subzero.classifier.service import ClassificationService
 from subzero.importers.reclassify import (
     reclassify_conversations,
     stale_conversations,
 )
-from subzero.services import build_services
+from support.fakes import CountingJev, claude_zip, conversation, swap_classifier
 
 pytestmark = requires_db
-
-
-class CountingJev:
-    """Stands in for Jev: counts calls and answers with fixed probabilities."""
-
-    name = "jev"
-
-    def __init__(self, *, degraded: bool = False) -> None:
-        self.calls = 0
-        self.states: list[dict[str, Any]] = []
-        self.degraded = degraded
-
-    async def classify_checkpoint(
-        self, state: dict[str, Any], candidates: dict[str, str]
-    ) -> ClassificationResult:
-        self.calls += 1
-        self.states.append(state)
-        return ClassificationResult(
-            answers={
-                "save_durable_memory": Answer("noul", 0.2),
-                "deep_extraction": Answer("noul", 0.9),
-                "destination": Answer(
-                    "choice", "research", confidence=0.97, probabilities={"research": 0.97}
-                ),
-                "importance": Answer("score", 3, confidence=0.9),
-            },
-            classifier="rules" if self.degraded else "jev",
-            model="jev-test",
-            questions_version=QUESTIONS_VERSION,
-            input_hash=f"h{self.calls}",
-            degraded=self.degraded,
-        )
-
-    classify_conversation = classify_checkpoint
-
-
-def _swap_classifier(services, fake) -> ClassificationService:
-    """Rebuild the services around `fake`, in place, so every collaborator shares it."""
-    rebuilt = build_services(services.settings, services.db, classifier=fake)
-    for field in dataclasses.fields(rebuilt):
-        setattr(services, field.name, getattr(rebuilt, field.name))
-    return services.classification
-
-
-def _claude_zip(path: Path, conversations: list[dict[str, Any]]) -> Path:
-    with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("conversations.json", json.dumps(conversations))
-    return path
-
-
-def _conversation(uuid: str, text: str) -> dict[str, Any]:
-    return {
-        "uuid": uuid,
-        "name": f"Chat {uuid}",
-        "created_at": "2026-01-01T10:00:00Z",
-        "updated_at": "2026-01-01T11:00:00Z",
-        "chat_messages": [
-            {"uuid": f"{uuid}-1", "sender": "human", "text": text},
-            {"uuid": f"{uuid}-2", "sender": "assistant", "text": "Understood."},
-        ],
-    }
 
 
 STATE = {
@@ -95,7 +27,7 @@ STATE = {
 
 async def test_identical_input_is_answered_from_the_cache(services) -> None:
     fake = CountingJev()
-    service = _swap_classifier(services, fake)
+    service = swap_classifier(services, fake)
 
     first, routing1, _ = await service.classify_checkpoint(dict(STATE))
     second, routing2, event2 = await service.classify_checkpoint(dict(STATE))
@@ -111,7 +43,7 @@ async def test_identical_input_is_answered_from_the_cache(services) -> None:
 
 async def test_cache_can_be_bypassed_and_changes_with_input(services) -> None:
     fake = CountingJev()
-    service = _swap_classifier(services, fake)
+    service = swap_classifier(services, fake)
 
     await service.classify_checkpoint(dict(STATE))
     await service.classify_checkpoint(dict(STATE), use_cache=False)
@@ -121,7 +53,7 @@ async def test_cache_can_be_bypassed_and_changes_with_input(services) -> None:
 
 async def test_degraded_results_are_never_cached(services) -> None:
     fake = CountingJev(degraded=True)
-    service = _swap_classifier(services, fake)
+    service = swap_classifier(services, fake)
 
     await service.classify_checkpoint(dict(STATE))
     await service.classify_checkpoint(dict(STATE))
@@ -130,13 +62,13 @@ async def test_degraded_results_are_never_cached(services) -> None:
 
 async def test_import_screens_sensitivity_before_classifying(services, tmp_path: Path) -> None:
     fake = CountingJev()
-    _swap_classifier(services, fake)
-    archive = _claude_zip(
+    swap_classifier(services, fake)
+    archive = claude_zip(
         tmp_path / "export.zip",
         [
-            _conversation("plain", "How do I index pgvector?"),
-            _conversation("secret", "use this key sk-ant-api03-" + "x" * 40),
-            _conversation("health", "My therapist suggested I sleep more."),
+            conversation("plain", "How do I index pgvector?"),
+            conversation("secret", "use this key sk-ant-api03-" + "x" * 40),
+            conversation("health", "My therapist suggested I sleep more."),
         ],
     )
 
@@ -158,11 +90,11 @@ async def test_import_screens_sensitivity_before_classifying(services, tmp_path:
 
 async def test_concurrent_import_imports_everything_once(services, tmp_path: Path) -> None:
     fake = CountingJev()
-    _swap_classifier(services, fake)
+    swap_classifier(services, fake)
     services.settings.import_concurrency = 5
-    archive = _claude_zip(
+    archive = claude_zip(
         tmp_path / "export.zip",
-        [_conversation(f"c{i}", f"Question number {i} about MCP transports.") for i in range(23)],
+        [conversation(f"c{i}", f"Question number {i} about MCP transports.") for i in range(23)],
     )
 
     report = await services.importer.run(archive, provider="claude", store_archive=False)
@@ -181,8 +113,8 @@ async def test_reclassify_finds_stale_versions_and_keeps_summaries(
     services, tmp_path: Path
 ) -> None:
     fake = CountingJev()
-    _swap_classifier(services, fake)
-    archive = _claude_zip(tmp_path / "e.zip", [_conversation("one", "Design the MOC renderer.")])
+    swap_classifier(services, fake)
+    archive = claude_zip(tmp_path / "e.zip", [conversation("one", "Design the MOC renderer.")])
     await services.importer.run(archive, provider="claude", store_archive=False)
     conversation_id = await services.db.fetchval("SELECT id FROM conversations")
 
@@ -223,9 +155,9 @@ async def test_import_default_sensitivity_applies_to_everything(
     services, tmp_path: Path, level: str
 ) -> None:
     fake = CountingJev()
-    _swap_classifier(services, fake)
+    swap_classifier(services, fake)
     services.settings.import_default_sensitivity = level  # type: ignore[assignment]
-    archive = _claude_zip(tmp_path / "e.zip", [_conversation("p", "How do I index pgvector?")])
+    archive = claude_zip(tmp_path / "e.zip", [conversation("p", "How do I index pgvector?")])
 
     await services.importer.run(archive, provider="claude", store_archive=False)
 

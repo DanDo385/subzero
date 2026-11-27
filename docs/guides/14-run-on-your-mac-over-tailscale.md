@@ -86,6 +86,67 @@ Open your Google (or GitHub) OAuth client from [guide 3](03-google-sign-in.md) a
 Check it from your phone with Tailscale on: open the address followed by `/healthz` in a browser.
 It should say `ok`.
 
+## Update it
+
+When you pull a newer version, update the database **before** you restart the server. New code
+can expect database changes (migrations) that are not there yet; until they are, the tools that
+use them fail. On 2026-11-24 that broke `context_bootstrap` and `context_search` in every app for a
+day.
+
+```bash
+cd ~/Code/subzero
+git pull --ff-only
+uv sync
+op run --env-file=deploy/production.env.op -- .venv/bin/subzero migrate --status   # what is pending
+op run --env-file=deploy/production.env.op -- .venv/bin/subzero migrate            # 1. the database
+launchctl kickstart -k gui/$(id -u)/com.subzero.server                             # 2. the server
+curl -s http://127.0.0.1:8080/readyz                                               # {"ready":true}
+```
+
+Use whichever settings file your server uses in place of `deploy/production.env.op`. If you forget
+the order, the server still starts and tells you: `/readyz` answers
+`{"ready": false, "reason": "migrations_pending", ...}`, the log says
+`database schema is behind this server: run subzero migrate`, and a tool that needs the missing
+change answers *Subzero's database schema is behind this server's code*. Run `subzero migrate`;
+the server notices within half a minute, with no restart.
+
+## Share agent guidance
+
+On the Mac, set the server's `SUBZERO_DOTFILES_ROOT` to the absolute path of the
+dotfiles checkout (for example, `~/Code/dotfiles`, expanded for the account that
+runs Subzero). It can also point to a local symlink to that checkout:
+
+```bash
+mkdir -p ~/.config/subzero
+ln -s "$HOME/Code/dotfiles" ~/.config/subzero/dotfiles
+```
+
+If that path already exists, inspect it before changing it. Put the link's
+absolute path in the Mac's server settings, then restart the server once.
+Subzero reads `subzero/AGENTS.md` and `cli/MACHINES.md` from that checkout.
+Changes on disk show up on the next relevant call.
+
+Vercel runs on a separate filesystem. Set `SUBZERO_DOTFILES_GITHUB_REPO` to
+`owner/dotfiles`, `SUBZERO_DOTFILES_GITHUB_REF` to the published branch containing
+the two files, and `SUBZERO_DOTFILES_GITHUB_TOKEN` to a sensitive deployment
+variable with Contents read access to that repository. Deploy once with these
+settings. Vercel reads newly pushed versions from the configured branch at
+runtime, including while the Mac is offline. Keep the two documents suitable for
+all the signed-in clients you grant `context:read`.
+
+Use `context_bootstrap` with a budget of at least 600 for a short workflow
+excerpt. Open the full read-only versions with
+`context_read_guidance(document="agents")` or
+`context_read_guidance(document="machines")`. The response identifies the source
+and gives the full document's SHA-256. To make an authorized edit, open the
+source file in a writable dotfiles checkout and use your normal Git workflow.
+Keep provider instruction copy in `subzero/PRE-PROMPT.md` for manual reference.
+
+To test, call both guidance reads through the Mac connector, then repeat with
+the Vercel connector. After a harmless edit, the Mac hash should change as soon
+as the file is saved and the Vercel hash should match after you push. Compare
+hashes on separate authenticated connections to the two URLs.
+
 ## Stop or change it
 
 ```bash
@@ -101,6 +162,7 @@ tail -f ~/Library/Logs/subzero/server.err.log # see what it's doing
 | `Tailscale is not connected` | The Tailscale app is closed or signed out. | Open it and sign in, then run the script again. |
 | `Could not read this Mac's tailnet name` | MagicDNS or HTTPS certificates are off. | Do step 1. |
 | `The server did not start` | A setting is missing or wrong. | Run `uv run subzero check`; it lists what to fix. |
+| `/readyz` says `"reason": "migrations_pending"` | The code is newer than the database. | Run `subzero migrate` with the server's settings ([Update it](#update-it)). |
 | An app says the connector is unavailable | The Mac is asleep, or you installed without `--public`. | Wake the Mac, or re-run with `--public`. |
 | The extension or `subzero agent` says `not found` | It is reaching the Mac through the public address from a device that is not on your tailnet. | Turn Tailscale on for that device. These parts are tailnet-only on purpose. |
 | `redirect_uri_mismatch` when signing in | Step 3 was skipped or has a typo. | Copy the **Sign-in** line exactly. |

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-from subzero.db.pool import Database
+from subzero.status import StatusService
 
 
 def _skills_dir() -> Path | None:
@@ -26,7 +26,7 @@ def _skills_dir() -> Path | None:
     return None
 
 
-def register(mcp: FastMCP, *, db: Database) -> None:
+def register(mcp: FastMCP, *, inventory: StatusService) -> None:
     # The same short workflow is used by app Skills and slash-command clients.
     def action_guide(name: str) -> str:
         directory = _skills_dir()
@@ -143,21 +143,4 @@ def register(mcp: FastMCP, *, db: Database) -> None:
     @mcp.resource("subzero://status", mime_type="application/json")
     async def status() -> dict:
         """Current shape of the user's context: counts, not content."""
-        row = await db.fetchrow(
-            """
-            SELECT
-              (SELECT count(*) FROM memories WHERE status = 'active') AS memories,
-              (SELECT count(*) FROM conversations) AS conversations,
-              (SELECT count(*) FROM session_summaries) AS summaries,
-              (SELECT count(*) FROM projects WHERE status = 'active') AS active_projects,
-              (SELECT count(*) FROM tasks WHERE status IN ('open','blocked')) AS open_tasks,
-              (SELECT count(*) FROM notes) AS notes,
-              (SELECT count(*) FROM artifacts) AS artifacts,
-              (SELECT count(*) FROM artifacts WHERE storage_status = 'captured')
-                  AS artifacts_captured,
-              (SELECT count(*) FROM review_queue WHERE status = 'open') AS open_reviews,
-              (SELECT count(*) FROM sync_jobs
-                WHERE status IN ('queued','approved','leased')) AS pending_vault_writes
-            """
-        )
-        return dict(row) if row else {}
+        return await inventory.inventory_counts()

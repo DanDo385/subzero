@@ -37,6 +37,7 @@ from subzero.projects.service import ProjectService
 from subzero.retrieval.service import RetrievalService
 from subzero.review.service import ReviewService
 from subzero.sessions.service import SessionService
+from subzero.status import StatusService
 from subzero.storage import build_object_store
 from subzero.storage.base import ObjectStore
 from subzero.wiki.service import WikiService
@@ -68,6 +69,7 @@ class Services:
     email: EmailService
     agents: AgentService
     bridge: BridgeService
+    status: StatusService
     router: ConversationRouter
     importer: ImportRunner
     wiki: WikiService
@@ -119,6 +121,7 @@ def build_services(
         audit=audit,
     )
     bridge = BridgeService(db)
+    status = StatusService(db)
     filing = ArtifactFiling(
         artifacts=artifacts,
         classification=classification,
@@ -176,6 +179,7 @@ def build_services(
         email=EmailService(db, settings),
         agents=AgentService(db, classifier, settings),
         bridge=bridge,
+        status=status,
         router=router,
         importer=importer,
         wiki=wiki,

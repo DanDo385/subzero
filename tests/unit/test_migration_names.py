@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 #: Applied in production under these names; never renumber them.
 GRANDFATHERED = {"0009", "0010", "0012"}
 

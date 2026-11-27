@@ -8,7 +8,7 @@ from conftest import requires_db
 from subzero.classifier.base import Answer, ClassificationResult
 from subzero.classifier.questions import QUESTIONS_VERSION
 from subzero.obsidian.render import GENERATED_START, extract_note_body
-from test_integration_backfill import _swap_classifier
+from support.fakes import swap_classifier as _swap_classifier
 
 pytestmark = requires_db
 

@@ -10,6 +10,7 @@ from fastmcp import FastMCP
 from fastmcp.server.mixins.mcp_operations import _normalize_call_tool_result
 from mcp.types import TextContent
 
+from subzero.config import Settings
 from subzero.mcp import tools_context
 from subzero.mcp.result import text_and_structured
 from subzero.models import (
@@ -32,6 +33,7 @@ class _Retrieval:
         user_message: str | None = None,
         token_budget: int = 1200,
         project: str | None = None,
+        home: str | None = None,
     ) -> ContextPackage:
         return self.package
 
@@ -59,12 +61,7 @@ def _package(*, truncated: bool, tokens: int, contents: list[str]) -> ContextPac
 def _mcp(retrieval: _Retrieval) -> FastMCP:
     """The context tools wired to a stand-in retrieval; the tools under test use nothing else."""
     server = FastMCP("token-cut-test")
-    tools_context.register(
-        server,
-        db=None,  # type: ignore[arg-type]
-        embeddings=None,  # type: ignore[arg-type]
-        retrieval=retrieval,  # type: ignore[arg-type]
-    )
+    tools_context.register(server, retrieval=retrieval, settings=Settings())  # type: ignore[arg-type]
     return server
 
 

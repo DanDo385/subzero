@@ -14,17 +14,16 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.agent_context import Document, read_agent_context
 from subzero.auth import scopes
-from subzero.db.pool import Database
-from subzero.embeddings.service import EmbeddingService
+from subzero.config import Settings
+from subzero.homes import Home
 from subzero.mcp.compact import dump
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
 from subzero.retrieval.service import RetrievalService
 
 
-def register(
-    mcp: FastMCP, *, db: Database, embeddings: EmbeddingService, retrieval: RetrievalService
-) -> None:
+def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -> None:
     @mcp.tool(
         name="context_bootstrap",
         tags={"context", "read"},
@@ -46,6 +45,12 @@ def register(
         project: Annotated[
             str | None,
             Field(description="Project slug or name, when you know it. Inferred otherwise."),
+        ] = None,
+        home: Annotated[
+            Home | None,
+            Field(
+                description="Explicit home for a handoff, for example lesson/cfa2 or setup/neovim."
+            ),
         ] = None,
         token_budget: Annotated[
             int, Field(ge=200, le=4000, description="Approximate token ceiling for the result.")
@@ -71,11 +76,13 @@ def register(
         matching query, then raw transcript excerpts only if nothing else
         matched. Says which project it used and why, which layers ran, and
         flags decisions a newer item may overrule. Raise token_budget only if
-        truncated. The text result is one line of counts; the package is the
-        structured result.
+        truncated. When configured, the package includes a short read-only
+        excerpt of the owner's dotfiles guidance; read either full document
+        with context_read_guidance. The text result is one line of counts;
+        the package is the structured result.
         """
         package = await retrieval.bootstrap(
-            query, user_message=user_message, token_budget=token_budget, project=project
+            query, user_message=user_message, token_budget=token_budget, project=project, home=home
         )
         payload = dump(package)
         items = payload.get("items") or []
@@ -85,6 +92,25 @@ def register(
         if payload.get("truncated"):
             line = f"{line}, truncated"
         return text_and_structured(line, payload)
+
+    @mcp.tool(
+        name="context_read_guidance",
+        tags={"context", "read"},
+        auth=require_scopes(scopes.CONTEXT_READ),
+        annotations={"readOnlyHint": True, "openWorldHint": False},
+    )
+    async def context_read_guidance(
+        document: Annotated[
+            Document, Field(description="agents for workflow guidance, machines for fleet details.")
+        ] = "agents",
+    ) -> dict[str, Any]:
+        """Open a read-only dotfiles document when it is relevant to this task.
+
+        To edit the source during an authorized task, open the corresponding
+        file in the writable dotfiles checkout with the normal editor or Git workflow.
+        """
+        guidance = await read_agent_context(settings, document)
+        return dump(guidance) if guidance else {"status": "unavailable", "document": document}
 
     @mcp.tool(
         name="context_search",
@@ -199,9 +225,7 @@ def register(
         conversation_id. Costs more than context_search; do not call it for
         every request. If "semantic" is false, only exact words were matched.
         """
-        from subzero.retrieval.semantic import deep_search
-
-        result = await deep_search(db, embeddings, query, limit=limit, provider=provider)
+        result = await retrieval.deep_search(query, limit=limit, provider=provider)
         payload: dict[str, Any] = {
             "query": result.query,
             "semantic": result.semantic,

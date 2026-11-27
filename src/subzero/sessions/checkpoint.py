@@ -13,7 +13,6 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
 from subzero.classifier.base import ClassificationResult
 from subzero.classifier.policy import Routing, Verdict
 from subzero.homes import home_metadata
@@ -75,47 +74,6 @@ class Tally:
             bucket[key] = bucket.get(key, 0) + n
 
 
-@dataclass
-class ReadSigils:
-    """What the user typed, after it has overridden the caller's arguments."""
-
-    marks: sigils.Sigils
-    project: str | None
-    home: str | None
-    concepts: list[str] | None
-    people: list[str] | None
-
-
-def read_sigils(
-    title: str | None,
-    summary: str | None,
-    *,
-    project: str | None,
-    home: str | None,
-    concepts: list[str] | None,
-    tally: Tally,
-) -> ReadSigils:
-    """Sigils the user typed beat any model judgement.
-
-    %project only names a project (matched later, never created); a ^lesson
-    or &setup home is used as is; #concepts and @people tag. Every sigil typed
-    is kept: the first home-kind one files the session and the rest tag it in
-    the metadata, so a session about two lessons, or a project and a setup, is
-    not narrowed to whichever sigil came first.
-    """
-    marks = sigils.parse_all(title, summary)
-    people: list[str] | None = list(marks.people) or None
-    if marks.any:
-        if marks.project and not project and not (home or "").startswith("projects/"):
-            project = marks.project
-        if not home and marks.home and not marks.home.startswith("projects/"):
-            home = marks.home
-        if concepts is None and marks.concepts:
-            concepts = list(marks.concepts)
-        tally.notes.append("Sigils read: " + " ".join(marks.found))
-    return ReadSigils(marks=marks, project=project, home=home, concepts=concepts, people=people)
-
-
 async def write_project_updates(
     conn: asyncpg.Connection,
     projects: ProjectService,
@@ -159,12 +117,11 @@ async def write_project_updates(
 
 async def write_home_metadata(
     conn: asyncpg.Connection,
-    projects: ProjectService,
     *,
     conversation_id: UUID,
     explicit_project: bool,
-    marks: ReadSigils,
-    tally: Tally,
+    home: str | None,
+    concepts: list[str] | None,
 ) -> dict[str, Any]:
     """Decide the session's home and tags and store them on the conversation."""
     saved = await conn.fetchrow(
@@ -174,33 +131,15 @@ async def write_home_metadata(
     assert saved is not None
     previous = saved["metadata"] or {}
     # An explicit project can replace the initial unassigned home.
-    default_home = None if (explicit_project and not marks.home) else previous.get("home")
-    chosen_home = marks.home or default_home
-    # The homes sigils named beyond the one this session is filed under. A
-    # named project has to exist to tag anything, the same rule as routing;
-    # lessons and setups are names, not rows.
-    extra_homes: list[str] = []
-    for path in marks.marks.homes:
-        if chosen_home and path == chosen_home:
-            continue
-        if path.startswith("projects/"):
-            slug = path.removeprefix("projects/")
-            if await projects.resolve(slug, conn=conn) is None:
-                tally.notes.append(f"No project matches %{slug}; it was read but tags nothing.")
-                continue
-        extra_homes.append(path)
+    default_home = None if (explicit_project and not home) else previous.get("home")
     metadata = home_metadata(
-        chosen_home,
+        home or default_home,
         saved["slug"],
-        marks.concepts
-        if marks.concepts is not None
+        concepts
+        if concepts is not None
         else [
             t.removeprefix("concept/") for t in previous.get("tags", []) if t.startswith("concept/")
         ],
-        marks.people
-        if marks.people is not None
-        else [t for t in previous.get("tags", []) if t.startswith("person/")],
-        extra_homes=extra_homes or None,
     )
     await conn.execute(
         "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",

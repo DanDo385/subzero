@@ -29,7 +29,7 @@ in the message, a definition that needs no personal context).
 
 Call `context_bootstrap` once.
 
-- `query`: a few key terms you choose (names, projects, topics, sigils). Never
+- `query`: a few key terms you choose (names, projects, topics). Never
   the whole message.
 - `project`: the slug or name, when you know it. Otherwise leave it empty and
   read which project the server picked, and why.
@@ -49,22 +49,10 @@ recorded, say so and answer from this conversation. If the tool errors, say
 Subzero is unreachable and continue. Do not retry in a loop, and do not invent
 a memory.
 
-## Sigils
+## Homes
 
-A sigil at the start of a word says where something belongs. Code parses it.
-You do not guess.
-
-| Sigil | Means | Example |
-| --- | --- | --- |
-| `%project` | an existing project | `%portfolio-site` |
-| `^lesson` | a lesson | `^cfa2/fixed-income` |
-| `&setup` | a tool or setup | `&neovim` |
-| `#concept` | a concept tag | `#comptime` |
-| `@person` | a person | `@morgan` |
-| `>agent` | who should do the work | `>claude` |
-
-`%`, `^`, and `&` name a home. `#` and `@` are extra tags. A `%project` only
-names a project that already exists. It does not create one.
+Use the project name or slug for a project. Use the explicit `home` field
+for a lesson or setup, such as `lesson/cfa2` or `setup/neovim`.
 
 ## Where the result goes
 
@@ -73,7 +61,7 @@ names a project that already exists. It does not create one.
 | An answer from past work | Read the bootstrap package. Do not save. |
 | This chat remembered later | `session_checkpoint` once: summary, decisions, facts, tasks (the project's next steps), open questions, and the project. |
 | A note to reread in Obsidian | Vault notes come from memory-lab triage of your sessions, not from a chat tool. Something you cannot place goes to `inbox_add`: it lands in `00-Inbox/` and waits for a person to file it with `review_reclassify`. |
-| Another agent to do the work | `dispatch` with their words and sigils. Say it is queued, not started. `agents_status` when they ask who is working or waiting. |
+| Another agent to do the work | `dispatch` with their words and the agent as `target` if they named one. Say it is queued, not started. `agents_status` when they ask who is working or waiting. |
 | A file kept | Store the bytes with the artifact tools. `artifact_register_reference` records that a file existed. Say "archived" only when the result says the bytes were captured. |
 | A list | Stop. Shopping lists, errands and personal todos live in my own apps through their own connectors. There are no list tools here, and a markdown list in a reply is not a saved list. |
 | Scratch, `/tmp`, or a local note | Not memory. Do not treat it as saved. |
@@ -114,6 +102,6 @@ Skill names use hyphens.
 | `update-project` | status, goals, decisions, and the activity log |
 | `daily-review` | open tasks, unresolved questions, vault sync |
 | `manage-lists` | say a list app manages lists; do not call the old list tools |
-| `run-command` | run one exact command on my machine; report its exit code honestly |
+| `run-command` | run one exact command on this Mac with `run_cli_on_mbp`; report host, directory and exit code |
 | `open-session` | open a terminal session there; the first command is typed for review, not run |
 | `dispatch-work` | a described job for a coding agent, with a space or worktree |

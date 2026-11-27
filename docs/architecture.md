@@ -180,7 +180,7 @@ subzero/
 │   ├── services.py           # composition root: builds every service once
 │   ├── models.py             # the shapes that cross the MCP boundary
 │   ├── ingest.py             # /api/v1/ingest: the extension's write path, sync-state
-│   ├── sigils.py             # %project ^lesson &setup #concept @person >agent
+│   ├── homes.py              # explicit homes and concept tags
 │   ├── cli.py cli_agents.py  # `subzero` commands; client.py is their HTTP side
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
@@ -331,12 +331,15 @@ when the package already names it, and a conversation id except on session
 summaries. Below 400 tokens they also leave out the summaries' conversation
 ids, and the layer report lists only layers that contributed nothing.
 
-Its text result is one line: how many items, and how many tokens they used
-against the budget. The package is the structured result.
+The MCP response carries the same package as compact JSON text and structured
+data so text-only clients can use it. On configured servers, bootstrap reserves
+room for a short `agent_context` excerpt from dotfiles. The authenticated
+`context_read_guidance` tool opens either of the two supported documents on
+demand. See [guide 14](guides/14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
 
 The eval set in `tests/eval/retrieval_cases.yaml` (39 cases over a synthetic
 fixture) reports recall@5, MRR, stale-decision errors, duplicates, tokens,
-database round trips and latency; `tests/test_integration_retrieval_eval.py`
+database round trips and latency; `tests/e2e/test_retrieval_eval.py`
 fails if any case regresses.
 
 Every returned item carries provenance:
@@ -732,6 +735,19 @@ production, OAuth without an allowlist).
 The server will not boot with an unsafe configuration. `subzero check`
 reports every problem at once rather than one per run.
 
+### What a client sees when a tool fails
+
+Production masks exception details, so FastMCP alone answers every unexpected
+failure with "Error calling tool 'x'", which Gemini and ChatGPT surface as
+INVALID_REQUEST / INVALID_ARGUMENT. `mcp/errors.py` (`ReadableErrorsMiddleware`)
+sits inside the rate limit and translates: a `SubzeroError` keeps its message
+(written for the caller); a missing column, table or function says the schema
+is behind and to run `subzero migrate`; a database timeout asks for a retry;
+anything else is "Internal error in Subzero. Reference <request id>", with the
+traceback logged under that id. No SQL, path or connection detail reaches the
+client. Each failure is one `tool failed` log line, and the HTTP request line
+carries `tool_failures`, because the HTTP status of a failed tool call is 200.
+
 ---
 
 ## Privacy
@@ -829,6 +845,17 @@ recorded with their hash. Editing an already-applied migration is refused;
 add a new one. One migration is destructive on a pre-cutover database: 0020
 drops `lists` and `list_items` and carries over only task items, so run
 `uv run subzero export-lists --out DIR` first (see [Tasks](#tasks)).
+
+**A database behind the code is visible, not silent.** At startup the server
+compares `migrations/` with `schema_migrations` (read only,
+`db.migrate.pending_migrations`, cached 30 s in `db/schema_status.py`). With
+migrations pending it still serves, since most tools keep working, but logs
+`database schema is behind this server`, `/readyz` answers 503 with
+`"reason": "migrations_pending"` and a count, and a tool that hits a missing
+column or table says the schema is behind instead of failing opaquely. On
+2026-11-24 a restart on code needing 0020 before 0020 was applied broke
+`context_bootstrap` and `context_search` for a day while `/readyz` said ready.
+Order on update: `migrate`, then restart.
 
 ---
 

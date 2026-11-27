@@ -13,7 +13,7 @@ from subzero.extraction.deep import (
     extraction_candidates,
     render_transcript,
 )
-from test_integration_backfill import CountingJev, _claude_zip, _conversation, _swap_classifier
+from support.fakes import CountingJev, claude_zip, conversation, swap_classifier
 
 pytestmark = requires_db
 
@@ -68,8 +68,8 @@ class FakeClient:
 
 
 async def _import(services, tmp_path: Path, conversations: list[dict[str, Any]]) -> None:
-    _swap_classifier(services, CountingJev())  # answers deep_extraction = 0.9
-    archive = _claude_zip(tmp_path / "e.zip", conversations)
+    swap_classifier(services, CountingJev())  # answers deep_extraction = 0.9
+    archive = claude_zip(tmp_path / "e.zip", conversations)
     await services.importer.run(archive, provider="claude", store_archive=False)
 
 
@@ -91,7 +91,7 @@ def test_long_transcripts_keep_both_ends_and_say_so() -> None:
 async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
     services, tmp_path: Path
 ) -> None:
-    await _import(services, tmp_path, [_conversation("a", "Where should memory live?")])
+    await _import(services, tmp_path, [conversation("a", "Where should memory live?")])
     candidates = await extraction_candidates(limit=10, settings=services.settings, db=services.db)
     assert len(candidates) == 1
 
@@ -155,7 +155,7 @@ async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
 
 
 async def test_rerunning_extraction_does_not_duplicate(services, tmp_path: Path) -> None:
-    await _import(services, tmp_path, [_conversation("a", "Where should memory live?")])
+    await _import(services, tmp_path, [conversation("a", "Where should memory live?")])
     ids = [
         c.conversation_id
         for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
@@ -169,7 +169,7 @@ async def test_rerunning_extraction_does_not_duplicate(services, tmp_path: Path)
 
 
 async def test_sensitive_conversations_are_never_sent(services, tmp_path: Path) -> None:
-    await _import(services, tmp_path, [_conversation("s", "my key is sk-ant-api03-" + "k" * 40)])
+    await _import(services, tmp_path, [conversation("s", "my key is sk-ant-api03-" + "k" * 40)])
     assert await extraction_candidates(limit=10, settings=services.settings, db=services.db) == []
 
     conversation_id = await services.db.fetchval("SELECT id FROM conversations")
@@ -182,7 +182,7 @@ async def test_sensitive_conversations_are_never_sent(services, tmp_path: Path) 
 
 
 async def test_a_refusal_is_recorded_not_written(services, tmp_path: Path) -> None:
-    await _import(services, tmp_path, [_conversation("r", "Something declined.")])
+    await _import(services, tmp_path, [conversation("r", "Something declined.")])
     ids = [
         c.conversation_id
         for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
@@ -204,7 +204,7 @@ async def test_one_failed_write_does_not_abort_the_batch(services, tmp_path: Pat
     await _import(
         services,
         tmp_path,
-        [_conversation("a", "Where should memory live?"), _conversation("b", "More on memory.")],
+        [conversation("a", "Where should memory live?"), conversation("b", "More on memory.")],
     )
     ids = [
         c.conversation_id
@@ -251,7 +251,7 @@ async def test_followup_failure_still_marks_the_session_extracted(
     must not leave the session unmarked."""
     from subzero.extraction import deep as deep_mod
 
-    await _import(services, tmp_path, [_conversation("a", "Where should memory live?")])
+    await _import(services, tmp_path, [conversation("a", "Where should memory live?")])
     ids = [
         c.conversation_id
         for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
@@ -277,7 +277,7 @@ async def test_same_subject_notes_merge_and_projects_are_created(services, tmp_p
     await _import(
         services,
         tmp_path,
-        [_conversation("a", "Where should memory live?"), _conversation("b", "More on memory.")],
+        [conversation("a", "Where should memory live?"), conversation("b", "More on memory.")],
     )
     ids = [
         c.conversation_id

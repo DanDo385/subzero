@@ -34,7 +34,7 @@ main { display: grid; grid-template-columns: 170px 1fr 230px; gap: 14px; padding
 .turn b { color: color-mix(in srgb, var(--waiting) 70%, var(--ink)); }
 #rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; align-content: start; min-height: 300px; }
 .room { min-height: 120px; position: relative; }
-.room .sigil { display: inline-block; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+.room .home-name { display: inline-block; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
                padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .room .kind { color: var(--quiet); font-size: 12px; margin-left: 6px; }
 .room .jobs { margin-top: 8px; display: grid; gap: 6px; }
@@ -98,14 +98,14 @@ footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 20px 14px;
 <footer>
   <div id="help">
     <table>
-      <tr><td><code>/d goal</code></td><td>dispatch as scout (plan only). Sigils: <code>%project</code> <code>^lesson</code> <code>&amp;setup</code> <code>&gt;agent</code>. No <code>&gt;agent</code>: Jev picks.</td></tr>
+      <tr><td><code>/d goal</code></td><td>dispatch as scout (plan only) with automatic routing</td></tr>
       <tr><td><code>/ship goal</code></td><td>dispatch and make the change (risky jobs still start as scout)</td></tr>
-      <tr><td><code>/m to text</code></td><td>message a session (click an agent to fill its id), a home like <code>^zig</code>, or <code>me</code></td></tr>
+      <tr><td><code>/m to text</code></td><td>message a session (click an agent to fill its id), a home like <code>lesson/zig</code>, or <code>me</code></td></tr>
       <tr><td><code>/</code> <code>d</code> <code>m</code> <code>?</code> <code>Esc</code></td><td>focus the bar, start a dispatch, start a message, this help, clear</td></tr>
     </table>
   </div>
   <form class="bar" id="form" autocomplete="off">
-    <input id="cmd" placeholder="/d ^zig write the arena allocator test >claude     ·  /m ^zig use 0.15 syntax     ·  ? for help" aria-label="Command">
+    <input id="cmd" placeholder="/d write the allocator test     ·  /m lesson/zig use 0.15 syntax     ·  ? for help" aria-label="Command">
   </form>
   <div class="hint">Plain text without a command dispatches it. Click an agent to message it.</div>
 </footer>
@@ -121,11 +121,7 @@ const agents = new Map();           // session id -> element
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function sigilOf(home) {
-  if (!home) return "unfiled";
-  const [kind, name] = home.split("/");
-  return ({ projects: "%", lesson: "^", setup: "&" }[kind] || "") + (name || home);
-}
+function homeName(home) { return home.split("/")[1] || home || "unfiled"; }
 function kindOf(home) { return home ? ({ projects: "project", lesson: "lesson", setup: "setup" }[home.split("/")[0]] || "") : ""; }
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
 
@@ -152,10 +148,10 @@ function renderRooms(data) {
     room.className = "zone room"; room.dataset.home = home;
     const jobs = data.jobs.filter((j) => (j.home || "") === home && (j.status === "queued" || j.status === "claimed"));
     const turns = data.sessions.filter((s) => (s.home || "") === home && s.status === "waiting");
-    room.innerHTML = `<div><span class="sigil">${esc(sigilOf(home))}</span><span class="kind">${esc(kindOf(home))}</span></div>
+    room.innerHTML = `<div><span class="home-name">${esc(homeName(home))}</span><span class="kind">${esc(kindOf(home))}</span></div>
       <div class="floor"></div>
       ${turns.map((s) => `<div class="turn"><b>Your turn</b> · ${esc(s.task || "")}</div>`).join("")}
-      <div class="jobs">${jobs.map((j) => `<div class="job">${esc(j.goal)}<div class="meta">${esc(j.status)} · &gt;${esc(j.target)} · ${esc(j.mode)} · ${esc(j.routed_by)}${j.routed_by === "jev" && j.confidence != null ? " " + j.confidence.toFixed(2) : ""}</div></div>`).join("")}</div>`;
+      <div class="jobs">${jobs.map((j) => `<div class="job">${esc(j.goal)}<div class="meta">${esc(j.status)} · ${esc(j.target)} · ${esc(j.mode)} · ${esc(j.routed_by)}${j.routed_by === "jev" && j.confidence != null ? " " + j.confidence.toFixed(2) : ""}</div></div>`).join("")}</div>`;
     box.appendChild(room);
   }
 }
@@ -233,7 +229,7 @@ function flyEnvelope(fromId, toId) {
 function react(events) {
   for (const e of events) {
     if (e.kind === "message" && e.detail && e.detail.to_session) flyEnvelope(e.session_id, e.detail.to_session);
-    if (!firstLoad && e.kind === "dispatch") toast(`Job queued for >${e.detail.target}: ${e.detail.goal}`);
+    if (!firstLoad && e.kind === "dispatch") toast(`Job queued for ${e.detail.target}: ${e.detail.goal}`);
     if (!firstLoad && e.kind === "spawn") toast(`New agent: ${(e.detail && e.detail.name) || "agent"}`);
   }
 }
@@ -266,12 +262,12 @@ async function run(text) {
     await api("/send", { to: m[2], body: m[3] }); toast(`Sent to ${m[2]}`);
   } else if ((m = text.match(/^\/(d|dispatch|ship)\s+([\s\S]+)$/))) {
     const job = await api("/dispatch", { goal: m[2], ship: m[1] === "ship" });
-    toast(`Queued for >${job.target} as ${job.mode} (${job.routed_by})` + (job.notes && job.notes.length ? " · " + job.notes[0] : ""));
+    toast(`Queued for ${job.target} as ${job.mode} (${job.routed_by})` + (job.notes && job.notes.length ? " · " + job.notes[0] : ""));
   } else if (text.startsWith("/")) {
     throw new Error("Unknown command. Type ? for help.");
   } else {
     const job = await api("/dispatch", { goal: text, ship: false });
-    toast(`Queued for >${job.target} as scout (${job.routed_by})`);
+    toast(`Queued for ${job.target} as scout (${job.routed_by})`);
   }
   tick();
 }

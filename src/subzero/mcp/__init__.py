@@ -8,6 +8,7 @@ from subzero.mcp import (
     prompts,
     tools_agents,
     tools_artifacts,
+    tools_cli,
     tools_context,
     tools_email,
     tools_inbox,
@@ -20,7 +21,7 @@ from subzero.services import Services
 
 def register_all(mcp: FastMCP, s: Services) -> None:
     """The one place that reads the container: each module gets only its own."""
-    tools_context.register(mcp, db=s.db, embeddings=s.embeddings, retrieval=s.retrieval)
+    tools_context.register(mcp, retrieval=s.retrieval, settings=s.settings)
     tools_email.register(mcp, emails=s.email)
     tools_memory.register(
         mcp, audit=s.audit, memories=s.memories, projects=s.projects, sessions=s.sessions
@@ -59,7 +60,8 @@ def register_all(mcp: FastMCP, s: Services) -> None:
         vault_paths=s.vault_paths,
     )
     tools_agents.register(mcp, agents=s.agents, audit=s.audit)
-    prompts.register(mcp, db=s.db)
+    tools_cli.register(mcp, audit=s.audit, settings=s.settings)
+    prompts.register(mcp, inventory=s.status)
 
 
 __all__ = ["register_all"]

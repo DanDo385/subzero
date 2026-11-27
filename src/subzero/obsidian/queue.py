@@ -296,6 +296,34 @@ class SyncQueue:
             )
         )
 
+    async def status_report(self) -> dict[str, Any]:
+        """Queue shape for answering whether vault writes have landed yet."""
+        rows = await self._db.fetch(
+            """
+            SELECT status, count(*) AS n, max(updated_at) AS latest
+            FROM sync_jobs GROUP BY status
+            """
+        )
+        conflicts = await self._db.fetch(
+            """
+            SELECT vault_path, last_error, updated_at FROM sync_jobs
+            WHERE status = 'conflict' ORDER BY updated_at DESC LIMIT 10
+            """
+        )
+        last_worker = await self._db.fetchval(
+            "SELECT max(created_at) FROM sync_events WHERE worker_id IS NOT NULL"
+        )
+        return {
+            "by_status": {r["status"]: int(r["n"]) for r in rows},
+            "conflicts": [dict(c) for c in conflicts],
+            "last_worker_activity": last_worker,
+            "note": (
+                "Writes land only when the local obsidian-sync worker polls. If "
+                "last_worker_activity is stale, the worker is not running and "
+                "nothing has reached the vault."
+            ),
+        }
+
     async def approve(self, job_id: UUID) -> bool:
         result = await self._db.execute(
             "UPDATE sync_jobs SET status = 'approved' WHERE id = $1 AND status = 'queued'",

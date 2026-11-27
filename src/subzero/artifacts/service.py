@@ -472,6 +472,52 @@ class ArtifactService:
             )
         return None
 
+    async def begin_signed_upload(
+        self,
+        *,
+        title: str,
+        filename: str,
+        byte_size: int,
+        mime_type: str | None,
+        description: str | None,
+        project_id: UUID | None,
+        project_slug: str | None,
+        source_provider: str | None,
+    ) -> dict[str, Any]:
+        """Create a pending_import row and return a signed upload ticket."""
+        safe_path = sanitize_relative_path(filename)
+        mime = mime_type or guess_mime(filename)
+        record = await self.register_reference(
+            title=title,
+            description=description,
+            status="pending_import",
+            source_provider=source_provider,
+            source_type="uploaded_by_user",
+            project_id=project_id,
+            expected_files=[{"filename": filename, "mime_type": mime, "byte_size": byte_size}],
+        )
+        prefix = artifact_prefix(
+            artifact_slug=record.slug, version=record.version, project_slug=project_slug
+        )
+        key = object_key(prefix, safe_path)
+        ticket = await self._store.signed_upload_ticket(
+            key, mime_type=mime, expires_in=self._settings.signed_url_ttl_seconds
+        )
+        await self._db.execute(
+            "UPDATE artifacts SET storage_prefix = $2 WHERE id = $1", record.id, prefix
+        )
+        await self._db.execute(
+            "UPDATE artifact_files SET object_key = $3 WHERE artifact_id = $1 AND relative_path = $2",
+            record.id,
+            safe_path,
+            key,
+        )
+        return {
+            "artifact_id": record.id,
+            "relative_path": safe_path,
+            "ticket": ticket,
+        }
+
     async def stored_bytes_match(self, key: str, digest: str) -> bool:
         """Whether the object at ``key`` exists and hashes to ``digest``."""
         try:

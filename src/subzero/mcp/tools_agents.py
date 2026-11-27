@@ -13,6 +13,7 @@ from subzero.agents.service import AgentService
 from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
+from subzero.homes import Home
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
 
 
@@ -27,13 +28,7 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
     async def dispatch(
         goal: Annotated[
             str,
-            Field(
-                description=(
-                    "The job, in the user's words, sigils included: '%Code/site add dark "
-                    "mode >claude', '^zig build an arena allocator lesson'. A '>name' "
-                    "picks the agent; without one, Jev picks."
-                )
-            ),
+            Field(description="The job in the user's words."),
         ],
         mode: Annotated[
             Literal["scout", "ship"],
@@ -45,6 +40,14 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
                 )
             ),
         ] = "scout",
+        target: Annotated[
+            Literal["claude", "codex", "grok", "gemini", "pi", "me", "crew"] | None,
+            Field(description="Agent named by the user. Leave empty to route automatically."),
+        ] = None,
+        home: Annotated[
+            Home | None,
+            Field(description="Optional home, such as projects/portfolio-site or lesson/zig."),
+        ] = None,
         space: Annotated[
             str | None,
             Field(
@@ -77,6 +80,8 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
         job = await agents.dispatch(
             goal,
             mode=mode,
+            target=target,
+            home=home,
             created_by=principal.provider or "chat",
             space=space,
             worktree=worktree,
@@ -251,8 +256,8 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
             str,
             Field(
                 description=(
-                    "Who gets it: a session name or id from agents_status, a home sigil "
-                    "(^cfa2, %Code/site, &herdr) for every agent working there, or 'me'."
+                    "Who gets it: a session name or id from agents_status, a home such as "
+                    "lesson/cfa2 for every agent working there, or 'me'."
                 )
             ),
         ],
