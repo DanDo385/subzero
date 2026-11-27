@@ -96,6 +96,23 @@ def test_wildcard_default_applies_when_nothing_matches() -> None:
     assert granted == {scopes.MEMORY_READ, scopes.CONTEXT_READ}
 
 
+@pytest.mark.parametrize("app", ["chatgpt", "claude", "gemini", "grok", "muse"])
+def test_every_app_gets_the_same_read_surface_under_a_uniform_policy(app: str) -> None:
+    """One policy for all five providers: no app silently gains or loses a
+    tool. Detection only ever changes result-size defaults, never grants."""
+    policy = {"*": ["*"]}
+    granted = resolve_client_scopes(policy, client_id=f"{app}-client", app=app)
+    assert granted == set(expand(["*"]))
+    assert scopes.AGENTS_EXEC not in granted  # remote execution is never wildcarded
+    assert scopes.CONTEXT_READ in granted and scopes.MEMORY_WRITE in granted
+
+
+def test_an_unknown_app_is_read_only() -> None:
+    granted = resolve_client_scopes({}, client_id="stranger", app="something-new")
+    assert granted == set(DEFAULT_SCOPES)
+    assert not any(s.endswith(":write") or s == "email:send" for s in granted)
+
+
 @pytest.mark.parametrize(
     ("redirect_uris", "expected"),
     [

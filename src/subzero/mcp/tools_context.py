@@ -16,12 +16,31 @@ from pydantic import Field
 
 from subzero.agent_context import Document, read_agent_context
 from subzero.auth import scopes
+from subzero.auth.principal import current_principal
 from subzero.config import Settings
 from subzero.homes import Home
 from subzero.mcp.compact import dump
 from subzero.mcp.render import bootstrap_text
 from subzero.mcp.result import ToolResult, object_output_schema
 from subzero.retrieval.service import RetrievalService
+
+#: Apps whose surfaces charge more per turn (or truncate sooner): they get
+#: the compact package by default. Unknown callers get the full default;
+#: detection only sets defaults, and any caller can ask for more.
+_COMPACT_APPS = frozenset({"chatgpt", "gemini"})
+COMPACT_BUDGET = 800
+FULL_BUDGET = 1200
+
+
+def budget_for_provider(provider: str | None) -> int:
+    """Default token budget for a calling app. Pure, so it is unit-tested."""
+    if provider in _COMPACT_APPS:
+        return COMPACT_BUDGET
+    return FULL_BUDGET
+
+
+def _default_budget() -> int:
+    return budget_for_provider(current_principal().provider)
 
 
 def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -> None:
@@ -59,8 +78,16 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
             ),
         ] = None,
         token_budget: Annotated[
-            int, Field(ge=200, le=4000, description="Approximate token ceiling for the result.")
-        ] = 1200,
+            int | None,
+            Field(
+                ge=200,
+                le=4000,
+                description=(
+                    "Approximate token ceiling for the result. Leave empty for the "
+                    "default for your app (compact for ChatGPT and Gemini, full otherwise)."
+                ),
+            ),
+        ] = None,
         user_message: Annotated[
             str | None,
             Field(
@@ -89,7 +116,11 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         text and in the structured result.
         """
         package = await retrieval.bootstrap(
-            query, user_message=user_message, token_budget=token_budget, project=project, home=home
+            query,
+            user_message=user_message,
+            token_budget=token_budget if token_budget is not None else _default_budget(),
+            project=project,
+            home=home,
         )
         payload = dump(package)
         return ToolResult(content=bootstrap_text(payload), structured_content=payload)
@@ -212,17 +243,24 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
     async def context_for_topic(
         topic: Annotated[str, Field(description="The topic to assemble context about.")],
         token_budget: Annotated[
-            int,
+            int | None,
             Field(
                 ge=200,
                 le=4000,
-                description="Approximate size of the answer in tokens. Raise it for broad topics.",
+                description=(
+                    "Approximate size of the answer in tokens. Raise it for broad topics. "
+                    "Leave empty for the default for your app."
+                ),
             ),
-        ] = 1200,
+        ] = None,
         project: Annotated[str | None, Field(description="Project slug or name.")] = None,
     ) -> dict[str, Any]:
         """Budgeted package about one topic. Prefer this over include_messages."""
-        package = await retrieval.for_topic(topic, token_budget=token_budget, project=project)
+        package = await retrieval.for_topic(
+            topic,
+            token_budget=token_budget if token_budget is not None else _default_budget(),
+            project=project,
+        )
         return dump(package)
 
     @mcp.tool(

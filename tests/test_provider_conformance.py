@@ -173,6 +173,16 @@ def test_unknown_arguments_are_refused_before_services_run(tools: list[Any]) -> 
     asyncio.run(run_all())
 
 
+def test_compact_apps_get_the_compact_budget() -> None:
+    from subzero.mcp.tools_context import COMPACT_BUDGET, FULL_BUDGET, budget_for_provider
+
+    assert budget_for_provider("chatgpt") == COMPACT_BUDGET
+    assert budget_for_provider("gemini") == COMPACT_BUDGET
+    for provider in ("claude", "grok", "muse", "unknown", None):
+        assert budget_for_provider(provider) == FULL_BUDGET
+    assert COMPACT_BUDGET < FULL_BUDGET
+
+
 def test_compacted_results_are_json_clean() -> None:
     """What dump() sends must survive a JSON round trip with no nulls or
     empty containers: some hosts echo the structured payload as text."""
