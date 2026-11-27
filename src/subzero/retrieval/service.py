@@ -25,11 +25,10 @@ statements and some arithmetic.
 
 from __future__ import annotations
 
-import json
 import math
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 import asyncpg
@@ -39,7 +38,6 @@ from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
 from subzero.models import (
-    ConflictReport,
     ContextItem,
     ContextPackage,
     LayerReport,
@@ -49,19 +47,15 @@ from subzero.models import (
 )
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference, semantic
+from subzero.retrieval import package as pkg
 from subzero.retrieval.query import ParsedQuery, parse
 from subzero.sessions.checkpoint import question_key
-from subzero.util import estimate_tokens, truncate_for_budget
+from subzero.util import truncate_for_budget
 
 #: Per-item ceiling so one enormous note cannot eat the whole package.
 _MAX_ITEM_TOKENS = 450
-#: Starting estimate for the package's own fields (project, layers, notes).
-#: The finished package is measured and trimmed to the budget anyway.
-_PACKAGE_OVERHEAD = 110
 #: Below this budget, items leave out fields the package already implies.
 _COMPACT_BELOW = 400
-#: Conflict reports per package; the rest are dropped, newest-statement first kept.
-_MAX_CONFLICT_REPORTS = 3
 
 #: Who said it. The user's own words outrank a model's conclusions; text
 #: lifted from imported chats (titles, transcript openings) ranks lowest.
@@ -84,11 +78,6 @@ KIND_WEIGHT = {
 }
 #: Recency half-weight age: an item this many days old keeps 75% of its score.
 _RECENCY_DAYS = 90.0
-
-_NOTHING_MATCHED = (
-    "Nothing in Subzero matched. Answer from the current conversation; "
-    "do not assume prior context exists."
-)
 
 
 def _now() -> datetime:
@@ -139,7 +128,7 @@ def _item(
         open_questions=questions,
         reason=_get(row, "reason"),
     )
-    item.estimated_tokens = _cost(item)
+    item.estimated_tokens = pkg.cost(item)
     return item
 
 
@@ -148,18 +137,6 @@ def _get(row: asyncpg.Record | dict[str, Any], key: str) -> Any:
         return row[key]
     except (KeyError, IndexError):
         return None
-
-
-def _wire_tokens(model: ContextItem | ContextPackage) -> int:
-    """Tokens the object costs as sent: the tool's JSON at 3.6 characters a token."""
-    # Imported here: the mcp package imports the tools, which import services.
-    from subzero.mcp.compact import dump
-
-    return estimate_tokens(json.dumps(dump(model)))
-
-
-def _cost(item: ContextItem) -> int:
-    return _wire_tokens(item)
 
 
 # --------------------------------------------------------------- the SQL
@@ -466,31 +443,6 @@ def _name_query(project: inference.ProjectRow | None) -> str:
     return " | ".join(phrases)
 
 
-@dataclass
-class _Conflict:
-    older: UUID
-    newer: UUID
-    kind: Literal["superseded", "possible_conflict"]
-    newer_kind: str
-    newer_provenance: str
-    newer_body: str | None
-    #: Topic words the two share; more means more likely the same subject.
-    shared: int = 0
-
-
-@dataclass
-class _Budget:
-    total: int
-    spent: int = 0
-
-    def fits(self, cost: int, ceiling: int | None = None) -> bool:
-        limit = self.total if ceiling is None else min(self.total, ceiling)
-        return self.spent + cost <= limit
-
-    def take(self, cost: int) -> None:
-        self.spent += cost
-
-
 class RetrievalService:
     def __init__(
         self,
@@ -629,15 +581,15 @@ class RetrievalService:
 
     # ------------------------------------------------------------ conflicts
 
-    async def _find_conflicts(self, items: list[ContextItem]) -> list[_Conflict]:
+    async def _find_conflicts(self, items: list[ContextItem]) -> list[pkg.Conflict]:
         """Pairs where a newer item may overrule a returned decision. One query.
 
         An explicit supersede link is certain. Shared topic words are not, so
         those are possible conflicts for the user to settle; the older decision
         is never silently preferred or silently dropped.
         """
-        found: list[_Conflict] = [
-            _Conflict(
+        found: list[pkg.Conflict] = [
+            pkg.Conflict(
                 older=i.id,
                 newer=i.superseded_by,
                 kind="superseded",
@@ -659,7 +611,7 @@ class RetrievalService:
             ):
                 continue
             found.append(
-                _Conflict(
+                pkg.Conflict(
                     older=row["older_id"],
                     newer=row["id"],
                     kind="possible_conflict",
@@ -672,7 +624,7 @@ class RetrievalService:
         return found
 
     @staticmethod
-    def _mark_conflicts(items: list[ContextItem], conflicts: list[_Conflict]) -> None:
+    def _mark_conflicts(items: list[ContextItem], conflicts: list[pkg.Conflict]) -> None:
         """Point each item at the other side of its conflicts, when both are present."""
         by_id = {i.id: i for i in items}
         for conflict in conflicts:
@@ -849,110 +801,20 @@ class RetrievalService:
             item_cap=item_cap,
         )
 
-        for layer, group in (
-            ("handoff", [i for h in handoffs for i in h]),
-            ("relevant", relevant),
-            ("semantic", semantic),
-            ("raw", raw),
-        ):
-            for item in group:
-                item.layer = layer
-                if focus is not None and item.project == focus.slug:
-                    item.project = None  # the package names it once
-                if compact or item.type != "summary":
-                    item.provenance.conversation_id = None
-                item.estimated_tokens = _cost(item)
-
-        everything = {i.id: i for h in handoffs for i in h} | {
-            i.id: i for i in relevant + semantic + raw
-        }
-        # Each checked decision costs a lookup, so check the ones that matter:
-        # those matching the query first, then the handoff's newest.
-        likely = [i for i in relevant if i.type == "decision"][:5]
-        for h in handoffs:
-            likely += [i for i in h if i.type == "decision"][:5]
-        conflicts = await self._find_conflicts(likely)
-        partners: dict[UUID, list[UUID]] = {}
-        for c in conflicts:
-            partners.setdefault(c.older, []).append(c.newer)
-            partners.setdefault(c.newer, []).append(c.older)
+        gathered = pkg.Candidates(handoffs=handoffs, relevant=relevant, semantic=semantic, raw=raw)
+        pkg.stamp_layers(gathered, focus_slug=focus.slug if focus else None, compact=compact)
+        everything = gathered.by_id()
+        conflicts = await self._find_conflicts(pkg.likely_conflicted(gathered))
 
         # -- fill by priority ----------------------------------------------
-        order: list[ContextItem] = []
-        for h in handoffs:
-            order += h[:1]  # newest session of each project
-        order += relevant[:2]
-        for h in handoffs:
-            order += h[1:5]  # two open tasks, two decisions
-        for h in handoffs:
-            order += h[5:]
-        order += relevant[2:] + semantic + raw
-
-        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD)
-        chosen: dict[UUID, ContextItem] = {}
-        left_out = 0
-
-        def add(item: ContextItem) -> bool:
-            if item.id in chosen:
-                return True
-            if not budget.fits(item.estimated_tokens):
-                return False
-            chosen[item.id] = item
-            budget.take(item.estimated_tokens)
-            return True
-
-        priority: dict[UUID, int] = {}
-        for item in order:
-            if not add(item):
-                left_out += 1
-                continue
-            priority.setdefault(item.id, len(priority))
-            # The other side of a conflict travels with the item that brought it,
-            # at the same priority, so the pair is kept or trimmed together.
-            for other in partners.get(item.id, []):
-                if other in everything and add(everything[other]):
-                    priority.setdefault(other, priority[item.id])
+        order = pkg.priority_order(gathered)
+        picked = pkg.fill_by_priority(
+            order, conflicts=conflicts, everything=everything, token_budget=token_budget
+        )
+        chosen, priority, left_out = picked.chosen, picked.priority, picked.left_out
 
         # -- conflict reports for what was chosen ----------------------------
-        reports: list[ConflictReport] = []
-        reported_older: set[UUID] = set()
-        for c in sorted(
-            conflicts,
-            key=lambda c: (
-                c.kind != "superseded",
-                not (c.older in chosen and c.newer in chosen),
-                c.newer_provenance != "user_statement",
-                -c.shared,
-            ),
-        ):
-            if c.older not in chosen and c.newer not in chosen:
-                continue
-            if c.older in reported_older:
-                continue  # one report per decision: its strongest challenger
-            if len(reports) == _MAX_CONFLICT_REPORTS:
-                break
-            reported_older.add(c.older)
-            older_text = None
-            if c.older not in chosen and c.older in everything:
-                older_text = truncate_for_budget(everything[c.older].content, 40)
-            newer_text = None
-            if c.newer not in chosen:
-                body = everything[c.newer].content if c.newer in everything else c.newer_body
-                newer_text = truncate_for_budget(body, 40) if body else "see superseded_by"
-            reports.append(
-                ConflictReport(
-                    kind=c.kind,
-                    ids=[c.older, c.newer],
-                    older=older_text,
-                    newer=newer_text,
-                    newer_provenance=c.newer_provenance,
-                    advice=(
-                        "Replaced; use the newer decision."
-                        if c.kind == "superseded"
-                        else f"Newer {c.newer_kind} on the same subject; ask the user which stands."
-                    ),
-                )
-            )
+        reports = pkg.conflict_reports(conflicts, chosen=chosen, everything=everything)
         shown = [i for i in order if i.id in chosen]
         self._mark_conflicts(
             shown,
@@ -960,79 +822,37 @@ class RetrievalService:
         )
 
         # -- reading order and layer report ----------------------------------
-        rank = {"handoff": 0, "relevant": 1, "semantic": 2, "raw": 3}
-        position = {
-            i.id: n
-            for n, i in enumerate([*(i for h in handoffs for i in h), *relevant, *semantic, *raw])
-        }
-        items = sorted(shown, key=lambda i: (rank[i.layer or "relevant"], position[i.id]))
-        counts = {name: sum(1 for i in items if i.layer == name) for name in rank}
+        items, counts = pkg.reading_order(shown, gathered)
 
-        if handoffs:
-            layers.append(
-                LayerReport(
-                    name="handoff",
-                    status="ran",
-                    reason=None
-                    if focus
-                    else f"sessions filed under {home}"
-                    if home_handoff
-                    else "short handoff per candidate project",
-                    items=counts["handoff"] or None,
-                )
-            )
-        if searched.is_empty:
-            layers.append(
-                LayerReport(
-                    name="relevant",
-                    status="skipped",
-                    reason="no query terms" if parsed.is_empty else "query only names the project",
-                )
-            )
-        else:
-            layers.append(
-                LayerReport(name="relevant", status="ran", items=counts["relevant"] or None)
-            )
-        # Reported only when it ran or failed: a routine skip (embeddings not
-        # configured, no query) would spend small budgets on noise.
-        if semantic_reason is None:
-            layers.append(
-                LayerReport(name="semantic", status="ran", items=counts["semantic"] or None)
-            )
-        elif semantic_reason.startswith("query could not"):
-            layers.append(LayerReport(name="semantic", status="skipped", reason=semantic_reason))
-        if raw or (not handoff_ids and not relevant and not searched.is_empty):
-            layers.append(
-                LayerReport(name="raw_messages", status="ran", items=counts["raw"] or None)
-            )
-            if counts["raw"]:
-                notes.append(
-                    "Included raw message excerpts because nothing structured matched. "
-                    "These are verbatim transcript fragments."
-                )
-        else:
-            layers.append(
-                LayerReport(
-                    name="raw_messages",
-                    status="skipped",
-                    reason="not needed" if (handoff_ids or relevant) else "no query terms",
-                )
-            )
-        if compact:
-            # layers_used already names the layers that returned items.
-            layers = [r for r in layers if r.status == "skipped" or not r.items]
+        layers = pkg.report_layers(
+            layers,
+            ran_handoff=bool(handoffs),
+            focused=focus is not None,
+            home_handoff=home_handoff,
+            home=home,
+            searched_empty=searched.is_empty,
+            parsed_empty=parsed.is_empty,
+            semantic_reason=semantic_reason,
+            had_raw=bool(raw),
+            structured=bool(handoff_ids or relevant),
+            counts=counts,
+            compact=compact,
+            notes=notes,
+        )
 
         if left_out:
             notes.append(f"{left_out} more items did not fit token_budget.")
         if not items:
-            notes.append(_NOTHING_MATCHED)
+            notes.append(pkg.NOTHING_MATCHED)
 
         package = ContextPackage(
             query=truncate_for_budget(query, 60),
             items=items,
             token_budget=token_budget,
             estimated_tokens=0,
-            layers_used=[{"raw": "raw_messages"}.get(name, name) for name in rank if counts[name]],
+            layers_used=[
+                {"raw": "raw_messages"}.get(name, name) for name in pkg.LAYER_RANK if counts[name]
+            ],
             truncated=left_out > 0,
             notes=notes,
             keywords=parsed.keywords,
@@ -1040,23 +860,9 @@ class RetrievalService:
             layers=layers,
             conflicts=reports,
         )
-        # The budget covers the whole result as sent. If the estimate above was
-        # short, drop the lowest-priority items until it fits.
-        size = _wire_tokens(package)
-        while size > token_budget and package.items:
-            worst = max(package.items, key=lambda i: (priority.get(i.id, len(order)), i.layer))
-            package.items.remove(worst)
-            for report in package.conflicts:
-                if report.ids[0] == worst.id and report.older is None:
-                    report.older = truncate_for_budget(worst.content, 40)
-                if report.ids[-1] == worst.id and report.newer is None:
-                    report.newer = truncate_for_budget(worst.content, 40)
-            for kept_item in package.items:
-                if worst.id in kept_item.conflicts_with:
-                    kept_item.conflicts_with.remove(worst.id)
-            package.truncated = True
-            size = _wire_tokens(package)
-        package.estimated_tokens = size
+        pkg.trim_to_budget(
+            package, priority=priority, fallback=len(order), token_budget=token_budget
+        )
         return package
 
     async def _semantic_layer(
