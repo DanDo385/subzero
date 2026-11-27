@@ -106,9 +106,8 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         (MACHINES.md). Each Loaded line names the path and content id. Follow
         that text for the whole chat. When MACHINES.md is marked cut, call
         context_read_guidance with document "machines" for the rest. Pass
-        query terms and the project only when the request depends on past
-        work (a project, earlier decisions, "remember", "last time"); leave
-        them empty for a standalone question.
+        query terms and the project only when the request depends on past work (a project,
+        earlier decisions, "remember", "last time"); leave them empty for a standalone question.
 
         Returns the project's handoff first (latest session summaries with
         their open questions, open tasks, active decisions), then items
