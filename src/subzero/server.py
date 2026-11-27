@@ -44,7 +44,7 @@ from subzero.auth.ratelimit import RateLimitMiddleware
 from subzero.bridge.api import build_bridge_routes
 from subzero.config import Settings, get_settings
 from subzero.db import schema_status
-from subzero.db.pool import Database
+from subzero.db.pool import Database, request_stats
 from subzero.embeddings.refresh import background_refresh
 from subzero.importers.reclassify import background_classify
 from subzero.ingest import build_ingest_routes
@@ -431,20 +431,25 @@ class RequestLogMiddleware:
                 status = message["status"]
             await send(message)
 
-        try:
-            await self.app(scope, receive_wrapper if is_mcp else receive, send_wrapper)
-        finally:
-            tool_failures = close_record(record)
-            fields: dict[str, Any] = {
-                "http_method": scope["method"],
-                "path": scope["path"],
-                "status": status or 500,
-                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
-                "user_agent": headers.get(b"user-agent", b"").decode("latin-1")[:300],
-                "credential_scheme": _credential_scheme(credential),
-                "mcp_protocol_version": headers.get(b"mcp-protocol-version", b"").decode("latin-1")
-                or None,
-            }
+        with request_stats() as stats:
+            try:
+                await self.app(scope, receive_wrapper if is_mcp else receive, send_wrapper)
+            finally:
+                tool_failures = close_record(record)
+                fields: dict[str, Any] = {
+                    "http_method": scope["method"],
+                    "path": scope["path"],
+                    "status": status or 500,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                    "db_statements": stats.statements,
+                    "db_ms": round(stats.db_ms, 1),
+                    "user_agent": headers.get(b"user-agent", b"").decode("latin-1")[:300],
+                    "credential_scheme": _credential_scheme(credential),
+                    "mcp_protocol_version": headers.get(b"mcp-protocol-version", b"").decode(
+                        "latin-1"
+                    )
+                    or None,
+                }
             if is_mcp and body and len(body) < _LOGGED_BODY_LIMIT:
                 fields.update(_rpc_summary(bytes(body)))
                 if self.log_bodies:

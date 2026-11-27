@@ -8,8 +8,11 @@ security-relevant queries readable.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+import time
+from collections.abc import AsyncIterator, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from typing import Any
 
 import asyncpg
@@ -18,6 +21,98 @@ from subzero.config import Settings
 from subzero.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class RequestStats:
+    """Statements run and time spent in Postgres for one request.
+
+    Every statement a request runs costs a network round trip against a
+    remote database (Supabase is ~200 ms away from a home machine), so this
+    is the number Phase 1 optimises. Filled by the instrumented connections
+    below whenever a request set one; background loops leave it unset and
+    pay nothing for the lookup.
+    """
+
+    statements: int = 0
+    db_ms: float = 0.0
+
+
+_stats_var: ContextVar[RequestStats | None] = ContextVar("subzero_db_stats", default=None)
+
+#: Every statement any connection ran since import, for tests. Request
+#: attribution uses the contextvar above (a live server handles each request
+#: in its own task tree, which a test cannot reach across a socket); the
+#: eval harness snapshots this around each serial tool call instead.
+_total_statements: int = 0
+
+
+def total_statements() -> int:
+    """Process-wide statement count. Eval use only."""
+    return _total_statements
+
+
+@contextmanager
+def request_stats() -> Iterator[RequestStats]:
+    """Collect per-request database stats until the block exits.
+
+    The request log middleware owns this: one accumulator per HTTP request,
+    read after the response completes. Task-local, so concurrent requests
+    never share a count.
+    """
+    stats = RequestStats()
+    token: Token[RequestStats | None] = _stats_var.set(stats)
+    try:
+        yield stats
+    finally:
+        _stats_var.reset(token)
+
+
+class _InstrumentedConnection:
+    """Counts and times statements into the request's RequestStats, if set.
+
+    Thin delegation: anything that is not fetch/fetchrow/fetchval/execute/
+    executemany passes straight through to the real connection, so
+    transaction blocks and type codecs behave exactly as before.
+    """
+
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: asyncpg.Connection) -> None:
+        self._conn = conn
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
+
+    async def _timed(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        global _total_statements
+        stats = _stats_var.get()
+        # Synchronous increments only: no await between load and store, so
+        # no task can interleave. The eval harness snapshots the global
+        # around each serial call; requests use their own accumulator.
+        start = time.perf_counter() if stats is not None else 0.0
+        try:
+            return await getattr(self._conn, method)(*args, **kwargs)
+        finally:
+            _total_statements += 1
+            if stats is not None:
+                stats.statements += 1
+                stats.db_ms += (time.perf_counter() - start) * 1000
+
+    async def fetch(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._timed("fetch", *args, **kwargs)
+
+    async def fetchrow(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._timed("fetchrow", *args, **kwargs)
+
+    async def fetchval(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._timed("fetchval", *args, **kwargs)
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._timed("execute", *args, **kwargs)
+
+    async def executemany(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._timed("executemany", *args, **kwargs)
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
@@ -124,32 +219,34 @@ class Database:
         return self._pool
 
     @asynccontextmanager
-    async def acquire(self) -> AsyncIterator[asyncpg.Connection]:
+    async def acquire(self) -> AsyncIterator[Any]:
+        """A pooled connection. Statements run through it are counted into
+        the request's RequestStats when one is set (see request_stats)."""
         async with self.pool.acquire() as conn:
-            yield conn
+            yield _InstrumentedConnection(conn)
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
+    async def transaction(self) -> AsyncIterator[Any]:
         """A connection inside a transaction.
 
         Checkpoints use this so a half-applied checkpoint never persists.
         """
         async with self.pool.acquire() as conn, conn.transaction():
-            yield conn
+            yield _InstrumentedConnection(conn)
 
     # ---------------------------------------------------------------- reads
     async def fetch(self, query: str, *args: Any) -> list[asyncpg.Record]:
-        async with self.pool.acquire() as conn:
+        async with self.acquire() as conn:
             return await conn.fetch(query, *args)
 
     async def fetchrow(self, query: str, *args: Any) -> asyncpg.Record | None:
-        async with self.pool.acquire() as conn:
+        async with self.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
     async def fetchval(self, query: str, *args: Any) -> Any:
-        async with self.pool.acquire() as conn:
+        async with self.acquire() as conn:
             return await conn.fetchval(query, *args)
 
     async def execute(self, query: str, *args: Any) -> str:
-        async with self.pool.acquire() as conn:
+        async with self.acquire() as conn:
             return await conn.execute(query, *args)

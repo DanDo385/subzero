@@ -26,6 +26,8 @@ from typing import Any
 
 import yaml
 
+from subzero.db.pool import total_statements
+
 from .fixture import Seeded
 
 CASES_PATH = Path(__file__).with_name("retrieval_cases.yaml")
@@ -257,32 +259,18 @@ def score(
     )
 
 
-class QueryCounter:
-    """Counts database statements by wrapping the Database class methods."""
-
-    METHODS = ("fetch", "fetchrow", "fetchval", "execute")
-
-    def __init__(self, monkeypatch: Any) -> None:
-        from subzero.db.pool import Database
-
-        self.count = 0
-        for name in self.METHODS:
-            original = getattr(Database, name)
-
-            async def wrapped(self_db: Any, *args: Any, _o: Any = original, **kw: Any) -> Any:
-                self.count += 1
-                return await _o(self_db, *args, **kw)
-
-            monkeypatch.setattr(Database, name, wrapped)
-
-
 async def run(
     client: Any,
     seeded: Seeded,
-    counter: QueryCounter,
     *,
     latency_samples: int = 1,
 ) -> dict[str, Any]:
+    """Score every case. round_trips counts every statement the tool call ran,
+    including ones inside transactions (see db.pool.total_statements):
+    against a remote database each one is a network round trip, so this is
+    the number Phase 1 drives down. The live server runs in its own task
+    tree, so the harness snapshots the process-wide counter around each
+    serial call instead of using per-request attribution."""
     results: list[CaseResult] = []
     latencies: dict[str, list[float]] = {"search": [], "bootstrap": []}
     for case in load_cases():
@@ -290,11 +278,11 @@ async def run(
         answer = None
         trips = 0
         for _ in range(max(1, latency_samples)):
-            before = counter.count
+            before = total_statements()
             started = time.perf_counter()
             answer = await call(client, case, seeded)
             timings.append((time.perf_counter() - started) * 1000)
-            trips = counter.count - before
+            trips = total_statements() - before
         assert answer is not None
         latencies[case["tool"]] += timings
         results.append(
