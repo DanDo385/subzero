@@ -144,7 +144,9 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         Use when bootstrap did not cover what you need. Results match any of the
         terms, rank higher the more they match, and favour the user's own words
         over an assistant's summary and recent items over old ones. An empty
-        result means nothing matched: say so rather than guess.
+        result means nothing matched: retry once with fewer or different
+        terms (or memory_deep_search for meaning rather than words), then
+        say so rather than guess.
         """
         items = await retrieval.search(
             query,
