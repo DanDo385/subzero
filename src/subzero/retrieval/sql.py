@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 #: Columns every search branch returns, in this order.
+#:
+#: Weights are explicit (not Postgres's default {0.1, 0.2, 0.4, 1.0}): D is
+#: 0.005 so a hub note repeating the query's words thirty times still loses
+#: to one exact title cover (a title cover saturates at 1.0 while body
+#: covers accumulate ~88xD, so D must sit well under 1/88). Measured.
 _RANK_COLS = """
-    coalesce(ts_rank_cd({tsv}, q.r), 0)::float8 AS rank,
+    coalesce(ts_rank_cd('{{0.005, 0.2, 0.4, 1.0}}'::real[], {tsv}, q.r), 0)::float8 AS rank,
     (SELECT count(*) FROM unnest(q.terms) t
       WHERE {tsv} @@ t)::int AS coverage,
     coalesce({tsv} @@ q.ph, false) AS phrase_hit,
