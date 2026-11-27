@@ -201,7 +201,20 @@ async def _refresh_source(
 
     vectors = await embeddings.embed([source.text(r) for r in todo])
     pairs = [(r["id"], vector_literal(v)) for r, v in zip(todo, vectors, strict=True) if v]
-    result.failed = len(todo) - len(pairs)
+    refused = [r["id"] for r, v in zip(todo, vectors, strict=True) if v is None]
+    if refused and len(refused) < len(todo):
+        # The provider answered row by row and refused some rows at every
+        # length. Mark them skipped: a row that can never be embedded must not
+        # sit at the head of the pending set, which is exactly how one long
+        # message froze this backlog for a day.
+        await db.execute(source.skip_sql, refused)
+        result.skipped += len(refused)
+        logger.warning(
+            "embedding provider refused rows at every length; marked skipped",
+            extra={"source": source.name, "count": len(refused)},
+        )
+    else:
+        result.failed = len(refused)
     if pairs:
         # A few statements per batch, each one round trip (executemany sent an
         # UPDATE per row inside one transaction) and small enough that its

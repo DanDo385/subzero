@@ -8,6 +8,7 @@ from subzero.embeddings.base import (
     NullEmbeddingProvider,
     redact,
 )
+from subzero.errors import EmbeddingInputError
 from subzero.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -66,14 +67,42 @@ class EmbeddingService:
             logger.info("embedding skipped by privacy policy", extra={"sensitivity": sensitivity})
             return [None] * len(texts)
 
+        cleaned = [redact(t) for t in texts]
         try:
-            vectors = await self._provider.embed([redact(t) for t in texts])
+            vectors = await self._provider.embed(cleaned)
+        except EmbeddingInputError:
+            # One input the provider will not embed refuses the whole batch.
+            # Re-ask row by row, shrinking each refusal, so the good rows still
+            # get vectors and only a row refused at every length comes back
+            # None. Without this a single long message wedges the queue that
+            # feeds it, because the row never leaves the pending set.
+            vectors = [await self._embed_shrinking(text) for text in cleaned]
         except Exception:
             # A dead embedding vendor must not break memory_save. Full-text
             # search still works and a backfill can populate the column later.
             logger.exception("embedding failed; continuing without vectors")
             return [None] * len(texts)
         return [v or None for v in vectors]
+
+    async def _embed_shrinking(self, text: str) -> list[float] | None:
+        cut = len(text)
+        while cut > 0:
+            try:
+                one = await self._provider.embed([text[:cut]])
+            except EmbeddingInputError:
+                cut //= 2
+                continue
+            except Exception:
+                logger.exception("embedding failed; continuing without vectors")
+                return None
+            if one:
+                return one[0]
+            return None
+        logger.warning(
+            "embedding provider refused this input at every length; no vector",
+            extra={"chars": len(text)},
+        )
+        return None
 
     async def aclose(self) -> None:
         await self._provider.aclose()
