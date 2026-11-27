@@ -28,6 +28,7 @@ from subzero.mcp import (
     tools_email,
     tools_inbox,
     tools_memory,
+    tools_notes,
     tools_projects,
     tools_review,
 )
@@ -62,6 +63,7 @@ def _server() -> FastMCP:
         sync_queue=stub,
         vault_paths=stub,
     )
+    tools_notes.register(mcp, audit=stub, notes=stub, settings=stub, sync_queue=stub)
     tools_projects.register(mcp, audit=stub, projects=stub)
     tools_artifacts.register(
         mcp,
@@ -113,6 +115,7 @@ def test_every_provider_sees_the_same_tools(tools: list[Any]) -> None:
         "context_search",
         "session_checkpoint",
         "inbox_add",
+        "note_patch",
         "project_list",
         "artifact_save_text",
         "review_list",

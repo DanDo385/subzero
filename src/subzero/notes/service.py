@@ -8,6 +8,8 @@ winner.
 
 from __future__ import annotations
 
+import difflib
+import json
 from typing import Any, get_args
 from uuid import UUID
 
@@ -15,14 +17,25 @@ import asyncpg
 
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
-from subzero.errors import NotFoundError
+from subzero.errors import ConflictError, NotFoundError, ValidationError
 from subzero.homes import home_metadata
 from subzero.models import NoteClass, NoteRecord
-from subzero.notes.chunks import chunk_note
+from subzero.notes.chunks import Chunk, chunk_note
 from subzero.obsidian.render import extract_note_body
 from subzero.util import sha256_text, slugify
 
 _NOTE_CLASSES = frozenset(get_args(NoteClass))
+
+
+def _unified_diff(before: str, after: str, *, context: int = 3, limit: int = 60) -> str:
+    """A short unified diff for a patch preview. Capped so a large rewrite
+    cannot flood the caller's context."""
+    lines = list(
+        difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=context)
+    )
+    if len(lines) > limit:
+        lines = [*lines[:limit], f"... ({len(lines) - limit} more lines)"]
+    return "\n".join(lines)
 
 
 def _record(row: asyncpg.Record, *, include_content: bool = False) -> NoteRecord:
@@ -470,3 +483,180 @@ class NoteService:
             self._db, row["id"], version, row["title"], body, content_hash, author
         )
         return {"note_id": str(row["id"]), "changed": True, "version": version}
+
+    async def patch_note(
+        self,
+        reference: str,
+        *,
+        section: str | None = None,
+        key: str | None = None,
+        operation: str,
+        text: str = "",
+        expected_version: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Edit one section of a note (or one metadata key) without rewriting it.
+
+        ``section`` is a chunk heading path ("Plan > Risks") from the same
+        chunking the search index uses; ``key`` is a metadata key. Exactly one
+        of the two is required. ``operation`` is replace, prepend, append or
+        delete (delete ignores ``text``). ``expected_version`` is the version
+        the caller read: a mismatch refuses instead of overwriting, so a
+        human edit in between comes back as an error naming both versions.
+        ``dry_run`` validates everything and returns the diff without writing.
+
+        Runs in one transaction: the guard, the write and the chunk rebuild
+        cannot interleave with another writer.
+        """
+        if bool(section) == bool(key):
+            raise ValidationError("Pass exactly one of section (a heading path) or key.")
+        if operation not in ("replace", "prepend", "append", "delete"):
+            raise ValidationError(
+                f"Unknown operation {operation!r}: replace, prepend, append or delete."
+            )
+        note_id = await self.resolve(reference)
+        if note_id is None:
+            raise NotFoundError(f"No note matches {reference!r}.")
+
+        async with self._db.transaction() as tx:
+            row = await tx.fetchrow(
+                "SELECT id, title, content, version, metadata, vault_path FROM notes WHERE id = $1",
+                note_id,
+            )
+            assert row is not None  # resolve() just proved it exists
+            if expected_version is not None and row["version"] != expected_version:
+                raise ConflictError(
+                    f"Note is at version {row['version']}, not {expected_version}: "
+                    "it changed since you read it. Re-read it and retry against the new version."
+                )
+            metadata = dict(row["metadata"] or {})
+            if key is not None:
+                new_metadata, changed = self._patch_key(metadata, key, operation, text)
+                new_content: str | None = None
+            else:
+                assert section is not None
+                new_content = self._patch_section(
+                    row["title"], row["content"], section, operation, text
+                )
+                new_metadata = metadata
+                changed = new_content != row["content"]
+            if not changed:
+                return {
+                    "note_id": note_id,
+                    "title": row["title"],
+                    "version": row["version"],
+                    "vault_path": row["vault_path"],
+                    "applied": False,
+                    "diff": "",
+                }
+            diff = _unified_diff(row["content"], new_content or row["content"])
+            if dry_run:
+                return {
+                    "note_id": note_id,
+                    "title": row["title"],
+                    "version": row["version"],
+                    "vault_path": row["vault_path"],
+                    "applied": False,
+                    "diff": diff,
+                }
+            version = row["version"]
+            if new_content is not None:
+                version += 1
+                await tx.execute(
+                    """
+                    UPDATE notes
+                    SET content = $2, content_sha256 = $3, version = $4,
+                        metadata = $5::jsonb, embedding = NULL
+                    WHERE id = $1
+                    """,
+                    note_id,
+                    new_content,
+                    sha256_text(new_content),
+                    version,
+                    new_metadata,
+                )
+                await self._rebuild_chunks(tx, note_id, row["title"], new_content)
+                await self._add_version(
+                    tx,
+                    note_id,
+                    version,
+                    row["title"],
+                    new_content,
+                    sha256_text(new_content),
+                    "note_patch",
+                )
+            else:
+                await tx.execute(
+                    "UPDATE notes SET metadata = $2::jsonb WHERE id = $1",
+                    note_id,
+                    new_metadata,
+                )
+            return {
+                "note_id": note_id,
+                "title": row["title"],
+                "version": version,
+                "vault_path": row["vault_path"],
+                "applied": True,
+                "diff": diff,
+            }
+
+    @staticmethod
+    def _patch_key(
+        metadata: dict[str, Any], key: str, operation: str, text: str
+    ) -> tuple[dict[str, Any], bool]:
+        if operation in ("prepend", "append"):
+            raise ValidationError(
+                f"Operation {operation!r} needs a section; a metadata key only supports replace and delete."
+            )
+        if operation == "delete":
+            if key not in metadata:
+                raise ValidationError(f"No metadata key {key!r} to delete.")
+            updated = {k: v for k, v in metadata.items() if k != key}
+            return updated, True
+        updated = dict(metadata)
+        try:
+            value: Any = json.loads(text) if text.strip() else None
+        except ValueError:
+            value = text
+        if updated.get(key) == value:
+            return updated, False
+        updated[key] = value
+        return updated, True
+
+    @staticmethod
+    def _patch_section(title: str, content: str, section: str, operation: str, text: str) -> str:
+        chunks = chunk_note(title, content)
+        matches = [c for c in chunks if c.heading_path == section]
+        if not matches:
+            available = ", ".join(repr(c.heading_path or "(top)") for c in chunks)
+            raise NotFoundError(f"No section {section!r} in this note. Sections: {available}.")
+        if len(matches) > 1:
+            raise ValidationError(
+                f"Section {section!r} occurs {len(matches)} times; be more specific."
+            )
+        target = matches[0]
+        if target.heading_path == "":
+            raise ValidationError(
+                "The top of the note has no heading path; rewrite it with notes.upsert instead."
+            )
+        heading, _, body = target.text.partition("\n")
+        body = body.strip()
+        if operation == "delete":
+            rebuilt = [c for c in chunks if c is not target]
+        else:
+            if not text.strip():
+                raise ValidationError(f"Operation {operation!r} needs text to write.")
+            if operation == "replace":
+                new_body = text.strip()
+            elif operation == "prepend":
+                new_body = f"{text.strip()}\n\n{body}" if body else text.strip()
+            else:  # append
+                new_body = f"{body}\n\n{text.strip()}" if body else text.strip()
+            new_text = f"{heading}\n\n{new_body}" if new_body else heading
+            rebuilt = [
+                c if c is not target else Chunk(c.heading_path, c.index, new_text) for c in chunks
+            ]
+        out = "\n\n".join(c.text for c in rebuilt).strip()
+        if not out:
+            raise ValidationError("The patch would empty the note; refusing.")
+        return out

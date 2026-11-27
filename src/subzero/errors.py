@@ -19,6 +19,14 @@ class ValidationError(SubzeroError):
     """Caller supplied something this service will not accept."""
 
 
+class ConflictError(SubzeroError):
+    """The object changed since the caller read it.
+
+    Returned instead of overwriting: re-read and retry against the new
+    version rather than guessing what the other writer did.
+    """
+
+
 class PathSecurityError(ValidationError):
     """A path escaped its allowed root, or contained a forbidden component."""
 
