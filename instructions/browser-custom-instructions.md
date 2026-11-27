@@ -1,20 +1,7 @@
 # Browser and mobile custom instructions
 
-Paste the first block into each app connected to Subzero. The second block
-is separate so your working preferences can also apply in apps without the
-connector. Start a new chat after changing the instructions.
-
-The two copyable blocks live in [instructions/shared.md](shared.md), the
-canonical source for every provider. Block A covers Subzero; Block B covers
-candor, writing style, and an initially empty MEMORY.md.
-
-The current [upstream agent instructions](https://github.com/kunchenguid/dotfiles/blob/main/home/AGENTS.md)
-describe concise, reusable instructions and pruning. As checked on
-2026-11-23, that repository does not contain a memory skill or MEMORY.md.
-These blocks therefore do not assume an upstream memory skill is installed.
-Subzero's available procedures live in [skills/](../skills/), especially
-[use-subzero](../skills/use-subzero/SKILL.md) and
-[checkpoint-session](../skills/checkpoint-session/SKILL.md).
+Copy the five-step [Subzero pre-prompt](shared.md) into each connected app.
+For a surface without the connector, use the writing and teaching steps.
 
 ## Connect Codex and hand context to a browser chat
 

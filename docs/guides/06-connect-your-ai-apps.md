@@ -23,21 +23,12 @@ which step broke; fix that before connecting any app.
 
 ## The custom instruction (same for every app)
 
-Open [instructions/shared.md](../../instructions/shared.md) and copy its two
-blocks into each app's custom-instruction field:
+Copy the five-step [Subzero pre-prompt](../../instructions/shared.md) into each
+connected app's custom-instruction field. The app can load detailed procedures
+on demand through skills, MCP tool descriptions and MCP prompts.
 
-- **Block A: memory and tools.** Tells the app that Subzero is canonical, when
-  to call `context_bootstrap`, and what counts as saved. Required.
-- **Block B: voice and teaching.** How you want answers and explanations to
-  read. Optional, and useful on its own in an app you have not connected yet.
-
-That file is the only copy of the text, so the app guides cannot drift away from
-it. It is deliberately short, because the app reads it with every message: the
-detailed procedures live in Skills, MCP tool descriptions and MCP prompts, which
-load only when needed.
-
-For Codex setup, shared context and the initially empty MEMORY.md workflow,
-see [the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md).
+For Codex setup and shared context, see
+[the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md).
 
 For a deployment with shared dotfiles, see [guide 14](14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
 The short custom instruction tells the app when to call bootstrap. Subzero
@@ -47,9 +38,9 @@ full read-only documents through `context_read_guidance`.
 ## Moving from personal-context-mcp
 
 If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it
-and add a new one named **subzero** with the same server address. Then paste the two blocks from
-[instructions/shared.md](../../instructions/shared.md) over the old text. Old saved memories stay:
-they live in your database, not in the connector.
+and add a new one named **subzero** with the same server address. Replace the
+old custom instruction with the [Subzero pre-prompt](../../instructions/shared.md).
+The database retains saved memories.
 
 ## App by app
 

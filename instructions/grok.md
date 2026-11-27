@@ -16,8 +16,8 @@ Connectors and the custom MCP option are on Grok's paid tiers.
 
 ## 2. Persistent instructions
 
-Grok's custom-instruction field (**Settings → Customize**). Paste **Block A** and
-**Block B** from [instructions/shared.md](shared.md), the only copy of the text.
+In Grok's **Settings → Customize**, paste the five-step
+[Subzero pre-prompt](shared.md).
 
 ## 3. Skills
 

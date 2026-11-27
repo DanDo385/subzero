@@ -18,19 +18,8 @@ configured by hand.
 ## 2. Custom instructions
 
 Your initials in the bottom left → **Settings → Instructions for Claude** (older
-UIs call it Profile → "What personal preferences should Claude consider"). Paste
-**Block A** and **Block B** from [instructions/shared.md](shared.md), the only
-copy of the text, then this Claude-specific line:
-
-```
-When you use Subzero, say briefly what you retrieved or saved, so I can tell
-memory from inference.
-```
-
-Claude applies the field to every conversation. Anthropic publishes no character
-limit for it; the two blocks are 3,348 characters together. On a Team or
-Enterprise plan, organization instructions (3,000 characters, set by an admin)
-take precedence where they conflict.
+UIs call it Profile → "What personal preferences should Claude consider").
+Paste the five-step [Subzero pre-prompt](shared.md).
 
 ## 3. Skills
 
