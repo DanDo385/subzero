@@ -25,6 +25,7 @@ statements and some arithmetic.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from dataclasses import dataclass, replace
@@ -34,13 +35,12 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
-from subzero.agent_context import read_agent_context
+from subzero import agent_context, sigils
+from subzero.agent_context import read_standing
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
 from subzero.models import (
-    AgentContext,
     ConflictReport,
     ContextItem,
     ContextPackage,
@@ -750,21 +750,26 @@ class RetrievalService:
             if marks.home and not marks.home.startswith("projects/"):
                 home = marks.home
             notes.append("Sigils read: " + " ".join(marks.found))
-        budget = token_budget or self._settings.default_token_budget
-        guidance = None
-        if budget >= 600:
-            guidance = await read_agent_context(self._settings, "agents")
-            if guidance:
-                guidance.content = truncate_for_budget(guidance.content, min(120, budget // 8))
-        return await self._build_package(
-            query=text,
-            token_budget=budget,
-            project=project,
-            include_handoff=True,
-            notes=notes,
-            home=home,
-            guidance=guidance,
+        # The standing context (dotfiles header, SOUL, chat AGENTS) is read
+        # while the package is built, and sent on top of token_budget: it is
+        # the chat's instructions, not a retrieval result competing for room.
+        standing, package = await asyncio.gather(
+            read_standing(self._settings),
+            self._build_package(
+                query=text,
+                token_budget=token_budget or self._settings.default_token_budget,
+                project=project,
+                include_handoff=True,
+                notes=notes,
+                home=home,
+            ),
         )
+        package.standing = standing
+        if not agent_context.configured(self._settings):
+            package.notes.append("No dotfiles source is configured on this server.")
+        elif not standing:
+            package.notes.append("Dotfiles source configured, but no standing document was read.")
+        return package
 
     async def _build_package(
         self,
@@ -775,7 +780,6 @@ class RetrievalService:
         include_handoff: bool,
         notes: list[str] | None = None,
         home: str | None = None,
-        guidance: AgentContext | None = None,
     ) -> ContextPackage:
         """Gather candidates from every layer, then fill the budget by priority.
 
@@ -898,8 +902,7 @@ class RetrievalService:
             order += h[5:]
         order += relevant[2:] + semantic + raw
 
-        guidance_cost = estimate_tokens(guidance.model_dump_json()) if guidance else 0
-        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD + guidance_cost)
+        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD)
         chosen: dict[UUID, ContextItem] = {}
         left_out = 0
 
@@ -1040,7 +1043,6 @@ class RetrievalService:
 
         package = ContextPackage(
             query=truncate_for_budget(query, 60),
-            agent_context=guidance,
             items=items,
             token_budget=token_budget,
             estimated_tokens=0,

@@ -8,7 +8,6 @@ cross the MCP boundary.
 
 from __future__ import annotations
 
-import json
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -18,6 +17,7 @@ from pydantic import Field
 from subzero.agent_context import Document, read_agent_context
 from subzero.auth import scopes
 from subzero.mcp.compact import dump
+from subzero.mcp.render import bootstrap_text
 from subzero.mcp.result import ToolResult, object_output_schema
 from subzero.services import get_services
 
@@ -58,29 +58,29 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
     ) -> ToolResult:
-        """Start a chat that continues earlier work: one call, one package.
+        """Call once at the start of every chat: the owner's standing context plus memory.
 
-        Call only when the request depends on past work: a project, earlier
-        decisions, tasks, "remember", "last time", a continuing task.
-        Skip for trivial questions and anything self-contained.
+        The text begins with the owner's standing context from dotfiles (a
+        context header, SOUL for voice, AGENTS for what to do); follow it for
+        the whole chat. Pass query terms and the project only when the request
+        depends on past work (a project, earlier decisions, tasks, "remember",
+        "last time"); leave them empty for a standalone question.
 
         Returns the project's handoff first (latest session summaries with
         their open questions, open tasks, active decisions), then items
         matching query, then raw transcript excerpts only if nothing else
         matched. Says which project it used and why, which layers ran, and
         flags decisions a newer item may overrule. Raise token_budget only if
-        truncated. When configured, the package includes a short read-only
-        excerpt from the owner's dotfiles. Read either full document with
-        context_read_guidance. The package is available as text and structured data.
+        truncated; token_budget covers the memory items, and the standing
+        context (about 1k tokens) comes on top. The same package is in the
+        text and in the structured result.
         """
         services = get_services()
         package = await services.retrieval.bootstrap(
             query, user_message=user_message, token_budget=token_budget, project=project
         )
         payload = dump(package)
-        return ToolResult(
-            content=json.dumps(payload, separators=(",", ":")), structured_content=payload
-        )
+        return ToolResult(content=bootstrap_text(payload), structured_content=payload)
 
     @mcp.tool(
         name="context_read_guidance",
@@ -90,13 +90,22 @@ def register(mcp: FastMCP) -> None:
     )
     async def context_read_guidance(
         document: Annotated[
-            Document, Field(description="agents for workflow guidance, machines for fleet details.")
-        ] = "agents",
+            Document,
+            Field(
+                description=(
+                    "machines: the owner's machines, names and roles. memory: where facts "
+                    "about the owner live. agents, soul, context: the full standing "
+                    "documents bootstrap already sends (read them again only if cut)."
+                )
+            ),
+        ] = "machines",
     ) -> dict[str, Any]:
-        """Open a read-only dotfiles document when it is relevant to this task.
+        """Open one of the owner's dotfiles context documents, read-only.
 
-        To edit the source during an authorized task, open the corresponding
-        file in the writable dotfiles checkout with the normal editor or Git workflow.
+        Use when the task needs it: machines before any work on a machine,
+        memory to find where facts live. Returns path, source, sha256, a short
+        content_id and the content. To change a document, give the owner the
+        edit for their dotfiles repository; this tool cannot write.
         """
         guidance = await read_agent_context(get_services().settings, document)
         return dump(guidance) if guidance else {"status": "unavailable", "document": document}

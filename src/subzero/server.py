@@ -64,15 +64,14 @@ Subzero is this user's canonical memory, shared across ChatGPT, \
 Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
 named personal-context-mcp is also present, do not use it.
 
-Retrieve (context_bootstrap) only when the request depends on past work: a \
-project, earlier decisions, "remember", "last time", a continuing task. \
-Never for standalone questions. Decide what to look for yourself, as with your \
-own memory search: pass a short query of key terms and names, plus the project \
-when you know it. Do not paste the user's message. One bootstrap call returns \
-the project's handoff (latest sessions, open questions, open tasks, active \
-decisions); use context_search only for something it did not cover.
-
-When a task needs the owner's workflow or machine setup, start with the +read-only dotfiles guidance in bootstrap, or call context_read_guidance +for the complete document. Open the source in the writable dotfiles +checkout when the user asks for an edit.
+Call context_bootstrap once at the start of every chat. Its text begins with \
+the owner's standing context from their dotfiles: a context header, SOUL \
+(voice) and AGENTS (what to do in a chat). Follow it for the whole chat. Add a \
+short query of key terms and names, plus the project, only when the request \
+depends on past work (a project, earlier decisions, "remember", "last time"); \
+leave them out for a standalone question. Do not paste the user's message. Use \
+context_search only for something bootstrap did not cover, and \
+context_read_guidance for the owner's machines or where facts about them live.
 
 Checkpoint durable state (session_checkpoint) when something is settled: a \
 decision, a confirmed fact, a task, a project update, an unresolved question. \

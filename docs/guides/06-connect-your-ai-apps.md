@@ -40,9 +40,14 @@ For Codex setup, shared context and the initially empty MEMORY.md workflow,
 see [the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md).
 
 For a deployment with shared dotfiles, see [guide 14](14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
-The short custom instruction tells the app when to call bootstrap. Subzero
-then adds the configured workflow excerpt to that response and exposes both
-full read-only documents through `context_read_guidance`.
+The short custom instruction tells the app to call bootstrap at the start of
+every chat. Subzero then puts your standing context (a context header, SOUL and
+the chat AGENTS from your dotfiles) at the top of that response, and opens your
+memory and machines documents through `context_read_guidance` when needed.
+
+If a chat says it has no Subzero tools at all, the connector is not switched on
+for that chat: connecting the app once is not always enough (Gemini, for one,
+asks per chat). Turn the connector on and start a new chat.
 
 ## Moving from personal-context-mcp
 

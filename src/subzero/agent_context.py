@@ -1,4 +1,17 @@
-"""Read the two owner-configured guidance files without a general file API."""
+"""Read the owner's chat context files from dotfiles without a general file API.
+
+Chat sessions (web and mobile apps) have no disk, so their standing context
+comes from here. Five documents are known by name; nothing else can be read.
+Three of them (the context header, SOUL and the chat AGENTS) are the standing
+context every ``context_bootstrap`` starts with; memory and machines open on
+demand through ``context_read_guidance``.
+
+The source is the owner's dotfiles: a local checkout when the server runs on a
+machine that has one (``SUBZERO_DOTFILES_ROOT``), otherwise a published Git
+ref read through the GitHub API (the serverless deployment). GitHub reads are
+cached for ``SUBZERO_DOTFILES_CACHE_SECONDS`` so a bootstrap does not pay six
+API round trips; local reads always see the file as it is on disk.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +19,7 @@ import asyncio
 import json
 import re
 import stat
+import time
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
@@ -15,10 +29,30 @@ import httpx
 from subzero.config import Settings
 from subzero.models import AgentContext
 
-Document = Literal["agents", "machines"]
-_PATHS: dict[Document, str] = {"agents": "subzero/AGENTS.md", "machines": "cli/MACHINES.md"}
+Document = Literal["context", "soul", "agents", "memory", "machines"]
+_PATHS: dict[Document, str] = {
+    "context": "subzero/CONTEXT.md",
+    "soul": "subzero/SOUL.md",
+    "agents": "subzero/AGENTS.md",
+    "memory": "subzero/MEMORY.md",
+    "machines": "MACHINES.md",
+}
+#: Sent at the top of every bootstrap, in this order.
+STANDING: tuple[Document, ...] = ("context", "soul", "agents")
+#: Ceiling on the standing context, across all three documents. It is sent on
+#: top of the retrieval budget, so it stays small on purpose (about 2k tokens).
+STANDING_MAX_CHARS = 8000
 _MAX_BYTES = 32_768
 _FETCH_SECONDS = 2.0
+
+_cache: dict[tuple[str, str, str], tuple[float, AgentContext | None]] = {}
+
+
+def configured(settings: Settings) -> bool:
+    return bool(
+        settings.dotfiles_root
+        or (settings.dotfiles_github_repo and settings.dotfiles_github_token.get_secret_value())
+    )
 
 
 def _read_local(configured_root: Path, relative: str) -> bytes | None:
@@ -35,14 +69,14 @@ async def _read_github(settings: Settings, relative: str) -> bytes | None:
     if not settings.dotfiles_github_repo or not token:
         return None
     api = f"https://api.github.com/repos/{settings.dotfiles_github_repo}"
-    directory, name = relative.rsplit("/", 1)
+    directory, _, name = relative.rpartition("/")
     headers = {"Authorization": f"Bearer {token}", "User-Agent": "Subzero"}
     async with asyncio.timeout(_FETCH_SECONDS), httpx.AsyncClient(headers=headers) as client:
         # The direct Contents file endpoint follows in-repo symlinks. Select
         # a regular file from the directory, then read its immutable blob.
         entries = await _github_bytes(
             client,
-            f"{api}/contents/{directory}",
+            f"{api}/contents/{directory}" if directory else f"{api}/contents",
             accept="application/vnd.github+json",
             params={"ref": settings.dotfiles_github_ref},
         )
@@ -80,7 +114,7 @@ async def _github_bytes(
     return bytes(data)
 
 
-async def read_agent_context(settings: Settings, document: Document) -> AgentContext | None:
+async def _read(settings: Settings, document: Document) -> AgentContext | None:
     relative = _PATHS[document]
     source: Literal["local", "github"] = "local" if settings.dotfiles_root else "github"
     try:
@@ -95,6 +129,51 @@ async def read_agent_context(settings: Settings, document: Document) -> AgentCon
         return None
     if not content:
         return None
+    digest = sha256(data).hexdigest()
     return AgentContext(
-        path=relative, source=source, sha256=sha256(data).hexdigest(), content=content
+        document=document,
+        path=relative,
+        source=source,
+        sha256=digest,
+        content_id=digest[:12],
+        content=content,
     )
+
+
+async def read_agent_context(settings: Settings, document: Document) -> AgentContext | None:
+    """One document, or None when it is missing, unreadable or not configured."""
+    if settings.dotfiles_root or settings.dotfiles_cache_seconds <= 0:
+        return await _read(settings, document)
+    key = (settings.dotfiles_github_repo, settings.dotfiles_github_ref, document)
+    hit = _cache.get(key)
+    now = time.monotonic()
+    if hit and hit[0] > now:
+        return hit[1].model_copy() if hit[1] else None
+    found = await _read(settings, document)
+    _cache[key] = (now + settings.dotfiles_cache_seconds, found)
+    return found.model_copy() if found else None
+
+
+async def read_standing(settings: Settings) -> list[AgentContext]:
+    """The standing context, in order, capped at STANDING_MAX_CHARS in total.
+
+    Missing documents are skipped; a document that does not fit is cut at a
+    line boundary and marked, and the ones after it are left out.
+    """
+    if not configured(settings):
+        return []
+    found = await asyncio.gather(*(read_agent_context(settings, d) for d in STANDING))
+    kept: list[AgentContext] = []
+    room = STANDING_MAX_CHARS
+    for doc in found:
+        if doc is None:
+            continue
+        if room <= 200:
+            break
+        if len(doc.content) > room:
+            cut = doc.content[:room].rsplit("\n", 1)[0]
+            doc.content = f"{cut}\n[... cut to fit; read the rest with context_read_guidance]"
+            doc.truncated = True
+        room -= len(doc.content)
+        kept.append(doc)
+    return kept

@@ -225,19 +225,25 @@ class ConflictReport(Base):
 
 
 class AgentContext(Base):
-    """An owner-configured guidance document or its bootstrap excerpt."""
+    """One of the owner's dotfiles context documents (see agent_context.py)."""
 
+    document: Literal["context", "soul", "agents", "memory", "machines"]
     path: str
     source: Literal["local", "github"]
     sha256: str
+    #: First 12 hex digits of sha256: short enough for a chat to quote back.
+    content_id: str
     content: str
+    truncated: bool = False
 
 
 class ContextPackage(Base):
     """Compact package returned by context_bootstrap / context_for_topic."""
 
     query: str
-    agent_context: AgentContext | None = None
+    #: Standing context from dotfiles (header, SOUL, chat AGENTS), sent on
+    #: top of token_budget. Empty when the server has no dotfiles source.
+    standing: list[AgentContext] = Field(default_factory=list)
     items: list[ContextItem] = Field(default_factory=list)
     token_budget: int
     estimated_tokens: int

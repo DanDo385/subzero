@@ -88,40 +88,59 @@ It should say `ok`.
 
 ## Share agent guidance
 
+Chat apps (ChatGPT, Claude, Gemini, Grok, Muse) have no files of their own, so
+Subzero sends them your standing context from your dotfiles repository. Every
+`context_bootstrap` text starts with three files, in this order:
+
+| File | What it is for |
+| --- | --- |
+| `subzero/CONTEXT.md` | The header: which file is for which tool, and how a chat gets it |
+| `subzero/SOUL.md` | Voice: how the AI should talk with you |
+| `subzero/AGENTS.md` | What to do in a chat: memory, saving, machines |
+
+Two more open on demand with `context_read_guidance`: `memory`
+(`subzero/MEMORY.md`, where facts about you live) and `machines`
+(`MACHINES.md`, your machines and their roles). Nothing else in the repository
+can be read. The three standing files are sent on top of `token_budget`
+(about 1k tokens; the total is capped at 8,000 characters).
+
 On the Mac, set the server's `SUBZERO_DOTFILES_ROOT` to the absolute path of the
-dotfiles checkout (for example, `~/Code/dotfiles`, expanded for the account that
+dotfiles checkout (for example, `~/dotfiles`, expanded for the account that
 runs Subzero). It can also point to a local symlink to that checkout:
 
 ```bash
 mkdir -p ~/.config/subzero
-ln -s "$HOME/Code/dotfiles" ~/.config/subzero/dotfiles
+ln -s "$HOME/dotfiles" ~/.config/subzero/dotfiles
 ```
 
 If that path already exists, inspect it before changing it. Put the link's
 absolute path in the Mac's server settings, then restart the server once.
-Subzero reads `subzero/AGENTS.md` and `cli/MACHINES.md` from that checkout.
-Changes on disk show up on the next relevant call.
+Changes on disk show up on the next call.
 
 Vercel runs on a separate filesystem. Set `SUBZERO_DOTFILES_GITHUB_REPO` to
-`owner/dotfiles`, `SUBZERO_DOTFILES_GITHUB_REF` to the published branch containing
-the two files, and `SUBZERO_DOTFILES_GITHUB_TOKEN` to a sensitive deployment
-variable with Contents read access to that repository. Deploy once with these
-settings. Vercel reads newly pushed versions from the configured branch at
-runtime, including while the Mac is offline. Keep the two documents suitable for
-all the signed-in clients you grant `context:read`.
+`owner/dotfiles`, `SUBZERO_DOTFILES_GITHUB_REF` to the branch that holds the
+files, and `SUBZERO_DOTFILES_GITHUB_TOKEN` to a sensitive deployment variable
+with read-only Contents access to that one repository. Deploy once with these
+settings. Vercel reads newly pushed versions at runtime, reusing a read for
+`SUBZERO_DOTFILES_CACHE_SECONDS` (default 60), including while the Mac is
+offline. Keep the files suitable for every signed-in client you grant
+`context:read`.
 
-Use `context_bootstrap` with a budget of at least 600 for a short workflow
-excerpt. Open the full read-only versions with
-`context_read_guidance(document="agents")` or
-`context_read_guidance(document="machines")`. The response identifies the source
-and gives the full document's SHA-256. To make an authorized edit, open the
-source file in a writable dotfiles checkout and use your normal Git workflow.
-Keep provider instruction copy in `subzero/PRE-PROMPT.md` for manual reference.
+Each app keeps only the short pointer in `subzero/PRE-PROMPT.md` (call
+`context_bootstrap` at the start of every chat). The rules themselves come from
+Subzero, so there is one copy to edit.
 
-To test, call both guidance reads through the Mac connector, then repeat with
-the Vercel connector. After a harmless edit, the Mac hash should change as soon
-as the file is saved and the Vercel hash should match after you push. Compare
-hashes on separate authenticated connections to the two URLs.
+To test, start a new chat in each app and ask it to quote the ids on the
+"Loaded:" line of its first `context_bootstrap` result. They are the first 12
+hex digits of each file's SHA-256, so you can check them on the Mac:
+
+```bash
+cd ~/dotfiles && for f in subzero/CONTEXT.md subzero/SOUL.md subzero/AGENTS.md; do
+  printf '%s %s\n' "$(shasum -a 256 "$f" | cut -c1-12)" "$f"; done
+```
+
+The Mac connector matches as soon as a file is saved; the Vercel connector
+matches after you push and the cache expires.
 
 ## Stop or change it
 

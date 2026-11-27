@@ -1,8 +1,11 @@
-"""Text-only and structured MCP clients receive the same bootstrap package."""
+"""Text-only and structured MCP clients receive the same bootstrap package.
+
+Claude and Gemini show the model only the text block, so context_bootstrap's
+text must carry the standing context and every item, not a count line.
+"""
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from uuid import UUID
 
@@ -14,6 +17,7 @@ from mcp.types import TextContent
 from subzero.mcp import tools_context
 from subzero.mcp.result import text_and_structured
 from subzero.models import (
+    AgentContext,
     ContextItem,
     ContextPackage,
     Provenance_,
@@ -79,7 +83,7 @@ async def _tool(mcp: FastMCP, name: str) -> Any:
     return tool
 
 
-def _wire(result: Any) -> tuple[str, dict[str, Any]]:
+def _wire(result: Any, *, one_line: bool = True) -> tuple[str, dict[str, Any]]:
     raw = result.to_mcp_result()
     assert isinstance(raw, tuple)
     content, structured = raw
@@ -91,40 +95,67 @@ def _wire(result: Any) -> tuple[str, dict[str, Any]]:
     assert normalized.content[0].text == content[0].text
     assert normalized.structured_content == structured
     text = content[0].text
-    assert "\n" not in text
+    if one_line:
+        assert "\n" not in text
     return text, structured
 
 
-async def test_context_bootstrap_text_contains_the_package(mcp: FastMCP) -> None:
+def _standing() -> list[AgentContext]:
+    return [
+        AgentContext(
+            document=doc,
+            path=path,
+            source="local",
+            sha256=f"{n}" * 64,
+            content_id=f"{n}" * 12,
+            content=body,
+        )
+        for n, (doc, path, body) in enumerate(
+            [
+                ("context", "subzero/CONTEXT.md", "# Context header\n\nFILE-MAP"),
+                ("soul", "subzero/SOUL.md", "# SOUL\n\nLead with the conclusion."),
+                ("agents", "subzero/AGENTS.md", "# Subzero chat instructions\n\nCHAT-RULE"),
+            ],
+            start=1,
+        )
+    ]
+
+
+async def test_context_bootstrap_text_carries_standing_context_and_items(mcp: FastMCP) -> None:
     decision = "Supabase is canonical structured state"
-    mcp._holder["services"] = _Services(  # type: ignore[attr-defined]
-        retrieval=_Retrieval(_package(truncated=False, tokens=40, contents=[decision]))
-    )
+    package = _package(truncated=False, tokens=40, contents=[decision])
+    package.standing = _standing()
+    mcp._holder["services"] = _Services(retrieval=_Retrieval(package))  # type: ignore[attr-defined]
     tool = await _tool(mcp, "context_bootstrap")
     assert tool.output_schema == {"type": "object", "additionalProperties": True}
 
-    text, structured = _wire(
-        await tool.run({"user_message": "what did I decide about the secret architecture"})
-    )
+    text, structured = _wire(await tool.run({"query": "architecture"}), one_line=False)
 
-    assert json.loads(text) == structured
+    # Standing context first, in order, with the ids a chat can quote back.
+    assert text.index("FILE-MAP") < text.index("Lead with the conclusion") < text.index("CHAT-RULE")
+    assert text.index("CHAT-RULE") < text.index(decision)
+    assert "subzero/SOUL.md (id 222222222222, local)" in text
+    # Every item is readable, with its provenance; the object is unchanged.
+    assert "user_statement" in text
+    assert "1 item, 40 of 1200 tokens" in text
     assert structured["items"][0]["content"] == decision
+    assert [d["document"] for d in structured["standing"]] == ["context", "soul", "agents"]
     assert structured["estimated_tokens"] == 40
-    assert structured["token_budget"] == 1200
     assert structured["truncated"] is False
 
 
-async def test_context_bootstrap_preserves_truncation_metadata(mcp: FastMCP) -> None:
-    mcp._holder["services"] = _Services(  # type: ignore[attr-defined]
-        retrieval=_Retrieval(
-            _package(truncated=True, tokens=900, contents=["one body", "another body"])
-        )
-    )
+async def test_context_bootstrap_text_without_dotfiles_says_so(mcp: FastMCP) -> None:
+    package = _package(truncated=True, tokens=900, contents=["one body", "another body"])
+    package.notes = ["No dotfiles source is configured on this server."]
+    mcp._holder["services"] = _Services(retrieval=_Retrieval(package))  # type: ignore[attr-defined]
     tool = await _tool(mcp, "context_bootstrap")
 
-    text, structured = _wire(await tool.run({"user_message": "catch me up"}))
+    text, structured = _wire(await tool.run({"query": "catch me up"}), one_line=False)
 
-    assert json.loads(text) == structured
+    assert "Standing context" not in text
+    assert "one body" in text and "another body" in text
+    assert "truncated (raise token_budget for more)" in text
+    assert "Note: No dotfiles source is configured on this server." in text
     assert structured["truncated"] is True
     assert len(structured["items"]) == 2
 
