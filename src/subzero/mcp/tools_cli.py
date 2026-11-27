@@ -30,7 +30,12 @@ def register(mcp: FastMCP, *, audit: AuditService, settings: Settings) -> None:
         name="run_cli_on_mbp",
         tags={"cli", "write"},
         auth=require_scopes(scopes.CLI_RUN),
-        annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def run_cli_on_mbp(
@@ -122,7 +127,12 @@ def register(mcp: FastMCP, *, audit: AuditService, settings: Settings) -> None:
         name="cli_job_on_mbp",
         tags={"cli", "read"},
         auth=require_scopes(scopes.CLI_RUN),
-        annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def cli_job_on_mbp(

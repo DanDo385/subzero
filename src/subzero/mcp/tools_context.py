@@ -29,7 +29,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         name="context_bootstrap",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def context_bootstrap(
@@ -93,7 +98,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         name="context_read_guidance",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def context_read_guidance(
         document: Annotated[
@@ -121,7 +131,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         name="context_search",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def context_search(
         query: Annotated[
@@ -166,7 +181,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         name="context_recent",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def context_recent(
         limit: Annotated[int, Field(ge=1, le=20, description="Maximum results to return.")] = 5,
@@ -181,7 +201,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         name="context_for_topic",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def context_for_topic(
         topic: Annotated[str, Field(description="The topic to assemble context about.")],
@@ -203,7 +228,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
         name="memory_deep_search",
         tags={"context", "read"},
         auth=require_scopes(scopes.CONTEXT_READ),
-        annotations={"readOnlyHint": True, "openWorldHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def memory_deep_search(
         query: Annotated[

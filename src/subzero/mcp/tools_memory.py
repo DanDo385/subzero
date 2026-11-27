@@ -40,7 +40,12 @@ def register(
         name="memory_save",
         tags={"memory", "write"},
         auth=require_scopes(scopes.MEMORY_WRITE),
-        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def memory_save(
         content: Annotated[
@@ -132,7 +137,12 @@ def register(
         name="memory_search",
         tags={"memory", "read"},
         auth=require_scopes(scopes.MEMORY_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def memory_search(
         query: Annotated[str, Field(description="What to look for.")],
@@ -156,7 +166,12 @@ def register(
         name="memory_history",
         tags={"memory", "read"},
         auth=require_scopes(scopes.MEMORY_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def memory_history(
         memory_id: Annotated[
@@ -180,7 +195,12 @@ def register(
         name="session_checkpoint",
         tags={"sessions", "write"},
         auth=require_scopes(scopes.SESSIONS_WRITE, scopes.MEMORY_WRITE),
-        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def session_checkpoint(
         provider: Annotated[
@@ -322,7 +342,12 @@ def register(
         name="session_recent",
         tags={"sessions", "read"},
         auth=require_scopes(scopes.SESSIONS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def session_recent(
         limit: Annotated[int, Field(ge=1, le=50, description="Maximum results to return.")] = 10,

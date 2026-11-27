@@ -46,7 +46,12 @@ def register(
         name="inbox_add",
         tags={"inbox", "write"},
         auth=require_scopes(scopes.NOTES_WRITE),
-        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def inbox_add(
         title: Annotated[

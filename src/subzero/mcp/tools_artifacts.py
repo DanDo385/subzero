@@ -51,6 +51,12 @@ def register(
         name="artifact_save_text",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_save_text(
         filename: Annotated[
@@ -104,6 +110,12 @@ def register(
         name="artifact_save_bundle",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_save_bundle(
         title: Annotated[str, Field(description="Name for the whole artifact.")],
@@ -173,6 +185,12 @@ def register(
         name="artifact_save_binary",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_save_binary(
         filename: Annotated[str, Field(description="Filename with extension.")],
@@ -236,6 +254,12 @@ def register(
         name="artifact_begin_upload",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_begin_upload(
         title: Annotated[str, Field(description="Name for the artifact.")],
@@ -293,6 +317,12 @@ def register(
         name="artifact_complete_upload",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_complete_upload(
         artifact_id: Annotated[
@@ -324,6 +354,12 @@ def register(
         name="artifact_register_reference",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_register_reference(
         title: Annotated[str, Field(description="What the artifact is.")],
@@ -395,7 +431,12 @@ def register(
         name="artifact_search",
         tags={"artifacts", "read"},
         auth=require_scopes(scopes.ARTIFACTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def artifact_search(
         query: Annotated[str, Field(description="Words from the title or description.")] = "",
@@ -436,7 +477,12 @@ def register(
         name="artifact_get",
         tags={"artifacts", "read"},
         auth=require_scopes(scopes.ARTIFACTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def artifact_get(
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
@@ -449,7 +495,12 @@ def register(
         name="artifact_manifest",
         tags={"artifacts", "read"},
         auth=require_scopes(scopes.ARTIFACTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def artifact_manifest(
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
@@ -461,7 +512,12 @@ def register(
         name="artifact_signed_download",
         tags={"artifacts", "read"},
         auth=require_scopes(scopes.ARTIFACTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def artifact_signed_download(
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
@@ -488,6 +544,12 @@ def register(
         name="artifact_create_revision",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_create_revision(
         artifact: Annotated[str, Field(description="Existing artifact id or slug.")],
@@ -532,7 +594,12 @@ def register(
         name="artifact_attach_to_project",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
-        annotations={"idempotentHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def artifact_attach_to_project(
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
@@ -557,6 +624,12 @@ def register(
         name="artifact_queue_for_vault",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE, scopes.NOTES_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_queue_for_vault(
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
@@ -589,6 +662,12 @@ def register(
         name="artifact_classify",
         tags={"artifacts", "write"},
         auth=require_scopes(scopes.ARTIFACTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def artifact_classify(
         artifact: Annotated[str, Field(description="Artifact id or slug.")],

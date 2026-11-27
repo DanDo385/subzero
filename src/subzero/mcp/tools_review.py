@@ -41,7 +41,12 @@ def register(
         name="review_list",
         tags={"review", "read"},
         auth=require_scopes(scopes.REVIEW),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def review_list(
         limit: Annotated[
@@ -66,7 +71,12 @@ def register(
         name="review_get",
         tags={"review", "read"},
         auth=require_scopes(scopes.REVIEW),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def review_get(
         review_id: Annotated[UUID, Field(description="The review item's id, from review_list.")],
@@ -78,6 +88,12 @@ def register(
         name="review_approve",
         tags={"review", "write"},
         auth=require_scopes(scopes.REVIEW),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def review_approve(
         review_id: Annotated[UUID, Field(description="The review item's id, from review_list.")],
@@ -104,6 +120,12 @@ def register(
         name="review_reclassify",
         tags={"review", "write"},
         auth=require_scopes(scopes.REVIEW),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def review_reclassify(
         review_id: Annotated[UUID, Field(description="The review item's id, from review_list.")],
@@ -172,6 +194,12 @@ def register(
         name="review_dismiss",
         tags={"review", "write"},
         auth=require_scopes(scopes.REVIEW),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def review_dismiss(
         review_id: Annotated[UUID, Field(description="The review item's id, from review_list.")],
@@ -188,7 +216,12 @@ def register(
         name="sync_status",
         tags={"review", "read"},
         auth=require_scopes(scopes.NOTES_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def sync_status() -> dict:
         """State of the Obsidian sync queue.

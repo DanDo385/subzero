@@ -22,7 +22,12 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
         name="dispatch",
         tags={"agents", "write"},
         auth=require_scopes(scopes.AGENTS_WRITE),
-        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def dispatch(
@@ -93,7 +98,12 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
         name="agent_run",
         tags={"agents", "write"},
         auth=require_scopes(scopes.AGENTS_EXEC),
-        annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def agent_run(
@@ -176,7 +186,12 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
         name="agent_open",
         tags={"agents", "write"},
         auth=require_scopes(scopes.AGENTS_EXEC),
-        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def agent_open(
@@ -248,7 +263,12 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
         name="agent_message",
         tags={"agents", "write"},
         auth=require_scopes(scopes.AGENTS_WRITE),
-        annotations={"readOnlyHint": False, "destructiveHint": False},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def agent_message(
@@ -272,7 +292,12 @@ def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None
         name="agents_status",
         tags={"agents", "read"},
         auth=require_scopes(scopes.AGENTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         output_schema=object_output_schema(),
     )
     async def agents_status() -> ToolResult:

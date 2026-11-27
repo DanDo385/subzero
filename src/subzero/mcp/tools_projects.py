@@ -22,7 +22,12 @@ def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> 
         name="project_list",
         tags={"projects", "read"},
         auth=require_scopes(scopes.PROJECTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def project_list(
         status: Annotated[
@@ -38,7 +43,12 @@ def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> 
         name="project_search",
         tags={"projects", "read"},
         auth=require_scopes(scopes.PROJECTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def project_search(
         query: Annotated[str, Field(description="Words from the project name.")],
@@ -51,7 +61,12 @@ def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> 
         name="project_get",
         tags={"projects", "read"},
         auth=require_scopes(scopes.PROJECTS_READ),
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def project_get(
         project: Annotated[str, Field(description="Project slug or name.")],
@@ -65,7 +80,12 @@ def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> 
         name="project_create",
         tags={"projects", "write"},
         auth=require_scopes(scopes.PROJECTS_WRITE),
-        annotations={"idempotentHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def project_create(
         name: Annotated[str, Field(description="Project name, as the user says it.")],
@@ -96,6 +116,12 @@ def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> 
         name="project_update",
         tags={"projects", "write"},
         auth=require_scopes(scopes.PROJECTS_WRITE),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
     )
     async def project_update(
         project: Annotated[str, Field(description="Project slug or name.")],
@@ -127,7 +153,12 @@ def register(mcp: FastMCP, *, audit: AuditService, projects: ProjectService) -> 
         name="project_event_add",
         tags={"projects", "write"},
         auth=require_scopes(scopes.PROJECTS_WRITE),
-        annotations={"idempotentHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     async def project_event_add(
         project: Annotated[str, Field(description="Project slug or name.")],
