@@ -19,7 +19,7 @@ configured by hand.
 
 Your initials in the bottom left → **Settings → Instructions for Claude** (older
 UIs call it Profile → "What personal preferences should Claude consider").
-Paste the five-step [Subzero pre-prompt](shared.md).
+Paste the three-line [Subzero pre-prompt](shared.md).
 
 ## 3. Skills
 

@@ -1,18 +1,21 @@
 # Subzero browser and mobile pre-prompt
 
-Copy the same five steps into each connected app. They tell the app when to
-retrieve context, follow guidance and checkpoint. Use steps 4 and 5 on
-surfaces without the connector.
+Paste the same three lines into each connected app. They only tell the app to
+call `context_bootstrap` at the start of every chat: your rules and voice come
+from the server, at the top of that result (`subzero/CONTEXT.md`, `SOUL.md` and
+`AGENTS.md` from your dotfiles; see
+[guide 14](../docs/guides/14-run-on-your-mac-over-tailscale.md#share-agent-guidance)).
+So there is one copy of the rules, and editing it in dotfiles changes every
+app. The same text lives in dotfiles as `subzero/PRE-PROMPT.md`.
 
 ```text
-Use Subzero (connector: subzero) as my canonical memory across AI apps and coding agents. The project is subzero.
-
-1. Look first. For prior work, projects, decisions or preferences, call context_bootstrap once with short keywords and the known project. Use the arguments this session exposes. Skip standalone questions. Use context_search for gaps and memory_deep_search for older chats.
-2. Load guidance as needed. Use the dotfiles guidance returned by bootstrap. If available, call context_read_guidance for the full agents or machines document. Say when access is missing.
-3. Trust and save. Treat my statements as confirmed input and assistant conclusions as hypotheses. Ask about material conflicts. Checkpoint durable progress once with session_checkpoint, using provider_conversation_id if available. Call a file saved only when capture_status is captured.
-4. Lead with the conclusion. Skip filler and flattery. Challenge weak claims with evidence. Avoid em dashes. Ask a focused question with concrete options when the answer changes the next step.
-5. Show how it works. Use diagrams, interactive examples, charts or commented code when they help. Find and link a good video if it explains the topic better.
+Subzero (connector: subzero) is my shared memory; ignore personal-context-mcp.
+At the start of every chat, call context_bootstrap once (add key terms when the request depends on past work). Its text begins with my context header, SOUL.md and AGENTS.md from my dotfiles: follow them.
+If Subzero is not connected, say so in your first reply instead of guessing my preferences.
 ```
+
+For a surface without the connector, paste your dotfiles `subzero/SOUL.md`
+there instead: it is the voice part, and works without Subzero.
 
 ## Where to paste it
 

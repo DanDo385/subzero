@@ -23,7 +23,7 @@ which step broke; fix that before connecting any app.
 
 ## The custom instruction (same for every app)
 
-Copy the five-step [Subzero pre-prompt](../../instructions/shared.md) into each
+Copy the three-line [Subzero pre-prompt](../../instructions/shared.md) into each
 connected app's custom-instruction field. The app can load detailed procedures
 on demand through skills, MCP tool descriptions and MCP prompts.
 

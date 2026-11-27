@@ -28,7 +28,7 @@ the server is put online (docs/guides/05-put-it-online.md) rather than run local
 
 ## 3. Custom instructions
 
-**Settings → Personalization → Custom instructions**. Paste the five-step
+**Settings → Personalization → Custom instructions**. Paste the three-line
 [Subzero pre-prompt](shared.md).
 
 Both blocks fit. The field holds 5,000 characters on Plus and up, and Free/Go

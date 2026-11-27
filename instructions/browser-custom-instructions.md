@@ -1,6 +1,6 @@
 # Browser and mobile custom instructions
 
-Copy the five-step [Subzero pre-prompt](shared.md) into each connected app.
+Copy the three-line [Subzero pre-prompt](shared.md) into each connected app.
 For a surface without the connector, use the writing and teaching steps.
 
 ## Connect Codex and hand context to a browser chat

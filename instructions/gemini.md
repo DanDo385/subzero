@@ -43,7 +43,7 @@ again with only the URL, letting Gemini use DCR.
 ## 2. Instructions
 
 **Settings & help → Personal Intelligence → Instructions for Gemini** (older UIs
-call it **Saved info**). Paste the five-step [Subzero pre-prompt](shared.md).
+call it **Saved info**). Paste the three-line [Subzero pre-prompt](shared.md).
 
 Gemini publishes no limit for this field. It applies to every chat, on web and
 mobile, but **not** inside a Gem, and it is unavailable on work, school and

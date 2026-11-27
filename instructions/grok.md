@@ -16,7 +16,7 @@ Connectors and the custom MCP option are on Grok's paid tiers.
 
 ## 2. Persistent instructions
 
-In Grok's **Settings → Customize**, paste the five-step
+In Grok's **Settings → Customize**, paste the three-line
 [Subzero pre-prompt](shared.md).
 
 ## 3. Skills
