@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -14,7 +15,8 @@ from subzero.models import (
     ProjectCandidate,
     ProjectChoice,
 )
-from subzero.retrieval import inference, semantic
+from subzero.retrieval import inference
+from subzero.retrieval import semantic as _semantic
 from subzero.retrieval.inference import name_tsquery
 from subzero.retrieval.items import (
     COMPACT_BELOW as _COMPACT_BELOW,
@@ -99,6 +101,19 @@ class PackageBuilder:
         item_cap = max(60, min(_MAX_ITEM_TOKENS, token_budget // 6))
         layers: list[LayerReport] = []
 
+        # Start the query embedding before the SQL round trips below: the
+        # semantic layer awaits this task, so a slow embedding call hides
+        # behind the handoff and search queries instead of adding to them.
+        # Cancelled below if the layer turns out to be skipped.
+        embed_task: asyncio.Task[list[float] | None] | None = None
+        if (
+            include_handoff
+            and not parsed.is_empty
+            and self._svc._settings.semantic_bootstrap
+            and self._svc._embeddings.enabled
+        ):
+            embed_task = asyncio.create_task(_semantic.embed_query(self._svc._embeddings, query))
+
         # -- which project ------------------------------------------------
         rows = await self._svc._project_rows()
         project_query = "" if home and not project else parsed.text
@@ -167,6 +182,7 @@ class PackageBuilder:
             enabled=include_handoff and not searched.is_empty,
             exclude=handoff_ids | {i.id for i in relevant + raw},
             item_cap=item_cap,
+            embed_task=embed_task,
         )
 
         for layer, group in (
@@ -380,22 +396,35 @@ class PackageBuilder:
         return package
 
     async def _semantic_layer(
-        self, query: str, *, enabled: bool, exclude: set[UUID], item_cap: int
+        self,
+        query: str,
+        *,
+        enabled: bool,
+        exclude: set[UUID],
+        item_cap: int,
+        embed_task: asyncio.Task[list[float] | None] | None = None,
     ) -> tuple[list[ContextItem], str | None]:
         """Up to three past messages nearest the query in meaning.
 
         Returns (items, None) when the layer ran, or ([], reason) when skipped.
+        ``embed_task`` is the embedding started in build() so its latency hid
+        behind the SQL round trips; awaited here, cancelled when skipped.
         """
         if not enabled:
+            if embed_task is not None and not embed_task.done():
+                embed_task.cancel()
             return [], "no query terms"
         if not self._svc._settings.semantic_bootstrap:
             return [], "turned off (SUBZERO_SEMANTIC_BOOTSTRAP)"
         if not self._svc._embeddings.enabled:
             return [], "embeddings not configured"
-        vector = await semantic.embed_query(self._svc._embeddings, query)
+        if embed_task is None:
+            vector = await _semantic.embed_query(self._svc._embeddings, query)
+        else:
+            vector = await embed_task
         if vector is None:
             return [], "query could not be embedded in time"
-        hits = await semantic.semantic_messages(self._svc._db, vector, limit=8)
+        hits = await _semantic.semantic_messages(self._svc._db, vector, limit=8)
         items = []
         for hit in hits:
             if hit.id in exclude:

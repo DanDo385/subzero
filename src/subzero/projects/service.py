@@ -7,6 +7,7 @@ and artifacts. Slugs are generated from the name by code so that
 
 from __future__ import annotations
 
+import time
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,12 @@ from subzero.db.pool import Database
 from subzero.errors import NotFoundError
 from subzero.models import ProjectRecord
 from subzero.util import sha256_text, slugify
+
+#: How long the project list is reused without re-reading the table. Project
+#: inference scans every project on each bootstrap and search, and the table
+#: is tiny; membership changes (create/update) invalidate immediately, while
+#: last_active_at ordering may lag by up to this long.
+_PROJECT_ROWS_TTL_SECONDS = 30.0
 
 
 def _record(row: asyncpg.Record) -> ProjectRecord:
@@ -35,6 +42,30 @@ def _record(row: asyncpg.Record) -> ProjectRecord:
 class ProjectService:
     def __init__(self, db: Database) -> None:
         self._db = db
+        #: (monotonic timestamp, rows) or None. See list_rows.
+        self._rows_cache: tuple[float, list[asyncpg.Record]] | None = None
+
+    def _invalidate_rows(self) -> None:
+        self._rows_cache = None
+
+    async def list_rows(self) -> list[asyncpg.Record]:
+        """Every project's id, slug, name, status and metadata, newest first.
+
+        Cached for _PROJECT_ROWS_TTL_SECONDS: project inference reads this
+        table on every bootstrap and search. create() (when it actually
+        creates) and update() invalidate; touch() and add_event() only move
+        last_active_at, so ordering may lag by up to the TTL.
+        """
+        now = time.monotonic()
+        if self._rows_cache is not None:
+            cached_at, rows = self._rows_cache
+            if now - cached_at < _PROJECT_ROWS_TTL_SECONDS:
+                return rows
+        rows = await self._db.fetch(
+            "SELECT id, slug, name, status, metadata FROM projects ORDER BY last_active_at DESC"
+        )
+        self._rows_cache = (now, rows)
+        return rows
 
     async def resolve(
         self, reference: str | None, conn: asyncpg.Connection | None = None
@@ -170,7 +201,10 @@ class ProjectService:
         )
         if row is None:  # pragma: no cover - the upsert always returns a row
             raise RuntimeError("project upsert returned no row")
-        return row["id"], bool(row["created"])
+        created = bool(row["created"])
+        if created:
+            self._invalidate_rows()
+        return row["id"], created
 
     async def update(
         self,
@@ -200,6 +234,7 @@ class ProjectService:
             goals,
             description,
         )
+        self._invalidate_rows()
         return {"id": project_id, "previous": dict(before) if before else None}
 
     async def add_event(

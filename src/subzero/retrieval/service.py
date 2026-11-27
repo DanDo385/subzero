@@ -114,9 +114,9 @@ class RetrievalService:
     # ------------------------------------------------------------ projects
 
     async def _project_rows(self) -> list[inference.ProjectRow]:
-        rows = await self._db.fetch(
-            "SELECT id, slug, name, status, metadata FROM projects ORDER BY last_active_at DESC"
-        )
+        # Cached in ProjectService (30 s TTL, invalidated on create/update):
+        # inference scans the whole table on every bootstrap and search.
+        rows = await self._projects.list_rows()
         return [inference.ProjectRow.from_record(r) for r in rows]
 
     # ----------------------------------------------------------- searching
@@ -252,7 +252,12 @@ class RetrievalService:
             for i in items
             if i.status == "superseded" and i.superseded_by
         ]
-        decision_ids = [i.id for i in items if i.type == "decision" and i.status != "superseded"]
+        # Bounded: the conflict query samples up to 300 rows per decision, so
+        # checking the whole result list would make a broad search pay for
+        # its tail. The package path already passes at most ten.
+        decision_ids = [i.id for i in items if i.type == "decision" and i.status != "superseded"][
+            :10
+        ]
         if not decision_ids:
             return found
         for row in await self._db.fetch(_CONFLICT_SQL, decision_ids):
