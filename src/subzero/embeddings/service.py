@@ -37,6 +37,10 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
     return NullEmbeddingProvider()
 
 
+#: How many lengths a refused row is tried at before it is skipped.
+_SHRINK_ATTEMPTS = 3
+
+
 class EmbeddingService:
     """Embeds text, refusing to send anything the privacy policy forbids."""
 
@@ -68,8 +72,9 @@ class EmbeddingService:
             return [None] * len(texts)
 
         cleaned = [redact(t) for t in texts]
+        vectors: list[list[float] | None]
         try:
-            vectors = await self._provider.embed(cleaned)
+            vectors = list(await self._provider.embed(cleaned))
         except EmbeddingInputError:
             # One input the provider will not embed refuses the whole batch.
             # Re-ask row by row, shrinking each refusal, so the good rows still
@@ -85,8 +90,12 @@ class EmbeddingService:
         return [v or None for v in vectors]
 
     async def _embed_shrinking(self, text: str) -> list[float] | None:
+        # Full, half, quarter: past that the prefix no longer stands for the
+        # row, and a vector of a stub would rank it for the wrong searches.
         cut = len(text)
-        while cut > 0:
+        for _ in range(_SHRINK_ATTEMPTS):
+            if cut <= 0:
+                break
             try:
                 one = await self._provider.embed([text[:cut]])
             except EmbeddingInputError:
@@ -99,7 +108,7 @@ class EmbeddingService:
                 return one[0]
             return None
         logger.warning(
-            "embedding provider refused this input at every length; no vector",
+            "embedding provider refused this input at every length tried; no vector",
             extra={"chars": len(text)},
         )
         return None

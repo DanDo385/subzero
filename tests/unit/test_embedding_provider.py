@@ -90,9 +90,10 @@ async def test_a_refused_batch_is_reasked_row_by_row() -> None:
     assert out[0] is not None
     assert out[2] is not None
     # Refused at 200, 100 and 50 chars: no vector, and the caller marks it
-    # skipped instead of retrying it forever.
+    # skipped instead of retrying it forever. It is never cut to a stub.
     assert out[1] is None
-    assert provider.calls == 4  # one batch plus three shrinking single asks
+    # One batch, then each short row once and the long row at three lengths.
+    assert provider.calls == 1 + 1 + 3 + 1
 
 
 async def test_a_dead_provider_still_returns_none_for_everything() -> None:
