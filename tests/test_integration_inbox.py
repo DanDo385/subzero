@@ -3,13 +3,13 @@
 inbox_add parks an unplaceable item deterministically: no Jev call, no
 embedding. review_reclassify is the way out: it files the note into its new
 folder and queues exactly one vault write for the new path.
+
+Smoke path: tests/e2e/test_inbox.py. These tests cover filing edge cases.
 """
 
 from __future__ import annotations
 
 import pytest
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
 
 from conftest import requires_db
@@ -17,24 +17,14 @@ from conftest import requires_db
 pytestmark = requires_db
 
 
-@pytest.fixture
-async def client(services, live_server):
-    async with Client(
-        StreamableHttpTransport(
-            url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
-        )
-    ) as mcp:
-        yield mcp
-
-
-async def test_inbox_add_parks_one_note_one_job_one_review_row(client, services) -> None:
+async def test_inbox_add_parks_one_note_one_job_one_review_row(mcp_client, services) -> None:
     args = {
         "title": "Idea about coffee automation",
         "content": "A pour-over rig with a scale that logs every brew to Subzero.",
         "why_uncertain": "No clear project or folder yet.",
     }
-    first = (await client.call_tool("inbox_add", args)).data
-    second = (await client.call_tool("inbox_add", args)).data
+    first = (await mcp_client.call_tool("inbox_add", args)).data
+    second = (await mcp_client.call_tool("inbox_add", args)).data
 
     assert first["note_id"] == second["note_id"]
     assert first["queued"] is True
@@ -88,10 +78,10 @@ async def test_inbox_add_parks_one_note_one_job_one_review_row(client, services)
     ) == 2
 
 
-async def test_inbox_add_with_a_project_suggests_the_project_bucket(client, services) -> None:
+async def test_inbox_add_with_a_project_suggests_the_project_bucket(mcp_client, services) -> None:
     await services.projects.create(name="Shared Memory")
     result = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "inbox_add",
             {
                 "title": "Handoff draft",
@@ -112,9 +102,9 @@ async def test_inbox_add_with_a_project_suggests_the_project_bucket(client, serv
     assert review["suggested"] == {"destination": "project"}
 
 
-async def test_sensitive_inbox_add_stores_the_note_and_queues_nothing(client, services) -> None:
+async def test_sensitive_inbox_add_stores_the_note_and_queues_nothing(mcp_client, services) -> None:
     result = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "inbox_add",
             {
                 "title": "Question about a scan",
@@ -137,7 +127,7 @@ async def test_sensitive_inbox_add_stores_the_note_and_queues_nothing(client, se
 
     # The review row exists, but filing the note into the vault is refused.
     with pytest.raises(ToolError) as refused:
-        await client.call_tool(
+        await mcp_client.call_tool(
             "review_reclassify",
             {"review_id": result["review_id"], "destination": "resource"},
         )
@@ -150,9 +140,9 @@ async def test_sensitive_inbox_add_stores_the_note_and_queues_nothing(client, se
     ) == "open"
 
 
-async def test_review_reclassify_files_the_note_out_of_the_inbox(client, services) -> None:
+async def test_review_reclassify_files_the_note_out_of_the_inbox(mcp_client, services) -> None:
     parked = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "inbox_add",
             {
                 "title": "LSP article notes",
@@ -162,7 +152,7 @@ async def test_review_reclassify_files_the_note_out_of_the_inbox(client, service
         )
     ).data
     filed = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "review_reclassify",
             {
                 "review_id": parked["review_id"],
@@ -201,15 +191,15 @@ async def test_review_reclassify_files_the_note_out_of_the_inbox(client, service
     ) == 0
 
 
-async def test_review_reclassify_refuses_inbox_as_a_destination(client, services) -> None:
+async def test_review_reclassify_refuses_inbox_as_a_destination(mcp_client, services) -> None:
     parked = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "inbox_add",
             {"title": "Loose thread", "content": "Something about caching headers."},
         )
     ).data
     with pytest.raises(ToolError) as refused:
-        await client.call_tool(
+        await mcp_client.call_tool(
             "review_reclassify",
             {"review_id": parked["review_id"], "destination": "inbox"},
         )
@@ -227,9 +217,11 @@ async def test_review_reclassify_refuses_inbox_as_a_destination(client, services
     assert await services.db.fetchval("SELECT count(*) FROM sync_jobs") == 1
 
 
-async def test_filing_a_note_whose_inbox_file_reached_the_vault_says_so(client, services) -> None:
+async def test_filing_a_note_whose_inbox_file_reached_the_vault_says_so(
+    mcp_client, services
+) -> None:
     parked = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "inbox_add",
             {"title": "Already written", "content": "The worker got to this one first."},
         )
@@ -242,7 +234,7 @@ async def test_filing_a_note_whose_inbox_file_reached_the_vault_says_so(client, 
     )
 
     filed = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "review_reclassify",
             {"review_id": parked["review_id"], "destination": "resource"},
         )

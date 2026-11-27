@@ -17,6 +17,7 @@ are stored through the same canonical writers as imported conversations.
 | --- | --- |
 | `AgentMail is not configured` | Leave email in `dry_run=true`, or configure the two `SUBZERO_AGENTMAIL_*` settings using [daily use](guides/12-daily-use.md#optional-email-setup). Restart the server. |
 | No `email` tool appears | Grant the client `email:send` in `SUBZERO_CLIENT_SCOPE_POLICY`, then reconnect it. Read-only clients cannot send. |
+| No `run_cli_on_mbp` tool appears | `cli:run` is not included in `"*"`. Add `"cli:run"` to that client's entry in `SUBZERO_CLIENT_SCOPE_POLICY`, restart the server, then remove and re-add the connector so it refreshes the tool list. |
 | `Resolve recipients explicitly` | Supply the full address confirmed by the user, not a name or display-name address. |
 | `send_at must be in the future with an explicit timezone` | Ask for a timezone and choose a future time. Do not silently send immediately. |
 | `Confirmation does not match the preview` | Read the existing draft, show it and get confirmation again. |
@@ -25,6 +26,7 @@ are stored through the same canonical writers as imported conversations.
 | `Email delivery is uncertain` | The safe retry window has expired. Reconcile the sending inbox in AgentMail before taking further action. |
 | `The approved send time has passed` | Check the original schedule in AgentMail if a send was attempted. For an unsent draft, review and confirm a new time. |
 | `This sensitivity level cannot be sent to AgentMail` | The content's privacy level is blocked by `SUBZERO_NO_EXTERNAL_SENSITIVITY`. Keep it local; do not lower the level just to send it. |
+| `Home must be projects/{slug}, lesson/{category}, setup/{tool}, or other` | Use a home in that format for CLI options, API calls, or the first line of a `.subzero` file. |
 | `A project home must match an existing project` | Use `project_search` to find the existing project slug or select `other`. |
 | `This object already has a different vault path` | No second copy was queued. Keep the original home, or relocate the managed file and update its tracked path before retrying. Files are not auto-moved. |
 | Vault result is `busy`, `failed` or `conflict` | The note is not confirmed written. Inspect `sync_status` and the helper's log; preserve human edits when resolving conflicts. |

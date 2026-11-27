@@ -6,7 +6,7 @@ import os
 import subprocess
 from pathlib import Path
 
-ENTRYPOINT = Path(__file__).resolve().parents[1] / "docker-entrypoint.sh"
+ENTRYPOINT = Path(__file__).resolve().parents[2] / "docker-entrypoint.sh"
 
 
 def _run(tmp_path: Path, *args: str) -> list[str]:

@@ -453,9 +453,7 @@ def list_candidate_questions(list_candidates: dict[str, str]) -> dict[str, Any]:
 # Dispatch: which agent takes a job
 # --------------------------------------------------------------------------
 
-#: Who a dispatched job can go to. Keys are the names a ``>`` sigil uses, so
-#: ``>grok`` and Jev's answer mean the same thing. "crew" is the no-match
-#: option: any free coding agent.
+#: Allowed dispatch targets. "crew" means any free coding agent.
 DISPATCH_TARGETS: dict[str, str] = {
     "claude": "Changes across several files of an existing codebase, careful refactors, "
     "debugging, or writing documentation that must match the code.",

@@ -15,6 +15,7 @@ from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
 from subzero.auth import scopes
+from subzero.homes import Home
 from subzero.mcp.compact import dump
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
 from subzero.services import get_services
@@ -42,6 +43,12 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[
             str | None,
             Field(description="Project slug or name, when you know it. Inferred otherwise."),
+        ] = None,
+        home: Annotated[
+            Home | None,
+            Field(
+                description="Explicit home for a handoff, for example lesson/cfa2 or setup/neovim."
+            ),
         ] = None,
         token_budget: Annotated[
             int, Field(ge=200, le=4000, description="Approximate token ceiling for the result.")
@@ -72,7 +79,7 @@ def register(mcp: FastMCP) -> None:
         """
         services = get_services()
         package = await services.retrieval.bootstrap(
-            query, user_message=user_message, token_budget=token_budget, project=project
+            query, user_message=user_message, token_budget=token_budget, project=project, home=home
         )
         payload = dump(package)
         items = payload.get("items") or []
@@ -201,12 +208,8 @@ def register(mcp: FastMCP) -> None:
         conversation_id. Costs more than context_search; do not call it for
         every request. If "semantic" is false, only exact words were matched.
         """
-        from subzero.retrieval.semantic import deep_search
-
         services = get_services()
-        result = await deep_search(
-            services.db, services.embeddings, query, limit=limit, provider=provider
-        )
+        result = await services.retrieval.deep_search(query, limit=limit, provider=provider)
         payload: dict[str, Any] = {
             "query": result.query,
             "semantic": result.semantic,

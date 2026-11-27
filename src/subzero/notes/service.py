@@ -83,7 +83,6 @@ class NoteService:
         append: bool = False,
         home: str | None = None,
         concepts: list[str] | None = None,
-        people: list[str] | None = None,
         conn: asyncpg.Connection | None = None,
     ) -> tuple[UUID, bool, int]:
         """Create or update a note. Returns (id, created, version).
@@ -108,7 +107,6 @@ class NoteService:
                     append=append,
                     home=home,
                     concepts=concepts,
-                    people=people,
                     conn=tx,
                 )
         executor = conn
@@ -139,7 +137,6 @@ class NoteService:
                 for t in previous.get("tags", [])
                 if t.startswith("concept/")
             ],
-            people,
         )
 
         metadata["tags"] = list(
@@ -290,6 +287,13 @@ class NoteService:
         )
         assert row is not None
         return _record(row, include_content=include_content)
+
+    async def merge_metadata(self, note_id: UUID, patch: dict[str, Any]) -> None:
+        await self._db.execute(
+            "UPDATE notes SET metadata = metadata || $2::jsonb WHERE id = $1",
+            note_id,
+            patch,
+        )
 
     async def search(
         self,

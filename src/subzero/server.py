@@ -94,6 +94,12 @@ a package lists conflicts, ask the user which one stands; do not pick one.
 
 For work on the user's machines, call dispatch (it queues; say so). \
 agents_status shows running coding sessions and who is waiting on the user.
+
+When the user asks to run a command on this Mac and see the result in this \
+chat, call run_cli_on_mbp with their exact command. Report the host, working \
+directory and exit code. A non-zero exit is the result. Do not use dispatch \
+or agent_run for that command: those queue a coding harness and do not return \
+its output here. Call cli_job_on_mbp when the result says the job is still running.
 """
 
 

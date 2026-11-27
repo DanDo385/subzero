@@ -14,38 +14,14 @@ refuses a URL that does not look like a test database.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from subzero.config import Settings
+from support.db import TEST_DB_ENV, requires_db, test_dsn
 
-TEST_DB_ENV = "SUBZERO_TEST_DATABASE_URL"
-
-
-def _test_dsn() -> str | None:
-    dsn = os.environ.get(TEST_DB_ENV)
-    if not dsn:
-        return None
-    # Refuse to run destructive schema work against anything not obviously a
-    # scratch database. Strip the query string FIRST: a unix-socket DSN puts a
-    # path in `?host=`, and splitting on "/" before that reads the socket
-    # directory as the database name.
-    tail = dsn.split("?", 1)[0].rsplit("/", 1)[-1].lower()
-    if "test" not in tail:
-        pytest.exit(
-            f"{TEST_DB_ENV} must point at a database whose name contains 'test'. "
-            f"Refusing to run migrations against {tail!r}.",
-            returncode=2,
-        )
-    return dsn
-
-
-requires_db = pytest.mark.skipif(
-    _test_dsn() is None,
-    reason=f"set {TEST_DB_ENV} to a throwaway database to run integration tests",
-)
+__all__ = ["TEST_DB_ENV", "requires_db", "test_dsn"]
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +34,7 @@ def _isolated_state_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 def settings(tmp_path: Path) -> Settings:
     return Settings(
         environment="dev",
-        database_url=_test_dsn() or "postgres://unused",
+        database_url=test_dsn() or "postgres://unused",
         # Every test drops and rebuilds the whole schema, and the production
         # 15 s statement timeout is not what a test measures: under load the
         # rebuild alone can exceed it, which surfaces as a random TimeoutError
@@ -83,7 +59,7 @@ async def db(settings: Settings):
     from subzero.db.migrate import apply_migrations
     from subzero.db.pool import Database
 
-    dsn = _test_dsn()
+    dsn = test_dsn()
     if dsn is None:
         pytest.skip(f"set {TEST_DB_ENV} to run this test")
 
@@ -160,3 +136,7 @@ async def live_server(settings):
     finally:
         server.should_exit = True
         await task
+
+
+# Shared HTTP/MCP clients for e2e journeys (see tests/e2e/).
+pytest_plugins = ["support.app", "support.rate_limit", "support.worker", "support.eval"]

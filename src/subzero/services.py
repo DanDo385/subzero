@@ -30,6 +30,7 @@ from subzero.projects.service import ProjectService
 from subzero.retrieval.service import RetrievalService
 from subzero.review.service import ReviewService
 from subzero.sessions.service import SessionService
+from subzero.status import StatusService
 from subzero.storage import build_object_store
 from subzero.storage.base import ObjectStore
 
@@ -56,6 +57,7 @@ class Services:
     email: EmailService
     agents: AgentService
     bridge: BridgeService
+    status: StatusService
 
     async def aclose(self) -> None:
         await self.embeddings.aclose()
@@ -88,6 +90,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
         audit=audit,
     )
     bridge = BridgeService(db)
+    status = StatusService(db)
 
     return Services(
         settings=settings,
@@ -110,6 +113,7 @@ async def build_services(settings: Settings, db: Database) -> Services:
         email=EmailService(db, settings),
         agents=AgentService(db, classifier, settings),
         bridge=bridge,
+        status=status,
     )
 
 

@@ -75,7 +75,7 @@ failed startup.
 | When does it act on the answer? | `classifier/policy.py` |
 | Where do object keys come from? | `artifacts/keys.py` |
 | What paths may the vault worker write? | `obsidian/paths.py` |
-| What can an unauthenticated caller see? | `tests/test_http_security.py` |
+| What can an unauthenticated caller see? | `tests/unit/test_http_security.py` |
 | How are scopes granted? | `auth/scopes.py`, `auth/provider.py` |
 
 The first two are the ones a human should actually review. Everything the

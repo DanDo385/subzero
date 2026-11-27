@@ -13,8 +13,6 @@ from uuid import UUID
 import asyncpg
 import httpx
 import pytest
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
 
 from conftest import requires_db
@@ -32,16 +30,6 @@ def code_root(services, tmp_path: Path) -> Path:
     (code / "worktrees" / "subzero" / "cli-exec").mkdir(parents=True)
     services.settings.exec_roots = [str(code), str(code / "worktrees")]
     return code.resolve()
-
-
-@pytest.fixture
-async def client(services, live_server):
-    async with Client(
-        StreamableHttpTransport(
-            url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
-        )
-    ) as mcp:
-        yield mcp
 
 
 @pytest.fixture
@@ -64,19 +52,19 @@ async def http(services, live_server):
 
 
 async def test_exec_tools_are_advertised_with_the_scope_and_refused_without(
-    client, services, code_root
+    mcp_client, services, code_root
 ) -> None:
     """agents:exec is not a :read scope: a read-only policy hides the tools,
     a direct call is refused, and no job row appears. The positive half keeps
     the test honest: with the scope the tools really are registered."""
-    names = {tool.name for tool in await client.list_tools()}
+    names = {tool.name for tool in await mcp_client.list_tools()}
     assert {"agent_run", "agent_open"} <= names  # the static token holds every scope
 
     services.settings.client_scope_policy = {"*": ["read"]}
-    names = {tool.name for tool in await client.list_tools()}
+    names = {tool.name for tool in await mcp_client.list_tools()}
     assert "agent_run" not in names and "agent_open" not in names
     with pytest.raises(ToolError) as refused:
-        await client.call_tool("agent_run", {"command": "whoami"})
+        await mcp_client.call_tool("agent_run", {"command": "whoami"})
     assert "agent_run" in str(refused.value)
     assert await services.db.fetchval("SELECT count(*) FROM dispatch_jobs") == 0
 
@@ -85,9 +73,9 @@ async def test_exec_tools_are_advertised_with_the_scope_and_refused_without(
 
 
 async def test_agent_run_queues_a_command_job_with_a_resolved_cwd(
-    client, services, code_root
+    mcp_client, services, code_root
 ) -> None:
-    result = await client.call_tool(
+    result = await mcp_client.call_tool(
         "agent_run",
         {"command": "uv run pytest -q", "worktree": "subzero/cli-exec", "timeout_s": 60},
     )
@@ -113,10 +101,10 @@ async def test_agent_run_queues_a_command_job_with_a_resolved_cwd(
     assert audit_row["metadata"] == {"cwd": worktree_cwd, "timeout_s": 60, "target": "crew"}
 
 
-async def test_agent_open_queues_a_session_that_keeps_open(client, services, code_root) -> None:
-    await client.call_tool(
+async def test_agent_open_queues_a_session_that_keeps_open(mcp_client, services, code_root) -> None:
+    await mcp_client.call_tool(
         "agent_open",
-        {"worktree": "subzero", "first_command": "uv run pytest", "target": ">claude"},
+        {"worktree": "subzero", "first_command": "uv run pytest", "target": "claude"},
     )
     job = await services.db.fetchrow("SELECT * FROM dispatch_jobs")
     assert job["kind"] == "session"
@@ -125,7 +113,7 @@ async def test_agent_open_queues_a_session_that_keeps_open(client, services, cod
     assert job["first_command"] == "uv run pytest"  # typed for the human, never executed
     assert job["goal"] == "Open an interactive session in subzero."  # the description
     assert job["cwd"] == str(code_root / "subzero")
-    assert (job["target"], job["routed_by"]) == ("claude", "sigil")
+    assert (job["target"], job["routed_by"]) == ("claude", "explicit")
 
     audit_row = await services.db.fetchrow("SELECT * FROM audit_log WHERE tool = 'agent_open'")
     assert audit_row is not None
@@ -151,14 +139,14 @@ async def test_the_schema_refuses_first_command_on_a_command_job(services, code_
 
 
 async def test_over_long_command_bad_timeout_and_bad_worktree_are_refused(
-    client, services, code_root
+    mcp_client, services, code_root
 ) -> None:
     with pytest.raises(ToolError):
-        await client.call_tool("agent_run", {"command": "x" * 4001})
+        await mcp_client.call_tool("agent_run", {"command": "x" * 4001})
     with pytest.raises(ToolError):
-        await client.call_tool("agent_run", {"command": "true", "timeout_s": 1801})
+        await mcp_client.call_tool("agent_run", {"command": "true", "timeout_s": 1801})
     with pytest.raises(ToolError):
-        await client.call_tool("agent_run", {"command": "true", "worktree": "nope/missing"})
+        await mcp_client.call_tool("agent_run", {"command": "true", "worktree": "nope/missing"})
     assert await services.db.fetchval("SELECT count(*) FROM dispatch_jobs") == 0
 
 
@@ -184,7 +172,7 @@ async def test_the_service_refuses_bad_inputs_before_any_schema(services, code_r
 
 async def test_dispatch_accepts_a_worktree_and_stores_the_resolved_cwd(services, code_root) -> None:
     job = await services.agents.dispatch(
-        "finish the cutover >claude", worktree="subzero/cli-exec", space="ws-1"
+        "finish the cutover", target="claude", worktree="subzero/cli-exec", space="ws-1"
     )
     assert job["kind"] == "goal"
     assert job["worktree"] == "subzero/cli-exec"
@@ -195,7 +183,7 @@ async def test_dispatch_accepts_a_worktree_and_stores_the_resolved_cwd(services,
 
 async def test_dispatch_refuses_a_worktree_outside_the_roots(services, code_root, tmp_path) -> None:
     with pytest.raises(ValidationError):
-        await services.agents.dispatch("do it >claude", worktree=str(tmp_path))
+        await services.agents.dispatch("do it", target="claude", worktree=str(tmp_path))
     assert await services.db.fetchval("SELECT count(*) FROM dispatch_jobs") == 0
 
 
@@ -230,11 +218,11 @@ async def test_a_short_output_is_stored_whole(services, code_root) -> None:
     assert done["exit_code"] == 0
 
 
-async def test_output_never_reaches_the_chat_tools(client, services, code_root) -> None:
+async def test_output_never_reaches_the_chat_tools(mcp_client, services, code_root) -> None:
     """output is user content: the chat-app surface does not carry it."""
     job = await services.agents.queue_command("echo hi", worktree="subzero/cli-exec")
     await services.agents.finish(UUID(job["id"]), exit_code=0, output="SECRET-TAIL")
-    status = await client.call_tool("agents_status", {})
+    status = await mcp_client.call_tool("agents_status", {})
     assert "SECRET-TAIL" not in json.dumps(status.data)
 
 
@@ -246,7 +234,7 @@ async def test_dispatch_and_finish_over_http_carry_the_exec_fields(
 ) -> None:
     queued = await http.post(
         "/api/v1/dispatch",
-        json={"goal": "run the tests >claude", "worktree": "subzero/cli-exec"},
+        json={"goal": "run the tests", "target": "claude", "worktree": "subzero/cli-exec"},
     )
     assert queued.status_code == 200, queued.text
     assert queued.json()["cwd"] == str(code_root / "worktrees" / "subzero" / "cli-exec")

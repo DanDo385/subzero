@@ -42,7 +42,11 @@ Scratch files are not memory. A file is captured only when its bytes were
 stored and verified.
 
 Use agent_message for a message to a running agent and dispatch for a job.
-Say queued until a worker claims it; say completed only with a result. Sharing
+Say queued until a worker claims it; say completed only with a result. When I
+ask to run a command on this Mac and see the result here, call run_cli_on_mbp
+with my exact command and report the host, directory and exit code. Do not
+use dispatch or agent_run for that, and do not claim it ran before the tool
+returns. Sharing
 Subzero does not automatically share this chat's full live context. Save a
 useful handoff so another connected assistant can retrieve it.
 

@@ -180,7 +180,7 @@ subzero/
 │   ├── services.py           # explicit service wiring
 │   ├── models.py             # the shapes that cross the MCP boundary
 │   ├── ingest.py             # /api/v1/ingest: the extension's write path, sync-state
-│   ├── sigils.py             # %project ^lesson &setup #concept @person >agent
+│   ├── homes.py              # explicit homes and concept tags
 │   ├── cli.py cli_agents.py  # `subzero` commands; client.py is their HTTP side
 │   ├── auth/                 # providers, scopes, principal, rate limit, KV
 │   ├── mcp/                  # tool / prompt / resource registration
@@ -336,7 +336,7 @@ against the budget. The package is the structured result.
 
 The eval set in `tests/eval/retrieval_cases.yaml` (39 cases over a synthetic
 fixture) reports recall@5, MRR, stale-decision errors, duplicates, tokens,
-database round trips and latency; `tests/test_integration_retrieval_eval.py`
+database round trips and latency; `tests/e2e/test_retrieval_eval.py`
 fails if any case regresses.
 
 Every returned item carries provenance:

@@ -14,8 +14,6 @@ import dataclasses
 import hashlib
 
 import pytest
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 
 from conftest import requires_db
 from subzero.errors import IntegrityError
@@ -83,19 +81,9 @@ async def test_a_bundle_that_fails_part_way_is_marked_failed(services, monkeypat
     )
 
 
-@pytest.fixture
-async def client(services, live_server):
-    async with Client(
-        StreamableHttpTransport(
-            url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
-        )
-    ) as mcp:
-        yield mcp
-
-
-async def test_completing_an_upload_checks_the_bytes_against_the_hash(client, services) -> None:
+async def test_completing_an_upload_checks_the_bytes_against_the_hash(mcp_client, services) -> None:
     begun = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "artifact_begin_upload",
             {"title": "Scan", "filename": "scan.pdf", "byte_size": 5},
         )
@@ -109,7 +97,7 @@ async def test_completing_an_upload_checks_the_bytes_against_the_hash(client, se
 
     claimed = hashlib.sha256(b"hello").hexdigest()
     result = (
-        await client.call_tool(
+        await mcp_client.call_tool(
             "artifact_complete_upload",
             {
                 "artifact_id": begun["artifact_id"],

@@ -31,7 +31,6 @@ Plain-language meanings for the words used in these docs.
 | **Service account (1Password)** | A special 1Password login for background programs, limited to the vaults you choose. |
 | **Service role key (Supabase)** | The master key to your Supabase project. Only your server should have it. |
 | **Skill** | A packaged set of instructions some AI apps can load to do a task well. `use-subzero` is the one that explains the connector. |
-| **Sigil** | A symbol at the start of a word that names an exact home or person: `%project`, `^lesson`, `&setup`, `#concept`, `@person`, `>agent`. Optional in chat. A coding folder can put one in a `.subzero` file so you never type it. |
 | **Home** | Where a note or session is filed: `projects/…`, `lesson/…`, `setup/…`, or `other`. |
 | **Dispatch** | A job queued for a coding agent. Queued means waiting, not started. |
 | **Board** | The page on your own computer (`subzero board`) that shows agents, jobs and messages for you. |
