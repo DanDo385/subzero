@@ -32,11 +32,13 @@ from uuid import UUID
 
 import asyncpg
 
+from subzero.agent_context import read_agent_context
 from subzero.config import Settings
 from subzero.db.pool import Database
 from subzero.embeddings.service import EmbeddingService
 from subzero.homes import validate_home
 from subzero.models import (
+    AgentContext,
     ContextItem,
     ContextPackage,
 )
@@ -65,6 +67,7 @@ from subzero.retrieval.sql import (
 from subzero.retrieval.sql import (
     SEARCH_SQL as _SEARCH_SQL,
 )
+from subzero.util import truncate_for_budget
 
 
 @dataclass
@@ -360,13 +363,22 @@ class RetrievalService:
             if home.startswith("projects/"):
                 project = project or home.removeprefix("projects/")
                 home = None
+        budget = token_budget or self._settings.default_token_budget
+        # A short read-only excerpt of the owner's agent guidance, when it is
+        # configured and the budget has room for it.
+        guidance = None
+        if budget >= 600:
+            guidance = await read_agent_context(self._settings, "agents")
+            if guidance:
+                guidance.content = truncate_for_budget(guidance.content, min(120, budget // 8))
         return await self._build_package(
             query=text,
-            token_budget=token_budget or self._settings.default_token_budget,
+            token_budget=budget,
             project=project,
             include_handoff=True,
             notes=notes,
             home=home,
+            guidance=guidance,
         )
 
     async def _build_package(
@@ -378,6 +390,7 @@ class RetrievalService:
         include_handoff: bool,
         notes: list[str] | None = None,
         home: str | None = None,
+        guidance: AgentContext | None = None,
     ) -> ContextPackage:
         return await PackageBuilder(self).build(
             query=query,
@@ -386,4 +399,5 @@ class RetrievalService:
             include_handoff=include_handoff,
             notes=notes,
             home=home,
+            guidance=guidance,
         )

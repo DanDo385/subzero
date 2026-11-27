@@ -14,6 +14,7 @@ async def test_client_can_list_the_full_tool_surface(mcp_client) -> None:
 
     assert {
         "context_bootstrap",
+        "context_read_guidance",
         "context_search",
         "memory_save",
         "memory_search",
@@ -31,6 +32,45 @@ async def test_tool_descriptions_tell_the_model_when_not_to_call(mcp_client) -> 
     tools = {t.name: t for t in await mcp_client.list_tools()}
     bootstrap = tools["context_bootstrap"].description or ""
     assert "Skip for trivial questions" in bootstrap
+
+
+async def test_guidance_refresh_and_budget_through_mcp(mcp_client, settings, tmp_path) -> None:
+    """Bootstrap carries a short excerpt of the dotfiles guidance; the full
+    documents are one read away, and an edit on disk shows up on the next call."""
+    checkout = tmp_path / "dotfiles"
+    (checkout / "subzero").mkdir(parents=True)
+    (checkout / "cli").mkdir()
+    agents = checkout / "subzero" / "AGENTS.md"
+    agents.write_text("# Initial guidance\n\n" + "Details for an on-demand read. " * 50)
+    (checkout / "subzero" / "PRE-PROMPT.md").write_text("reference-only marker")
+    (checkout / "cli" / "MACHINES.md").write_text("# Machine details")
+    link = tmp_path / "linked-dotfiles"
+    link.symlink_to(checkout, target_is_directory=True)
+    settings.dotfiles_root = link
+
+    first = await mcp_client.call_tool("context_bootstrap", {"token_budget": 600})
+    payload = first.structured_content
+    assert payload["estimated_tokens"] <= 600
+    assert payload["agent_context"]["content"].startswith("# Initial guidance")
+    assert agents.read_text().startswith(payload["agent_context"]["content"].split(" […]")[0])
+    assert "reference-only marker" not in json.dumps(payload)
+    assert "Machine details" not in json.dumps(payload)
+    small = await mcp_client.call_tool("context_bootstrap", {"token_budget": 200})
+    assert "agent_context" not in small.structured_content
+    detail = await mcp_client.call_tool("context_read_guidance", {"document": "agents"})
+    assert detail.structured_content["content"] == agents.read_text().strip()
+    machines = await mcp_client.call_tool("context_read_guidance", {"document": "machines"})
+    assert machines.structured_content["content"] == "# Machine details"
+    agents.write_text("# Updated guidance")
+    second = await mcp_client.call_tool("context_bootstrap", {"token_budget": 600})
+    assert second.structured_content["agent_context"]["content"] == "# Updated guidance"
+    assert (
+        second.structured_content["agent_context"]["sha256"] != payload["agent_context"]["sha256"]
+    )
+    bad = await mcp_client.call_tool(
+        "context_read_guidance", {"document": "../PRE-PROMPT.md"}, raise_on_error=False
+    )
+    assert bad.is_error
 
 
 async def test_artifact_tools_warn_against_claiming_capture(mcp_client) -> None:

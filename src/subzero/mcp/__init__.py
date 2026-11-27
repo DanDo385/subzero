@@ -21,7 +21,7 @@ from subzero.services import Services
 
 def register_all(mcp: FastMCP, s: Services) -> None:
     """The one place that reads the container: each module gets only its own."""
-    tools_context.register(mcp, retrieval=s.retrieval)
+    tools_context.register(mcp, retrieval=s.retrieval, settings=s.settings)
     tools_email.register(mcp, emails=s.email)
     tools_memory.register(
         mcp, audit=s.audit, memories=s.memories, projects=s.projects, sessions=s.sessions

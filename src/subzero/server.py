@@ -75,6 +75,8 @@ when you know it. Do not paste the user's message. One bootstrap call returns \
 the project's handoff (latest sessions, open questions, open tasks, active \
 decisions); use context_search only for something it did not cover.
 
+When a task needs the owner's workflow or machine setup, start with the +read-only dotfiles guidance in bootstrap, or call context_read_guidance +for the complete document. Open the source in the writable dotfiles +checkout when the user asks for an edit.
+
 Checkpoint durable state (session_checkpoint) when something is settled: a \
 decision, a confirmed fact, a task, a project update, an unresolved question. \
 Name the project when there is one. Not conversational noise.

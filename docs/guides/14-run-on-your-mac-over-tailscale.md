@@ -110,6 +110,43 @@ the order, the server still starts and tells you: `/readyz` answers
 change answers *Subzero's database schema is behind this server's code*. Run `subzero migrate`;
 the server notices within half a minute, with no restart.
 
+## Share agent guidance
+
+On the Mac, set the server's `SUBZERO_DOTFILES_ROOT` to the absolute path of the
+dotfiles checkout (for example, `~/Code/dotfiles`, expanded for the account that
+runs Subzero). It can also point to a local symlink to that checkout:
+
+```bash
+mkdir -p ~/.config/subzero
+ln -s "$HOME/Code/dotfiles" ~/.config/subzero/dotfiles
+```
+
+If that path already exists, inspect it before changing it. Put the link's
+absolute path in the Mac's server settings, then restart the server once.
+Subzero reads `subzero/AGENTS.md` and `cli/MACHINES.md` from that checkout.
+Changes on disk show up on the next relevant call.
+
+Vercel runs on a separate filesystem. Set `SUBZERO_DOTFILES_GITHUB_REPO` to
+`owner/dotfiles`, `SUBZERO_DOTFILES_GITHUB_REF` to the published branch containing
+the two files, and `SUBZERO_DOTFILES_GITHUB_TOKEN` to a sensitive deployment
+variable with Contents read access to that repository. Deploy once with these
+settings. Vercel reads newly pushed versions from the configured branch at
+runtime, including while the Mac is offline. Keep the two documents suitable for
+all the signed-in clients you grant `context:read`.
+
+Use `context_bootstrap` with a budget of at least 600 for a short workflow
+excerpt. Open the full read-only versions with
+`context_read_guidance(document="agents")` or
+`context_read_guidance(document="machines")`. The response identifies the source
+and gives the full document's SHA-256. To make an authorized edit, open the
+source file in a writable dotfiles checkout and use your normal Git workflow.
+Keep provider instruction copy in `subzero/PRE-PROMPT.md` for manual reference.
+
+To test, call both guidance reads through the Mac connector, then repeat with
+the Vercel connector. After a harmless edit, the Mac hash should change as soon
+as the file is saved and the Vercel hash should match after you push. Compare
+hashes on separate authenticated connections to the two URLs.
+
 ## Stop or change it
 
 ```bash

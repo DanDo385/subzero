@@ -39,6 +39,11 @@ load only when needed.
 For Codex setup, shared context and the initially empty MEMORY.md workflow,
 see [the CLI-to-browser handoff](../../instructions/browser-custom-instructions.md).
 
+For a deployment with shared dotfiles, see [guide 14](14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
+The short custom instruction tells the app when to call bootstrap. Subzero
+then adds the configured workflow excerpt to that response and exposes both
+full read-only documents through `context_read_guidance`.
+
 ## Moving from personal-context-mcp
 
 If an app still shows a connector named **personal-context-mcp** (or **Personal Context**), remove it
