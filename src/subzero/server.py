@@ -67,14 +67,18 @@ Subzero is this user's canonical memory, shared across ChatGPT, \
 Claude, Gemini, Grok, Muse and their coding agents. If an older connector \
 named personal-context-mcp is also present, do not use it.
 
+First prompt of a chat: call session_open once (generate one UUID for this chat) \
+and keep its session id for session_update, session_checkpoint and session_close. \
 Call context_bootstrap once at the start of every chat. Its text begins with \
 the owner's standing context from their dotfiles: a context header, SOUL \
-(voice) and AGENTS (what to do in a chat). Follow it for the whole chat. Add a \
+(voice), AGENTS (what to do in a chat), the memory pointer, and the machines \
+file, each with a path and content id. Follow it for the whole chat. Add a \
 short query of key terms and names, plus the project, only when the request \
 depends on past work (a project, earlier decisions, "remember", "last time"); \
 leave them out for a standalone question. Do not paste the user's message. Use \
-context_search only for something bootstrap did not cover, and \
-context_read_guidance for the owner's machines or where facts about them live.
+context_search only for something bootstrap did not cover. When the machines \
+text says it was cut, call context_read_guidance with document "machines" for \
+the rest.
 
 Checkpoint durable state (session_checkpoint) when something is settled: a \
 decision, a confirmed fact, a task, a project update, an unresolved question. \

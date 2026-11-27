@@ -56,12 +56,20 @@ async def test_standing_context_reaches_text_only_clients(mcp_client, settings, 
     first = await mcp_client.call_tool("context_bootstrap", {})
     text = first.content[0].text
     payload = first.structured_content
-    assert text.index("FILE-MAP") < text.index("VOICE-RULE") < text.index("CHAT-RULE")
+    assert (
+        text.index("FILE-MAP")
+        < text.index("VOICE-RULE")
+        < text.index("CHAT-RULE")
+        < text.index("Memory (pointer)")
+        < text.index("Machine details")
+    )
     ids = {d["document"]: d["content_id"] for d in payload["standing"]}
-    assert list(ids) == ["context", "soul", "agents"]
+    assert list(ids) == ["context", "soul", "agents", "memory", "machines"]
     assert f"subzero/SOUL.md (id {ids['soul']}, local)" in text
-    # Only the three standing documents: no reference copy, no machines, no CLI rules.
-    for absent in ("reference-only marker", "Machine details", "CLI-ONLY", "Memory (pointer)"):
+    assert f"subzero/MEMORY.md (id {ids['memory']}, local)" in text
+    assert f"MACHINES.md (id {ids['machines']}, local)" in text
+    # The checkout can hold other files. Bootstrap does not send them.
+    for absent in ("reference-only marker", "CLI-ONLY"):
         assert absent not in text
         assert absent not in json.dumps(payload)
     # The standing context is on top of the retrieval budget, not inside it.

@@ -32,9 +32,10 @@ For Codex setup and shared context, see
 
 For a deployment with shared dotfiles, see [guide 14](14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
 The short custom instruction tells the app to call bootstrap at the start of
-every chat. Subzero then puts your standing context (a context header, SOUL and
-the chat AGENTS from your dotfiles) at the top of that response, and opens your
-memory and machines documents through `context_read_guidance` when needed.
+every chat. Subzero then puts your standing context at the top of that
+response: a context header, SOUL, the chat AGENTS, the memory pointer, and
+the machines file from your dotfiles. A machines file that does not fit is
+marked cut, and `context_read_guidance` returns the rest.
 
 If a chat says it has no Subzero tools at all, the connector is not switched on
 for that chat: connecting the app once is not always enough (Gemini, for one,

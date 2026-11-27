@@ -334,10 +334,11 @@ ids, and the layer report lists only layers that contributed nothing.
 The MCP response carries the same package twice: as readable text (several chat
 apps show the model only the text block) and as structured data. On configured
 servers, bootstrap adds the owner's standing context from dotfiles
-(`subzero/CONTEXT.md`, `SOUL.md`, `AGENTS.md`), as `standing` and at the top of
-the text, on top of the token budget. The authenticated `context_read_guidance`
-tool opens one of five named documents (those three plus `memory` and
-`machines`) on demand. See [guide 14](guides/14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
+(`subzero/CONTEXT.md`, `SOUL.md`, `AGENTS.md`, `subzero/MEMORY.md`, and
+`MACHINES.md`), as `standing` and at the top of the text, on top of the token
+budget. The block is capped at 8,000 characters, and a long machines file is
+the part that is cut. The authenticated `context_read_guidance` tool opens any
+one of those five documents in full. See [guide 14](guides/14-run-on-your-mac-over-tailscale.md#share-agent-guidance).
 
 The eval set in `tests/eval/retrieval_cases.yaml` (39 cases over a synthetic
 fixture) reports recall@5, MRR, stale-decision errors, duplicates, tokens,

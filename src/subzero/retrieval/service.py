@@ -385,7 +385,7 @@ class RetrievalService:
             if home.startswith("projects/"):
                 project = project or home.removeprefix("projects/")
                 home = None
-        # The standing context (dotfiles header, SOUL, chat AGENTS) is read
+        # The standing context (header, SOUL, chat AGENTS, memory, machines) is read
         # while the package is built, and sent on top of token_budget: it is
         # the chat's instructions, not a retrieval result competing for room.
         standing, package = await asyncio.gather(

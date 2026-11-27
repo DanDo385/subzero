@@ -123,6 +123,26 @@ async def test_standing_context_is_ordered_skips_gaps_and_is_capped(tmp_path: Pa
     assert await read_standing(Settings()) == []
 
 
+async def test_standing_includes_memory_and_cuts_machines_last(tmp_path: Path) -> None:
+    root = tmp_path / "dotfiles"
+    (root / "subzero").mkdir(parents=True)
+    (root / "subzero" / "CONTEXT.md").write_text("# Context header")
+    (root / "subzero" / "SOUL.md").write_text("# Soul")
+    (root / "subzero" / "AGENTS.md").write_text("# Chat rules")
+    (root / "subzero" / "MEMORY.md").write_text("# Memory (pointer)\n\nFacts live in the database.")
+    (root / "MACHINES.md").write_text("# Machines\n" + ("machine card\n" * 2000))
+    settings = Settings(dotfiles_root=root)
+
+    standing = await read_standing(settings)
+
+    assert [d.document for d in standing] == ["context", "soul", "agents", "memory", "machines"]
+    assert standing[3].truncated is False
+    assert "Facts live in the database." in standing[3].content
+    assert standing[4].truncated and "cut to fit" in standing[4].content
+    assert standing[4].content_id == standing[4].sha256[:12]
+    assert sum(len(d.content) for d in standing) <= STANDING_MAX_CHARS + 80
+
+
 async def test_missing_local_checkout_falls_back_to_github(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

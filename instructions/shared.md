@@ -1,16 +1,17 @@
 # Subzero browser and mobile pre-prompt
 
 Paste the same three lines into each connected app. They only tell the app to
-call `context_bootstrap` at the start of every chat: your rules and voice come
-from the server, at the top of that result (`subzero/CONTEXT.md`, `SOUL.md` and
-`AGENTS.md` from your dotfiles; see
+call `context_bootstrap` at the start of every chat: your rules, voice,
+memory pointer and machines come from the server, at the top of that result
+(`subzero/CONTEXT.md`, `SOUL.md`, `AGENTS.md`, `MEMORY.md` and `MACHINES.md`
+from your dotfiles; see
 [guide 14](../docs/guides/14-run-on-your-mac-over-tailscale.md#share-agent-guidance)).
 So there is one copy of the rules, and editing it in dotfiles changes every
 app. The same text lives in dotfiles as `subzero/PRE-PROMPT.md`.
 
 ```text
 Subzero (connector: subzero) is my shared memory; ignore personal-context-mcp.
-At the start of every chat, call context_bootstrap once (add key terms when the request depends on past work). Its text begins with my context header, SOUL.md and AGENTS.md from my dotfiles: follow them.
+At the start of every chat, call context_bootstrap once (add key terms when the request depends on past work). Its text begins with my context header, SOUL.md, AGENTS.md, MEMORY.md and MACHINES.md from my dotfiles: follow them.
 If Subzero is not connected, say so in your first reply instead of guessing my preferences.
 ```
 

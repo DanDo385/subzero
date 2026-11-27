@@ -249,8 +249,9 @@ class ContextPackage(Base):
     """Compact package returned by context_bootstrap / context_for_topic."""
 
     query: str
-    #: Standing context from dotfiles (header, SOUL, chat AGENTS), sent on
-    #: top of token_budget. Empty when the server has no dotfiles source.
+    #: Standing context from dotfiles (header, SOUL, chat AGENTS, memory,
+    #: machines), sent on top of token_budget. Empty when the server has no
+    #: dotfiles source. A long machines file is cut to the standing cap.
     standing: list[AgentContext] = Field(default_factory=list)
     items: list[ContextItem] = Field(default_factory=list)
     token_budget: int

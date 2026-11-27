@@ -2,17 +2,18 @@
 
 Chat sessions (web and mobile apps) have no disk, so their standing context
 comes from here. Five documents are known by name; nothing else can be read.
-Three of them (the context header, SOUL and the chat AGENTS) are the standing
-context every ``context_bootstrap`` starts with; memory and machines open on
-demand through ``context_read_guidance``.
+``context_bootstrap`` sends all five, in order: the context header, SOUL, the
+chat AGENTS, the memory pointer, then the machines file. The 8,000 character
+cap keeps the header rules intact and cuts the machines file first. The full
+machines file is still available through ``context_read_guidance``.
 
 The source is the owner's dotfiles: a local checkout when the server runs on a
 machine that has one (``SUBZERO_DOTFILES_ROOT`` names a folder that exists
 here), otherwise a published Git ref read through the GitHub API (the
 serverless deployment). So one settings file can carry both: the Mac finds its
 checkout, and Vercel, where that folder does not exist, reads GitHub. GitHub reads are
-cached for ``SUBZERO_DOTFILES_CACHE_SECONDS`` so a bootstrap does not pay six
-API round trips; local reads always see the file as it is on disk.
+cached for ``SUBZERO_DOTFILES_CACHE_SECONDS`` so a bootstrap does not repeat
+the Contents reads; local reads always see the file as it is on disk.
 """
 
 from __future__ import annotations
@@ -39,9 +40,11 @@ _PATHS: dict[Document, str] = {
     "memory": "subzero/MEMORY.md",
     "machines": "MACHINES.md",
 }
-#: Sent at the top of every bootstrap, in this order.
-STANDING: tuple[Document, ...] = ("context", "soul", "agents")
-#: Ceiling on the standing context, across all three documents. It is sent on
+#: Sent at the top of every bootstrap, in this order. Header, voice and chat
+#: rules come before the memory pointer and the machines file, so a long
+#: machines file is what gets cut when the cap is reached.
+STANDING: tuple[Document, ...] = ("context", "soul", "agents", "memory", "machines")
+#: Ceiling on the standing context, across every document above. It is sent on
 #: top of the retrieval budget, so it stays small on purpose (about 2k tokens).
 STANDING_MAX_CHARS = 8000
 _MAX_BYTES = 32_768

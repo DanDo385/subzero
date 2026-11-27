@@ -114,19 +114,21 @@ the server notices within half a minute, with no restart.
 
 Chat apps (ChatGPT, Claude, Gemini, Grok, Muse) have no files of their own, so
 Subzero sends them your standing context from your dotfiles repository. Every
-`context_bootstrap` text starts with three files, in this order:
+`context_bootstrap` text starts with five files, in this order:
 
 | File | What it is for |
 | --- | --- |
 | `subzero/CONTEXT.md` | The header: which file is for which tool, and how a chat gets it |
 | `subzero/SOUL.md` | Voice: how the AI should talk with you |
 | `subzero/AGENTS.md` | What to do in a chat: memory, saving, machines |
+| `subzero/MEMORY.md` | Where facts about you live |
+| `MACHINES.md` | Your machines, their names and roles |
 
-Two more open on demand with `context_read_guidance`: `memory`
-(`subzero/MEMORY.md`, where facts about you live) and `machines`
-(`MACHINES.md`, your machines and their roles). Nothing else in the repository
-can be read. The three standing files are sent on top of `token_budget`
-(about 1k tokens; the total is capped at 8,000 characters).
+Nothing else in the repository can be read. The five files are sent on top of
+`token_budget` and capped at 8,000 characters together. The header, voice and
+chat rules are kept whole. A long `MACHINES.md` is cut at a line boundary, and
+`context_read_guidance` with `machines` returns the rest. The same tool with
+`memory` returns the memory pointer again.
 
 On the Mac, set the server's `SUBZERO_DOTFILES_ROOT` to the absolute path of the
 dotfiles checkout (for example, `~/dotfiles`, expanded for the account that
@@ -163,7 +165,7 @@ To test, start a new chat in each app and ask it to quote the ids on the
 hex digits of each file's SHA-256, so you can check them on the Mac:
 
 ```bash
-cd ~/dotfiles && for f in subzero/CONTEXT.md subzero/SOUL.md subzero/AGENTS.md; do
+cd ~/dotfiles && for f in subzero/CONTEXT.md subzero/SOUL.md subzero/AGENTS.md subzero/MEMORY.md MACHINES.md; do
   printf '%s %s\n' "$(shasum -a 256 "$f" | cut -c1-12)" "$f"; done
 ```
 

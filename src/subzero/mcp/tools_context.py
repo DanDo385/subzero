@@ -100,11 +100,15 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -
     ) -> ToolResult:
         """Call once at the start of every chat: the owner's standing context plus memory.
 
-        The text begins with the owner's standing context from dotfiles (a
-        context header, SOUL for voice, AGENTS for what to do); follow it for
-        the whole chat. Pass query terms and the project only when the request
-        depends on past work (a project, earlier decisions, "remember", "last
-        time"); leave them empty for a standalone question.
+        The text begins with the owner's standing context from dotfiles, in
+        order: a context header, SOUL for voice, AGENTS for what to do, the
+        memory pointer (subzero/MEMORY.md), and the machines file
+        (MACHINES.md). Each Loaded line names the path and content id. Follow
+        that text for the whole chat. When MACHINES.md is marked cut, call
+        context_read_guidance with document "machines" for the rest. Pass
+        query terms and the project only when the request depends on past
+        work (a project, earlier decisions, "remember", "last time"); leave
+        them empty for a standalone question.
 
         Returns the project's handoff first (latest session summaries with
         their open questions, open tasks, active decisions), then items
