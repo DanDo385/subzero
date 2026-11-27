@@ -28,9 +28,8 @@ the server is put online (docs/guides/05-put-it-online.md) rather than run local
 
 ## 3. Custom instructions
 
-**Settings → Personalization → Custom instructions**. Paste **Block A** and
-**Block B** from [instructions/shared.md](shared.md): that file is the only copy
-of the text, so it cannot disagree with itself.
+**Settings → Personalization → Custom instructions**. Paste the five-step
+[Subzero pre-prompt](shared.md).
 
 Both blocks fit. The field holds 5,000 characters on Plus and up, and Free/Go
 (1,500) cannot add connectors in the first place. An edit takes effect
