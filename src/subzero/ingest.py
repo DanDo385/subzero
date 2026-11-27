@@ -16,11 +16,13 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from subzero.classifier.service import ClassificationService
 from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.importers.base import parse_timestamp
 from subzero.importers.sensitivity import screen_texts
 from subzero.logging_setup import get_logger
-from subzero.services import get_services
+from subzero.sessions.service import SessionService
 
 logger = get_logger(__name__)
 
@@ -117,7 +119,13 @@ def _make_token() -> str:
     return f"szd_{secrets.token_urlsafe(32)}"
 
 
-def build_ingest_routes(settings: Settings) -> list:
+def build_ingest_routes(
+    settings: Settings,
+    *,
+    db: Database,
+    sessions: SessionService,
+    classification: ClassificationService,
+) -> list:
     """Build ingest API routes as closures over settings."""
 
     # ---- Auth routes ----
@@ -132,7 +140,7 @@ def build_ingest_routes(settings: Settings) -> list:
         if not token:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-        device = await _validate_device_token(get_services().db, token)
+        device = await _validate_device_token(db, token)
         if device is None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -140,7 +148,7 @@ def build_ingest_routes(settings: Settings) -> list:
         if device["device_id"] != device_id:
             return JSONResponse({"error": "can only revoke own device"}, status_code=403)
 
-        await get_services().db.execute(
+        await db.execute(
             "UPDATE device_tokens SET revoked_at = now() WHERE device_id = $1",
             device_id,
         )
@@ -167,8 +175,6 @@ def build_ingest_routes(settings: Settings) -> list:
         pairing_code = raw_code.strip().upper()
         if not pairing_code:
             return JSONResponse({"error": "pairing_code is required"}, status_code=400)
-
-        db = get_services().db
 
         # Serialize attempts so a one-time code cannot issue two device tokens.
         async with db.transaction() as conn:
@@ -223,8 +229,6 @@ def build_ingest_routes(settings: Settings) -> list:
         if not token:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-        services = get_services()
-        db = services.db
         device = await _validate_device_token(db, token)
         if device is None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -281,7 +285,7 @@ def build_ingest_routes(settings: Settings) -> list:
         # Use the shared conversation and message writers so browser imports
         # follow the same validation and deduplication rules as checkpoints.
         async with db.transaction() as conn:
-            conv_id, created = await services.sessions.ensure_conversation(
+            conv_id, created = await sessions.ensure_conversation(
                 provider=provider,
                 provider_conversation_id=provider_conversation_id,
                 title=title,
@@ -290,7 +294,7 @@ def build_ingest_routes(settings: Settings) -> list:
                 started_at=parse_timestamp(body.get("created_at")),
                 conn=conn,
             )
-            inserted = await services.sessions.add_messages(
+            inserted = await sessions.add_messages(
                 conv_id, normalized, provider=provider, conn=conn
             )
             skipped = len(normalized) - inserted
@@ -335,7 +339,7 @@ def build_ingest_routes(settings: Settings) -> list:
             # makes "saved" and "will be classified" one fact instead of two
             # that can disagree: without it the loop had to rediscover the
             # work by scanning every imported conversation on every tick.
-            await services.classification.queue_reclassification(
+            await classification.queue_reclassification(
                 object_type="checkpoint",
                 object_id=conv_id,
                 reason="never_classified",
@@ -376,7 +380,6 @@ def build_ingest_routes(settings: Settings) -> list:
         token = _bearer_token(request)
         if not token:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        db = get_services().db
         if await _validate_device_token(db, token) is None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
@@ -426,7 +429,6 @@ def build_ingest_routes(settings: Settings) -> list:
         if not token:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-        db = get_services().db
         device = await _validate_device_token(db, token)
         if device is None:
             return JSONResponse({"error": "unauthorized"}, status_code=401)

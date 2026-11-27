@@ -13,12 +13,30 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.artifacts.service import ArtifactService
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
+from subzero.config import Settings
+from subzero.db.pool import Database
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
+from subzero.projects.service import ProjectService
 from subzero.review.filing import apply_routing_override, file_note_after_review
-from subzero.services import get_services
+from subzero.review.service import ReviewService
 
 
-def register(mcp: FastMCP) -> None:
+def register(
+    mcp: FastMCP,
+    *,
+    artifacts: ArtifactService,
+    audit: AuditService,
+    db: Database,
+    projects: ProjectService,
+    review: ReviewService,
+    settings: Settings,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+) -> None:
     @mcp.tool(
         name="review_list",
         tags={"review", "read"},
@@ -39,10 +57,9 @@ def register(mcp: FastMCP) -> None:
         Least confident first. Use during a daily review to clear ambiguity the
         classifier correctly declined to guess at.
         """
-        services = get_services()
         return {
-            "counts": await services.review.counts(),
-            "items": await services.review.list_open(limit=limit, object_type=object_type),
+            "counts": await review.counts(),
+            "items": await review.list_open(limit=limit, object_type=object_type),
         }
 
     @mcp.tool(
@@ -55,7 +72,7 @@ def register(mcp: FastMCP) -> None:
         review_id: Annotated[UUID, Field(description="The review item's id, from review_list.")],
     ) -> dict:
         """One review item with the classifier's full answer set and probabilities."""
-        return await get_services().review.get(review_id)
+        return await review.get(review_id)
 
     @mcp.tool(
         name="review_approve",
@@ -73,11 +90,8 @@ def register(mcp: FastMCP) -> None:
         inbox_add note leaves it in the Inbox. Use review_reclassify to
         actually file an object somewhere else.
         """
-        services = get_services()
-        result = await services.review.resolve(
-            review_id, status="approved", resolution={"note": note}
-        )
-        await services.audit.record(
+        result = await review.resolve(review_id, status="approved", resolution={"note": note})
+        await audit.record(
             tool="review_approve",
             action="approve",
             object_type=result["object_type"],
@@ -115,25 +129,33 @@ def register(mcp: FastMCP) -> None:
         classification event, which is how the classifier's accuracy gets
         measured over time.
         """
-        services = get_services()
-        item = await services.review.get(review_id)
+        item = await review.get(review_id)
         resolution = {"project": project, "destination": destination, "note": note}
         filed_note: str | None = None
 
-        await apply_routing_override(services, item, project=project)
+        await apply_routing_override(
+            item, project=project, db=db, projects=projects, artifacts=artifacts
+        )
         if item["object_type"] == "note" and (destination or project):
             filed_note = await file_note_after_review(
-                services, item, destination=destination, project=project
+                item,
+                destination=destination,
+                project=project,
+                db=db,
+                settings=settings,
+                projects=projects,
+                sync_queue=sync_queue,
+                vault_paths=vault_paths,
             )
 
-        result = await services.review.resolve(
+        result = await review.resolve(
             review_id,
             status="reclassified",
             resolution=resolution,
             overridden=True,
             override_note=note,
         )
-        await services.audit.record(
+        await audit.record(
             tool="review_reclassify",
             action="update",
             object_type=result["object_type"],
@@ -160,10 +182,7 @@ def register(mcp: FastMCP) -> None:
         The underlying object is untouched - this only says the question has
         been considered.
         """
-        services = get_services()
-        return await services.review.resolve(
-            review_id, status="dismissed", resolution={"note": note}
-        )
+        return await review.resolve(review_id, status="dismissed", resolution={"note": note})
 
     @mcp.tool(
         name="sync_status",
@@ -178,4 +197,4 @@ def register(mcp: FastMCP) -> None:
         pending count above zero means the local worker has not run, or is not
         running at all.
         """
-        return await get_services().sync_queue.status_report()
+        return await sync_queue.status_report()

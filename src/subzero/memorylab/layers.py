@@ -24,11 +24,15 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.embeddings.base import redact
 from subzero.extraction.deep import NO_NOTE, Candidate
 from subzero.logging_setup import get_logger
 from subzero.memorylab.triage import BUCKET_NOTE_CLASS
-from subzero.services import Services
+from subzero.notes.service import NoteService
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
 from subzero.util import truncate_for_budget
 
 logger = get_logger(__name__)
@@ -40,11 +44,11 @@ HONCHO_BATCH = 50
 
 
 async def extraction_targets(
-    services: Services, *, limit: int, redo: bool = False
+    *, settings: Settings, db: Database, limit: int, redo: bool = False
 ) -> list[Candidate]:
     # Pick first, then size only the picked sessions: summing message lengths
     # for every triaged session times out on a full history.
-    rows = await services.db.fetch(
+    rows = await db.fetch(
         """
         WITH picked AS (
             SELECT t.conversation_id, t.outcome, t.bucket, c.title, c.started_at,
@@ -68,7 +72,7 @@ async def extraction_targets(
         """,
         limit,
         redo,
-        _sendable_levels(services),
+        _sendable_levels(settings=settings),
     )
     return [
         Candidate(
@@ -86,9 +90,9 @@ async def extraction_targets(
     ]
 
 
-async def mark_extracted(services: Services, conversation_ids: list[UUID]) -> int:
+async def mark_extracted(conversation_ids: list[UUID], *, db: Database) -> int:
     """Stamp the sessions extraction actually finished, so they are not paid for twice."""
-    result = await services.db.execute(
+    result = await db.execute(
         """
         UPDATE memory_triage t SET extracted_at = now()
         FROM conversations c
@@ -100,8 +104,8 @@ async def mark_extracted(services: Services, conversation_ids: list[UUID]) -> in
     return int(str(result).rsplit(" ", 1)[-1] or 0)
 
 
-def _sendable_levels(services: Services) -> list[str]:
-    blocked = set(services.settings.no_external_sensitivity)
+def _sendable_levels(*, settings: Settings) -> list[str]:
+    blocked = set(settings.no_external_sensitivity)
     return [level for level in ("normal", "private", "highly_sensitive") if level not in blocked]
 
 
@@ -126,8 +130,7 @@ class HonchoReport:
         }
 
 
-def _client(services: Services) -> Any:
-    settings = services.settings
+def _client(*, settings: Settings) -> Any:
     if not settings.honcho_workspace or not settings.honcho_peer:
         raise RuntimeError(
             "Set SUBZERO_HONCHO_WORKSPACE, SUBZERO_HONCHO_PEER and SUBZERO_HONCHO_API_KEY."
@@ -145,8 +148,8 @@ def _client(services: Services) -> Any:
     return Honcho(**kwargs)
 
 
-async def honcho_targets(services: Services, *, limit: int) -> list[Any]:
-    return await services.db.fetch(
+async def honcho_targets(*, db: Database, limit: int) -> list[Any]:
+    return await db.fetch(
         """
         SELECT t.conversation_id, c.provider, c.title, c.started_at
         FROM memory_triage t JOIN conversations c ON c.id = t.conversation_id
@@ -159,8 +162,8 @@ async def honcho_targets(services: Services, *, limit: int) -> list[Any]:
     )
 
 
-async def _user_messages(services: Services, conversation_id: UUID) -> list[Any]:
-    return await services.db.fetch(
+async def _user_messages(conversation_id: UUID, *, db: Database) -> list[Any]:
+    return await db.fetch(
         """
         SELECT content, created_at FROM messages
         WHERE conversation_id = $1 AND role = 'user' AND length(content) > 0
@@ -171,15 +174,15 @@ async def _user_messages(services: Services, conversation_id: UUID) -> list[Any]
 
 
 async def honcho_sync(
-    services: Services, *, dry_run: bool = True, limit: int = 100, client: Any = None
+    *, settings: Settings, db: Database, dry_run: bool = True, limit: int = 100, client: Any = None
 ) -> HonchoReport:
     """Oldest first, so Honcho reads the history in the order it happened."""
     report = HonchoReport(dry_run=dry_run)
-    targets = await honcho_targets(services, limit=limit)
-    honcho = None if dry_run else (client or _client(services))
-    peer = honcho.peer(services.settings.honcho_peer) if honcho else None
+    targets = await honcho_targets(limit=limit, db=db)
+    honcho = None if dry_run else (client or _client(settings=settings))
+    peer = honcho.peer(settings.honcho_peer) if honcho else None
     for row in targets:
-        messages = await _user_messages(services, row["conversation_id"])
+        messages = await _user_messages(row["conversation_id"], db=db)
         if not messages:
             continue
         texts = [
@@ -212,26 +215,35 @@ async def honcho_sync(
             report.errors.append(f"{row['conversation_id']}: {type(exc).__name__}")
             logger.warning("honcho sync failed", extra={"error": type(exc).__name__})
             continue
-        await services.db.execute(
+        await db.execute(
             "UPDATE memory_triage SET honcho_synced_at = now() WHERE conversation_id = $1",
             row["conversation_id"],
         )
     return report
 
 
-async def honcho_snapshot(services: Services, *, client: Any = None, size: int = 100) -> str:
+async def honcho_snapshot(
+    *,
+    settings: Settings,
+    db: Database,
+    notes: NoteService,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+    client: Any = None,
+    size: int = 100,
+) -> str:
     """Write Honcho's view of the person into the vault; returns the vault path."""
     from subzero.memorylab.recover import _write_note
 
-    honcho = client or _client(services)
-    peer = honcho.peer(services.settings.honcho_peer)
+    honcho = client or _client(settings=settings)
+    peer = honcho.peer(settings.honcho_peer)
     card = peer.get_card() or []
     page = peer.conclusions.list(size=size, reverse=True)
     items = list(getattr(page, "items", None) or page)
     today = datetime.now(UTC).date().isoformat()
     lines = [
-        f"Honcho's model of `{services.settings.honcho_peer}` on {today} "
-        f"(workspace `{services.settings.honcho_workspace}`). Read-only evidence for",
+        f"Honcho's model of `{settings.honcho_peer}` on {today} "
+        f"(workspace `{settings.honcho_workspace}`). Read-only evidence for",
         "the weekly analysis: promote nothing from here directly.",
         "",
         "## Card",
@@ -247,9 +259,8 @@ async def honcho_snapshot(services: Services, *, client: Any = None, size: int =
         stamp = created.date().isoformat() if isinstance(created, datetime) else ""
         lines.append(f"- {stamp + ' · ' if stamp else ''}{truncate_for_budget(content, 300)}")
     title = f"Honcho snapshot {today}"
-    path = services.vault_paths.experiment("Analysis", title)
+    path = vault_paths.experiment("Analysis", title)
     await _write_note(
-        services,
         title=title,
         content="\n".join(lines),
         note_class="experiment",
@@ -258,5 +269,9 @@ async def honcho_snapshot(services: Services, *, client: Any = None, size: int =
             "tags": ["memory-lab", "type/experiment", "layer/honcho"],
             "source_date": today,
         },
+        settings=settings,
+        db=db,
+        notes=notes,
+        sync_queue=sync_queue,
     )
     return path

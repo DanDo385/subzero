@@ -37,11 +37,16 @@ from pydantic import BaseModel, ConfigDict
 from subzero.auth.principal import Principal
 from subzero.classifier.questions import DESTINATION_CRITERIA
 from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.embeddings.base import redact
 from subzero.importers.reclassify import load_conversation
 from subzero.logging_setup import get_logger
 from subzero.models import CheckpointDecision, CheckpointFact
-from subzero.services import Services
+from subzero.notes.service import NoteService
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
+from subzero.projects.service import ProjectService
+from subzero.sessions.service import SessionService
 from subzero.tasks import upsert_task
 from subzero.util import sha256_text, utcnow
 
@@ -201,8 +206,9 @@ class Candidate:
 
 
 async def extraction_candidates(
-    services: Services,
     *,
+    settings: Settings,
+    db: Database,
     limit: int,
     min_importance: float = 0.0,
     redo: bool = False,
@@ -210,7 +216,7 @@ async def extraction_candidates(
     """Imported conversations whose latest pass-1 deep_extraction probability
     is at least SUBZERO_EXTRACTION_MIN_PROBABILITY, most important first,
     excluding anything the privacy policy keeps local."""
-    rows = await services.db.fetch(
+    rows = await db.fetch(
         """
         SELECT c.id, c.title,
                (SELECT coalesce(sum(length(m.content)), 0)
@@ -235,9 +241,9 @@ async def extraction_candidates(
         """,
         limit,
         min_importance,
-        list(services.settings.no_external_sensitivity),
+        list(settings.no_external_sensitivity),
         redo,
-        services.settings.extraction_min_probability,
+        settings.extraction_min_probability,
     )
     return [
         Candidate(
@@ -317,10 +323,25 @@ class ExtractionReport:
 
 
 class DeepExtractor:
-    def __init__(self, services: Services, client: anthropic.AsyncAnthropic | None = None):
-        settings = services.settings
-        self._services = services
+    def __init__(
+        self,
+        *,
+        db: Database,
+        notes: NoteService,
+        projects: ProjectService,
+        sessions: SessionService,
+        settings: Settings,
+        sync_queue: SyncQueue,
+        vault_paths: VaultPaths,
+        client: anthropic.AsyncAnthropic | None = None,
+    ):
+        self._db = db
+        self._notes = notes
+        self._projects = projects
+        self._sessions = sessions
         self._settings = settings
+        self._sync_queue = sync_queue
+        self._vault_paths = vault_paths
         self._client = client or anthropic.AsyncAnthropic(
             api_key=settings.anthropic_api_key.get_secret_value()
         )
@@ -374,10 +395,9 @@ class DeepExtractor:
     async def extract_one(
         self, conversation_id: UUID, report: ExtractionReport, destination: str = "inbox"
     ) -> None:
-        services = self._services
         report.attempted += 1
-        conversation = await load_conversation(services, conversation_id)
-        sensitivity = await services.db.fetchval(
+        conversation = await load_conversation(conversation_id, db=self._db)
+        sensitivity = await self._db.fetchval(
             "SELECT sensitivity::text FROM conversations WHERE id = $1", conversation_id
         )
         # Checked again here, not only in candidate selection: this is the
@@ -393,7 +413,7 @@ class DeepExtractor:
         # names ("AI agency website" vs "Interactive AI agency website").
         projects = [
             row["name"]
-            for row in await services.db.fetch(
+            for row in await self._db.fetch(
                 "SELECT name FROM projects WHERE status IN ('active', 'paused') "
                 "ORDER BY last_active_at DESC NULLS LAST LIMIT 80"
             )
@@ -420,7 +440,7 @@ class DeepExtractor:
 
         # The excerpt summary the importer wrote is replaced, not appended to:
         # setting it first makes the checkpoint below see an identical hash.
-        await services.db.execute(
+        await self._db.execute(
             """
             UPDATE session_summaries
             SET summary = $2, summary_sha256 = $3, provenance = 'assistant_generated',
@@ -433,7 +453,7 @@ class DeepExtractor:
         )
 
         important_context = [f"Unfinished at the time: {a}" for a in payload.unfinished_actions]
-        result = await services.sessions.checkpoint(
+        result = await self._sessions.checkpoint(
             provider=conversation.provider,
             principal=self._principal,
             provider_conversation_id=conversation.provider_conversation_id or None,
@@ -518,19 +538,18 @@ class DeepExtractor:
         Notes with the same title merge (append), so repeated subjects
         consolidate into one note rather than many near-duplicates.
         """
-        services = self._services
         project_id: UUID | None = None
         project_slug: str | None = None
         if payload.project and payload.project.strip():
-            project_id, _ = await services.projects.create(
+            project_id, _ = await self._projects.create(
                 name=payload.project.strip(), source_provider=conversation.provider
             )
-            project_slug = await services.db.fetchval(
+            project_slug = await self._db.fetchval(
                 "SELECT slug FROM projects WHERE id = $1", project_id
             )
         note_class = destination if destination in _NOTE_CLASSES else "inbox"
         title = payload.note_title.strip() or (conversation.title or "Untitled conversation")
-        note_id, _, _ = await services.notes.upsert(
+        note_id, _, _ = await self._notes.upsert(
             title=title,
             content=payload.note_markdown,
             note_class=note_class,
@@ -543,7 +562,7 @@ class DeepExtractor:
             append=True,
         )
         happened = max((m.created_at for m in conversation.messages if m.created_at), default=None)
-        await services.db.execute(
+        await self._db.execute(
             """
             UPDATE notes SET metadata = metadata || $2::jsonb,
                    vault_path = coalesce(vault_path, $3)
@@ -555,15 +574,11 @@ class DeepExtractor:
                 "topics": payload.topics,
                 "source_date": happened.date().isoformat() if happened else None,
             },
-            services.vault_paths.note(
-                note_class=note_class, title=title, project_slug=project_slug
-            ),
+            self._vault_paths.note(note_class=note_class, title=title, project_slug=project_slug),
         )
-        vault_path = await services.db.fetchval(
-            "SELECT vault_path FROM notes WHERE id = $1", note_id
-        )
-        if services.settings.obsidian_enabled:
-            await services.sync_queue.enqueue(
+        vault_path = await self._db.fetchval("SELECT vault_path FROM notes WHERE id = $1", note_id)
+        if self._settings.obsidian_enabled:
+            await self._sync_queue.enqueue(
                 job_type="write_note",
                 object_type="note",
                 object_id=note_id,
@@ -580,7 +595,6 @@ class DeepExtractor:
         (and the vault's next steps) can see them."""
         if not payload.unfinished_actions:
             return 0
-        services = self._services
         happened = max((m.created_at for m in conversation.messages if m.created_at), default=None)
         where = (
             f"{conversation.provider}, {happened:%Y-%m-%d}" if happened else conversation.provider
@@ -588,7 +602,7 @@ class DeepExtractor:
         added = 0
         for action in payload.unfinished_actions:
             _, created = await upsert_task(
-                services.db,
+                self._db,
                 text=action,
                 source_conversation_id=conversation_id,
                 source_provider=conversation.provider,
@@ -599,7 +613,7 @@ class DeepExtractor:
         return added
 
     async def _mark(self, conversation_id: UUID, record: dict[str, Any]) -> None:
-        await self._services.db.execute(
+        await self._db.execute(
             """
             UPDATE conversations
             SET metadata = metadata || jsonb_build_object('extraction', $2::jsonb),

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from subzero.importers.runner import ImportRunner
 from support.fakes import CountingJev, claude_zip, conversation, swap_classifier
 
 
@@ -25,7 +24,7 @@ async def test_identical_classify_uses_cache(services) -> None:
 async def test_claude_zip_import_twice_is_idempotent(services, tmp_path: Path) -> None:
     swap_classifier(services, CountingJev())
     zpath = claude_zip(tmp_path / "exp.zip", [conversation("imp-1", "hello import")])
-    runner = ImportRunner(services)
+    runner = services.importer
     first = await runner.run(zpath, provider="claude")
     second = await runner.run(zpath, provider="claude")
     assert first.conversations_imported >= 1

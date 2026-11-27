@@ -2,19 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from subzero.errors import NotFoundError, ValidationError
 from subzero.memorylab.triage import BUCKET_NOTE_CLASS
-from subzero.services import Services
+
+if TYPE_CHECKING:
+    from subzero.artifacts.service import ArtifactService
+    from subzero.config import Settings
+    from subzero.db.pool import Database
+    from subzero.obsidian.paths import VaultPaths
+    from subzero.obsidian.queue import SyncQueue
+    from subzero.projects.service import ProjectService
 
 
 async def file_note_after_review(
-    services: Services,
     item: dict[str, Any],
     *,
     destination: str | None,
     project: str | None,
+    db: Database,
+    settings: Settings,
+    projects: ProjectService,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
 ) -> str | None:
     """Move a reviewed note out of the Inbox into its filed folder."""
     if destination == "inbox":
@@ -29,13 +40,13 @@ async def file_note_after_review(
             + ", ".join(BUCKET_NOTE_CLASS)
             + f". Got {destination!r}."
         )
-    note_row = await services.db.fetchrow(
+    note_row = await db.fetchrow(
         "SELECT id, title, sensitivity, project_id, vault_path FROM notes WHERE id = $1",
         item["object_id"],
     )
     if note_row is None:
         raise NotFoundError("The note under review no longer exists.")
-    if note_row["sensitivity"] in services.settings.no_external_sensitivity:
+    if note_row["sensitivity"] in settings.no_external_sensitivity:
         raise ValidationError(
             f"This note is {note_row['sensitivity']}, a sensitivity that never "
             "goes to the vault. It stays in Subzero and cannot be filed into a "
@@ -43,16 +54,14 @@ async def file_note_after_review(
         )
     project_id = note_row["project_id"]
     if project:
-        project_id = await services.projects.require(project)
+        project_id = await projects.require(project)
     project_slug = None
     if note_class == "project" and project_id:
-        project_slug = await services.db.fetchval(
-            "SELECT slug FROM projects WHERE id = $1", project_id
-        )
-    vault_path = services.vault_paths.note(
+        project_slug = await db.fetchval("SELECT slug FROM projects WHERE id = $1", project_id)
+    vault_path = vault_paths.note(
         note_class=note_class, title=note_row["title"], project_slug=project_slug
     )
-    await services.db.execute(
+    await db.execute(
         "UPDATE notes SET note_class = $2, project_id = $3, vault_path = $4 WHERE id = $1",
         note_row["id"],
         note_class,
@@ -60,8 +69,8 @@ async def file_note_after_review(
         vault_path,
     )
     old_path = note_row["vault_path"]
-    if services.settings.obsidian_enabled:
-        await services.sync_queue.enqueue(
+    if settings.obsidian_enabled:
+        await sync_queue.enqueue(
             job_type="write_note",
             object_type="note",
             object_id=note_row["id"],
@@ -70,7 +79,7 @@ async def file_note_after_review(
         )
     if not old_path or old_path == vault_path:
         return None
-    already_written = await services.db.fetchval(
+    already_written = await db.fetchval(
         "SELECT count(*) FROM sync_jobs WHERE vault_path = $1 AND status = 'done'",
         old_path,
     )
@@ -84,19 +93,21 @@ async def file_note_after_review(
 
 
 async def apply_routing_override(
-    services: Services,
     item: dict[str, Any],
     *,
     project: str | None,
+    db: Database,
+    projects: ProjectService,
+    artifacts: ArtifactService,
 ) -> None:
     """Attach a project override from a review to artifacts or conversations."""
     if not project:
         return
-    project_id = await services.projects.require(project)
+    project_id = await projects.require(project)
     if item["object_type"] == "artifact":
-        await services.artifacts.attach_to_project(item["object_id"], project_id)
+        await artifacts.attach_to_project(item["object_id"], project_id)
     elif item["object_type"] == "conversation":
-        await services.db.execute(
+        await db.execute(
             "UPDATE conversations SET project_id = $2 WHERE id = $1",
             item["object_id"],
             project_id,

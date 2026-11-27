@@ -11,9 +11,7 @@ from eval.fixture import Seeded, seed
 
 
 @pytest.fixture
-async def seeded_mcp_world(
-    unthrottled, db, mcp_client
-) -> AsyncIterator[tuple[Any, Seeded]]:
+async def seeded_mcp_world(unthrottled, db, mcp_client) -> AsyncIterator[tuple[Any, Seeded]]:
     seeded = await seed(db)
     yield mcp_client, seeded
 

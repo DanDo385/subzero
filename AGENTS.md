@@ -69,11 +69,16 @@ the points below are the ones that span files.
 
 **Request path.** `server.py` builds the FastMCP server (auth provider, rate-limit middleware,
 tool registration via `mcp/register_all`) and mounts it in a Starlette app alongside `/worker/*`
-and health routes. Its lifespan opens the asyncpg pool and calls `build_services`.
+and health routes. `create_app` builds the services (and an unopened `Database`) up front, so every
+route exists before the database does; the lifespan only opens and closes the pool.
 
-**Service wiring is explicit.** `services.py` constructs every service in dependency order into one
-`Services` dataclass, stored in a module global and reached from tool functions with
-`get_services()`. There is no DI framework; add new services to that function and dataclass.
+**Service wiring is explicit, and nothing reaches for "everything".** `services.py` is the
+composition root: `build_services` constructs every service in dependency order into one `Services`
+dataclass. Only `server.py`, `cli.py`, `mcp/register_all` and the test fixtures import it. Each tool
+module, route builder and helper function takes the few services it uses as arguments (a
+collaborator such as `ArtifactFiling` or `ConversationRouter` when seven of them always travel
+together). There is no DI framework and no global: add a service to `build_services`, then pass it
+to whoever needs it. A new function that wants `Services` is a sign it should name what it uses.
 
 **Tools are thin.** `mcp/tools_*.py` only declare the schema (`Annotated[... , Field(description=)]`),
 enforce a scope with `auth=require_scopes(...)`, and delegate to a service in

@@ -20,6 +20,7 @@ from fastmcp.utilities.authorization import AuthContext, require_scopes
 
 from subzero.auth import scopes
 from subzero.cli_host.runner import CliHostRunner
+from subzero.config import Settings
 from subzero.errors import ValidationError
 from subzero.mcp import tools_cli
 
@@ -182,7 +183,7 @@ async def test_unauthorized_mcp_request_is_rejected() -> None:
             }
         )
     )
-    tools_cli.register(mcp)
+    tools_cli.register(mcp, audit=None, settings=Settings())  # type: ignore[arg-type]
 
     async with Client(mcp) as client:
         with pytest.raises(ToolError):

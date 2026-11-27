@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import zipfile
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 from subzero.classifier.base import Answer, ClassificationResult
 from subzero.classifier.questions import QUESTIONS_VERSION
 from subzero.classifier.service import ClassificationService
+from subzero.services import build_services
 
 
 class CountingJev:
@@ -47,9 +49,11 @@ class CountingJev:
 
 
 def swap_classifier(services: Any, fake: CountingJev) -> ClassificationService:
-    service = ClassificationService(services.db, fake, services.settings)
-    services.classification = service
-    return service
+    """Rebuild the services around ``fake``, in place, so every collaborator shares it."""
+    rebuilt = build_services(services.settings, services.db, classifier=fake)
+    for field in dataclasses.fields(rebuilt):
+        setattr(services, field.name, getattr(rebuilt, field.name))
+    return services.classification
 
 
 def claude_zip(path: Path, conversations: list[dict[str, Any]]) -> Path:

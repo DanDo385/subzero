@@ -14,22 +14,21 @@ import contextlib
 from typing import Any
 from uuid import UUID
 
+from subzero.artifacts.filing import ArtifactFiling
+from subzero.artifacts.service import ArtifactService
 from subzero.classifier.questions import QUESTIONS_VERSION
+from subzero.classifier.service import ClassificationService
+from subzero.config import Settings
 from subzero.db.lease import TTL_TICKS, hold_lease, release_lease
+from subzero.db.pool import Database
 from subzero.importers.base import (
     ImportReport,
     NormalizedConversation,
     NormalizedMessage,
 )
-from subzero.importers.runner import (
-    classification_transcript,
-    derive_summary,
-    route_conversation,
-    screen_conversation,
-    transcript_budget,
-)
+from subzero.importers.routing import ConversationRouter
+from subzero.importers.runner import classification_transcript, derive_summary
 from subzero.logging_setup import get_logger
-from subzero.services import Services
 
 logger = get_logger(__name__)
 
@@ -40,8 +39,8 @@ LEASE_NAME = "auto-classify"
 
 
 async def stale_conversations(
-    services: Services,
     *,
+    db: Database,
     limit: int,
     provider: str | None = None,
     include_current: bool = False,
@@ -49,7 +48,7 @@ async def stale_conversations(
     """Imported conversations with no usable classification under the
     current question set: never classified, classified by an older version,
     or classified only while Jev was unavailable."""
-    rows = await services.db.fetch(
+    rows = await db.fetch(
         """
         SELECT c.id
         FROM conversations c
@@ -72,8 +71,8 @@ async def stale_conversations(
     return [row["id"] for row in rows]
 
 
-async def load_conversation(services: Services, conversation_id: UUID) -> NormalizedConversation:
-    head = await services.db.fetchrow(
+async def load_conversation(conversation_id: UUID, *, db: Database) -> NormalizedConversation:
+    head = await db.fetchrow(
         """
         SELECT provider, provider_conversation_id, title, model, started_at, updated_at
         FROM conversations WHERE id = $1
@@ -82,7 +81,7 @@ async def load_conversation(services: Services, conversation_id: UUID) -> Normal
     )
     if head is None:
         raise LookupError(f"conversation {conversation_id} not found")
-    rows = await services.db.fetch(
+    rows = await db.fetch(
         """
         SELECT role, content, provenance::text AS provenance, created_at
         FROM messages WHERE conversation_id = $1 ORDER BY sequence
@@ -109,17 +108,17 @@ async def load_conversation(services: Services, conversation_id: UUID) -> Normal
 
 
 async def reclassify_conversation(
-    services: Services,
     conversation_id: UUID,
     report: ImportReport,
     *,
+    db: Database,
+    router: ConversationRouter,
     use_cache: bool = True,
 ) -> None:
-    conversation = await load_conversation(services, conversation_id)
+    conversation = await load_conversation(conversation_id, db=db)
     # Re-screen too: the patterns may have improved since the import, and the
     # screen only ever raises the stored level.
-    sensitivity = await screen_conversation(
-        services,
+    sensitivity = await router.screen(
         conversation_id,
         [conversation.title or "", *(m.content for m in conversation.messages)],
     )
@@ -128,11 +127,10 @@ async def reclassify_conversation(
     # Classify what the archive says the conversation is about now: the
     # stored summary when one exists (deep extraction writes a far better one
     # than the mechanical excerpt), otherwise a fresh excerpt.
-    stored_summary = await services.db.fetchval(
+    stored_summary = await db.fetchval(
         "SELECT summary FROM session_summaries WHERE conversation_id = $1", conversation_id
     )
-    await route_conversation(
-        services,
+    await router.route(
         conversation_id=conversation_id,
         provider=conversation.provider,
         title=conversation.title,
@@ -141,26 +139,28 @@ async def reclassify_conversation(
         sensitivity=sensitivity,
         report=report,
         use_cache=use_cache,
-        transcript=classification_transcript(conversation, transcript_budget(services)),
+        transcript=classification_transcript(conversation, router.transcript_budget()),
     )
 
 
 async def reclassify_conversations(
-    services: Services,
     conversation_ids: list[UUID],
     *,
+    settings: Settings,
+    db: Database,
+    router: ConversationRouter,
     concurrency: int | None = None,
     use_cache: bool = True,
 ) -> ImportReport:
     report = ImportReport(provider="*", archive_sha256="")
-    semaphore = asyncio.Semaphore(max(1, concurrency or services.settings.import_concurrency))
+    semaphore = asyncio.Semaphore(max(1, concurrency or settings.import_concurrency))
 
     async def one(conversation_id: UUID) -> None:
         async with semaphore:
             report.conversations_seen += 1
             try:
                 await reclassify_conversation(
-                    services, conversation_id, report, use_cache=use_cache
+                    conversation_id, report, use_cache=use_cache, db=db, router=router
                 )
             except Exception as exc:
                 logger.exception("failed to reclassify conversation")
@@ -192,7 +192,7 @@ def summarise(report: ImportReport) -> dict[str, Any]:
 CLAIM_MINUTES = 10
 
 
-async def due_conversations(services: Services, *, limit: int) -> list[UUID]:
+async def due_conversations(*, db: Database, limit: int) -> list[UUID]:
     """Claim queued conversations whose retry time has come.
 
     One row goes to one caller. ``FOR UPDATE SKIP LOCKED`` is what lets the Mac
@@ -200,7 +200,7 @@ async def due_conversations(services: Services, *, limit: int) -> list[UUID]:
     twice for the same conversation, and the claim pushes ``next_attempt_at``
     forward so the work is reserved rather than merely read.
     """
-    async with services.db.transaction() as conn:
+    async with db.transaction() as conn:
         rows = await conn.fetch(
             """
             WITH due AS (
@@ -222,7 +222,7 @@ async def due_conversations(services: Services, *, limit: int) -> list[UUID]:
     return [row["object_id"] for row in rows]
 
 
-async def clear_classified(services: Services, conversation_ids: list[UUID]) -> int:
+async def clear_classified(conversation_ids: list[UUID], *, db: Database) -> int:
     """Drop the queue rows that now have a usable classification; return how many.
 
     Only a non-degraded event clears a row, so a conversation Jev could not
@@ -234,7 +234,7 @@ async def clear_classified(services: Services, conversation_ids: list[UUID]) -> 
     """
     if not conversation_ids:
         return 0
-    status = await services.db.execute(
+    status = await db.execute(
         """
         DELETE FROM reclassification_queue q
         WHERE q.object_type = 'checkpoint'
@@ -249,7 +249,15 @@ async def clear_classified(services: Services, conversation_ids: list[UUID]) -> 
     return int(status.rsplit(" ", 1)[-1])
 
 
-async def drain_reclassification_queue(services: Services, *, limit: int = 50) -> tuple[int, int]:
+async def drain_reclassification_queue(
+    *,
+    settings: Settings,
+    db: Database,
+    artifacts: ArtifactService,
+    filing: ArtifactFiling,
+    router: ConversationRouter,
+    limit: int = 50,
+) -> tuple[int, int]:
     """Retry what a classifier outage left queued: ``(classified, claimed)``.
 
     The manual twin of the background loop, and it claims the same way, so the
@@ -259,9 +267,7 @@ async def drain_reclassification_queue(services: Services, *, limit: int = 50) -
     be, with its stored sensitivity, so the privacy check before any external
     call sees the real level.
     """
-    from subzero.artifacts.filing import classify_and_file
-
-    async with services.db.transaction() as conn:
+    async with db.transaction() as conn:
         rows = await conn.fetch(
             """
             WITH due AS (
@@ -282,23 +288,23 @@ async def drain_reclassification_queue(services: Services, *, limit: int = 50) -
         )
 
     checkpoints = [row["object_id"] for row in rows if row["object_type"] == "checkpoint"]
-    artifacts = [row["object_id"] for row in rows if row["object_type"] == "artifact"]
+    artifact_ids = [row["object_id"] for row in rows if row["object_type"] == "artifact"]
     done = 0
 
     if checkpoints:
-        await reclassify_conversations(services, checkpoints)
+        await reclassify_conversations(checkpoints, settings=settings, db=db, router=router)
         # Only a usable classification clears a row; a degraded one was
         # re-queued with its backoff by the classification service.
-        done += await clear_classified(services, checkpoints)
+        done += await clear_classified(checkpoints, db=db)
 
-    for artifact_id in artifacts:
-        record = await services.artifacts.get(artifact_id)
+    for artifact_id in artifact_ids:
+        record = await artifacts.get(artifact_id)
         if record is not None:
-            filed = await classify_and_file(services, record, stated_project=record.project)
+            filed = await filing.classify_and_file(record, stated_project=record.project)
             if filed["degraded"]:
                 continue
             done += 1
-        await services.db.execute(
+        await db.execute(
             "DELETE FROM reclassification_queue WHERE object_type = 'artifact' AND object_id = $1",
             artifact_id,
         )
@@ -306,32 +312,39 @@ async def drain_reclassification_queue(services: Services, *, limit: int = 50) -
     return done, len(rows)
 
 
-async def classify_forever(services: Services) -> None:
+async def classify_forever(
+    *,
+    settings: Settings,
+    db: Database,
+    classification: ClassificationService,
+    router: ConversationRouter,
+) -> None:
     """The server's background classification loop. Never raises."""
-    settings = services.settings
     while True:
         try:
             if not await hold_lease(
-                services.db,
+                db,
                 LEASE_NAME,
                 ttl_seconds=settings.auto_classify_seconds * TTL_TICKS,
             ):
                 await asyncio.sleep(settings.auto_classify_seconds)
                 continue
-            ids = await due_conversations(services, limit=settings.auto_classify_batch)
+            ids = await due_conversations(limit=settings.auto_classify_batch, db=db)
             if ids:
-                report = await reclassify_conversations(services, ids, concurrency=2)
+                report = await reclassify_conversations(
+                    ids, concurrency=2, settings=settings, db=db, router=router
+                )
                 # A hard error is re-queued with the durable exponential
                 # backoff, so one conversation that always fails cannot be
                 # retried every tick or starve the rest.
                 for error in report.errors:
                     with contextlib.suppress(ValueError):
-                        await services.classification.queue_reclassification(
+                        await classification.queue_reclassification(
                             object_type="checkpoint",
                             object_id=UUID(error.split(":", 1)[0]),
                             reason=error[:200],
                         )
-                await clear_classified(services, ids)
+                await clear_classified(ids, db=db)
                 logger.info(
                     "conversations classified",
                     extra={
@@ -345,12 +358,21 @@ async def classify_forever(services: Services) -> None:
 
 
 @contextlib.asynccontextmanager
-async def background_classify(services: Services):  # type: ignore[no-untyped-def]
+async def background_classify(
+    *,
+    settings: Settings,
+    db: Database,
+    classification: ClassificationService,
+    router: ConversationRouter,
+):  # type: ignore[no-untyped-def]
     """Run the loop for the server's lifetime, when turned on."""
-    if services.settings.auto_classify_seconds <= 0:
+    if settings.auto_classify_seconds <= 0:
         yield
         return
-    task = asyncio.create_task(classify_forever(services), name="auto-classify")
+    task = asyncio.create_task(
+        classify_forever(settings=settings, db=db, classification=classification, router=router),
+        name="auto-classify",
+    )
     try:
         yield
     finally:
@@ -358,4 +380,4 @@ async def background_classify(services: Services):  # type: ignore[no-untyped-de
         with contextlib.suppress(asyncio.CancelledError):
             await task
         with contextlib.suppress(Exception):
-            await release_lease(services.db, LEASE_NAME)
+            await release_lease(db, LEASE_NAME)

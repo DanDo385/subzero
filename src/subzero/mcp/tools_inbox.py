@@ -16,14 +16,32 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
+from subzero.classifier.service import ClassificationService
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.errors import ValidationError
 from subzero.notes.inbox import SENSITIVITIES, park_uncertain
-from subzero.services import get_services
+from subzero.notes.service import NoteService
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
+from subzero.projects.service import ProjectService
 
 
-def register(mcp: FastMCP) -> None:
+def register(
+    mcp: FastMCP,
+    *,
+    audit: AuditService,
+    classification: ClassificationService,
+    db: Database,
+    notes: NoteService,
+    projects: ProjectService,
+    settings: Settings,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+) -> None:
     @mcp.tool(
         name="inbox_add",
         tags={"inbox", "write"},
@@ -92,7 +110,14 @@ def register(mcp: FastMCP) -> None:
         if provenance not in ("user_statement", "assistant_generated"):
             raise ValidationError("provenance must be user_statement or assistant_generated.")
         return await park_uncertain(
-            get_services(),
+            audit=audit,
+            classification=classification,
+            db=db,
+            notes=notes,
+            projects=projects,
+            settings=settings,
+            sync_queue=sync_queue,
+            vault_paths=vault_paths,
             title=title,
             content=content,
             principal=current_principal(),

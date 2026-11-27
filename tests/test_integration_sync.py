@@ -186,7 +186,7 @@ async def test_a_queue_that_went_quiet_stops_asking(services) -> None:
 
 
 async def _worker_client(services):
-    app = create_app(services.settings)
+    app = create_app(services.settings, services=services)
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",

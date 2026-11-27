@@ -9,12 +9,10 @@ from typing import Any
 
 from conftest import requires_db
 from subzero.extraction.deep import (
-    DeepExtractor,
     ExtractionPayload,
     extraction_candidates,
     render_transcript,
 )
-from subzero.importers.runner import ImportRunner
 from support.fakes import CountingJev, claude_zip, conversation, swap_classifier
 
 pytestmark = requires_db
@@ -70,12 +68,9 @@ class FakeClient:
 
 
 async def _import(services, tmp_path: Path, conversations: list[dict[str, Any]]) -> None:
-    service = swap_classifier(services, CountingJev())  # answers deep_extraction = 0.9
-    # The extractor writes through session_checkpoint, which classifies via
-    # the sessions service; production wires both to one ClassificationService.
-    services.sessions._classification = service
+    swap_classifier(services, CountingJev())  # answers deep_extraction = 0.9
     archive = claude_zip(tmp_path / "e.zip", conversations)
-    await ImportRunner(services).run(archive, provider="claude", store_archive=False)
+    await services.importer.run(archive, provider="claude", store_archive=False)
 
 
 async def test_payload_schema_is_strict_for_structured_outputs() -> None:
@@ -97,11 +92,11 @@ async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
     services, tmp_path: Path
 ) -> None:
     await _import(services, tmp_path, [conversation("a", "Where should memory live?")])
-    candidates = await extraction_candidates(services, limit=10)
+    candidates = await extraction_candidates(limit=10, settings=services.settings, db=services.db)
     assert len(candidates) == 1
 
     fake = FakeMessages(PAYLOAD)
-    extractor = DeepExtractor(services, client=FakeClient(fake))  # type: ignore[arg-type]
+    extractor = services.deep_extractor(client=FakeClient(fake))  # type: ignore[arg-type]
     report = await extractor.run(
         [c.conversation_id for c in candidates],
         destinations={c.conversation_id: "wiki" for c in candidates},
@@ -148,14 +143,24 @@ async def test_extraction_writes_through_checkpoint_and_replaces_the_excerpt(
     assert meta["status"] == "extracted"
     assert meta["topics"] == ["MOC", "Obsidian"]
     # Done once; not offered again without --redo.
-    assert await extraction_candidates(services, limit=10) == []
-    assert len(await extraction_candidates(services, limit=10, redo=True)) == 1
+    assert await extraction_candidates(limit=10, settings=services.settings, db=services.db) == []
+    assert (
+        len(
+            await extraction_candidates(
+                limit=10, redo=True, settings=services.settings, db=services.db
+            )
+        )
+        == 1
+    )
 
 
 async def test_rerunning_extraction_does_not_duplicate(services, tmp_path: Path) -> None:
     await _import(services, tmp_path, [conversation("a", "Where should memory live?")])
-    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
-    extractor = DeepExtractor(services, client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
+    ids = [
+        c.conversation_id
+        for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
+    ]
+    extractor = services.deep_extractor(client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
     await extractor.run(ids)
     await extractor.run(ids)
     assert await services.db.fetchval("SELECT count(*) FROM decisions") == 1
@@ -165,11 +170,11 @@ async def test_rerunning_extraction_does_not_duplicate(services, tmp_path: Path)
 
 async def test_sensitive_conversations_are_never_sent(services, tmp_path: Path) -> None:
     await _import(services, tmp_path, [conversation("s", "my key is sk-ant-api03-" + "k" * 40)])
-    assert await extraction_candidates(services, limit=10) == []
+    assert await extraction_candidates(limit=10, settings=services.settings, db=services.db) == []
 
     conversation_id = await services.db.fetchval("SELECT id FROM conversations")
     fake = FakeMessages(PAYLOAD)
-    extractor = DeepExtractor(services, client=FakeClient(fake))  # type: ignore[arg-type]
+    extractor = services.deep_extractor(client=FakeClient(fake))  # type: ignore[arg-type]
     report = await extractor.run([conversation_id])
     assert fake.requests == []
     assert report.extracted == 0
@@ -178,9 +183,11 @@ async def test_sensitive_conversations_are_never_sent(services, tmp_path: Path) 
 
 async def test_a_refusal_is_recorded_not_written(services, tmp_path: Path) -> None:
     await _import(services, tmp_path, [conversation("r", "Something declined.")])
-    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
-    extractor = DeepExtractor(
-        services,
+    ids = [
+        c.conversation_id
+        for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
+    ]
+    extractor = services.deep_extractor(
         client=FakeClient(FakeMessages(None, stop_reason="refusal")),  # type: ignore[arg-type]
     )
     report = await extractor.run(ids)
@@ -199,7 +206,10 @@ async def test_one_failed_write_does_not_abort_the_batch(services, tmp_path: Pat
         tmp_path,
         [conversation("a", "Where should memory live?"), conversation("b", "More on memory.")],
     )
-    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
+    ids = [
+        c.conversation_id
+        for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
+    ]
     assert len(ids) == 2
 
     real_execute = services.db.execute
@@ -214,7 +224,7 @@ async def test_one_failed_write_does_not_abort_the_batch(services, tmp_path: Pat
 
     services.db.execute = flaky_execute  # type: ignore[method-assign]
     try:
-        extractor = DeepExtractor(services, client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
+        extractor = services.deep_extractor(client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
         report = await extractor.run(ids, concurrency=1)
     finally:
         services.db.execute = real_execute  # type: ignore[method-assign]
@@ -229,7 +239,9 @@ async def test_one_failed_write_does_not_abort_the_batch(services, tmp_path: Pat
         "SELECT metadata->'extraction'->>'status' AS status FROM conversations ORDER BY id"
     )
     assert sorted(s["status"] or "none" for s in statuses) == ["extracted", "none"]
-    assert len(await extraction_candidates(services, limit=10)) == 1
+    assert (
+        len(await extraction_candidates(limit=10, settings=services.settings, db=services.db)) == 1
+    )
 
 
 async def test_followup_failure_still_marks_the_session_extracted(
@@ -240,13 +252,16 @@ async def test_followup_failure_still_marks_the_session_extracted(
     from subzero.extraction import deep as deep_mod
 
     await _import(services, tmp_path, [conversation("a", "Where should memory live?")])
-    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
+    ids = [
+        c.conversation_id
+        for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
+    ]
 
     async def boom(*_args: Any, **_kwargs: Any) -> tuple[Any, bool]:
         raise RuntimeError("tasks table missing a column")
 
     monkeypatch.setattr(deep_mod, "upsert_task", boom)
-    extractor = DeepExtractor(services, client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
+    extractor = services.deep_extractor(client=FakeClient(FakeMessages(PAYLOAD)))  # type: ignore[arg-type]
     report = await extractor.run(ids)
 
     assert report.extracted == 1 and report.failed == 0
@@ -255,7 +270,7 @@ async def test_followup_failure_still_marks_the_session_extracted(
     meta = await services.db.fetchval("SELECT metadata->'extraction' FROM conversations")
     assert meta["status"] == "extracted"
     assert await services.db.fetchval("SELECT count(*) FROM notes") == 1
-    assert await extraction_candidates(services, limit=10) == []
+    assert await extraction_candidates(limit=10, settings=services.settings, db=services.db) == []
 
 
 async def test_same_subject_notes_merge_and_projects_are_created(services, tmp_path: Path) -> None:
@@ -264,9 +279,12 @@ async def test_same_subject_notes_merge_and_projects_are_created(services, tmp_p
         tmp_path,
         [conversation("a", "Where should memory live?"), conversation("b", "More on memory.")],
     )
-    ids = [c.conversation_id for c in await extraction_candidates(services, limit=10)]
+    ids = [
+        c.conversation_id
+        for c in await extraction_candidates(limit=10, settings=services.settings, db=services.db)
+    ]
     payload = {**PAYLOAD, "project": "Subzero"}
-    extractor = DeepExtractor(services, client=FakeClient(FakeMessages(payload)))  # type: ignore[arg-type]
+    extractor = services.deep_extractor(client=FakeClient(FakeMessages(payload)))  # type: ignore[arg-type]
     await extractor.run(ids, destinations=dict.fromkeys(ids, "project"))
 
     notes = await services.db.fetch("SELECT title, content, vault_path FROM notes")

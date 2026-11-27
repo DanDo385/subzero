@@ -73,7 +73,14 @@ async def test_a_live_checkpoint_session_is_visible_to_memory_lab(services) -> N
     )
     assert linked == result.conversation_id
 
-    report = await recover(services, dry_run=True)
+    report = await recover(
+        dry_run=True,
+        settings=services.settings,
+        db=services.db,
+        notes=services.notes,
+        sync_queue=services.sync_queue,
+        vault_paths=services.vault_paths,
+    )
     assert report.as_dict()["sessions_seen"] == 1
 
 

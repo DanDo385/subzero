@@ -12,7 +12,7 @@ from subzero.server import create_app
 
 @pytest.fixture
 async def worker_client(services) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(services.settings)
+    app = create_app(services.settings, services=services)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",

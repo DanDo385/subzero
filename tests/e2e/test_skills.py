@@ -18,7 +18,5 @@ async def test_checkpoint_skill_fields_match_session_checkpoint(mcp_client) -> N
             "summary": "Checked that checkpoint accepts the skill field set.",
         },
     )
-    found = await mcp_client.call_tool(
-        "context_search", {"query": "skill field set", "limit": 5}
-    )
+    found = await mcp_client.call_tool("context_search", {"query": "skill field set", "limit": 5})
     assert found.data

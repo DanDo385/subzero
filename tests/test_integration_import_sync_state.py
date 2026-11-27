@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 
 from conftest import requires_db
 from subzero.importers.base import ImportReport, NormalizedConversation, NormalizedMessage
-from subzero.importers.runner import ImportRunner
 
 pytestmark = requires_db
 
@@ -28,7 +27,7 @@ async def test_an_import_records_the_provider_update_time(services) -> None:
         messages=[NormalizedMessage(role="user", content="hello", provenance="imported_metadata")],
     )
 
-    await ImportRunner(services)._import_one(
+    await services.importer._import_one(
         conversation, ImportReport(provider="claude", archive_sha256="")
     )
 

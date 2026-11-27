@@ -75,14 +75,10 @@ async def db(settings: Settings):
 
 @pytest.fixture
 async def services(settings: Settings, db):
-    from subzero.services import build_services, set_services
+    from subzero.services import build_services
 
-    built = await build_services(settings, db)
-    set_services(built)
-    try:
-        yield built
-    finally:
-        set_services(None)
+    built = build_services(settings, db)
+    yield built
 
 
 @pytest.fixture

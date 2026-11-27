@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from subzero.wiki.service import WikiService
-
 
 async def test_title_mention_links_without_jev(services) -> None:
     source_id, _, _ = await services.notes.upsert(
@@ -18,11 +16,9 @@ async def test_title_mention_links_without_jev(services) -> None:
     )
     for note_id, title in ((source_id, "MCP OAuth"), (target_id, "PKCE")):
         path = services.vault_paths.note(note_class="wiki", title=title)
-        await services.db.execute(
-            "UPDATE notes SET vault_path = $2 WHERE id = $1", note_id, path
-        )
+        await services.db.execute("UPDATE notes SET vault_path = $2 WHERE id = $1", note_id, path)
 
-    report = await WikiService(services).build_links()
+    report = await services.wiki.build_links()
     edge = await services.db.fetchrow(
         """
         SELECT status, source FROM note_edges

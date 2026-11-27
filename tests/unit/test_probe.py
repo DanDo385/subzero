@@ -45,7 +45,9 @@ def test_a_non_object_root_is_reported() -> None:
 async def test_registered_tool_schemas_pass_the_probe() -> None:
     """The live tool list satisfies the same checker `probe` uses on tools/list."""
     from subzero.config import Settings
+    from subzero.db.pool import Database
     from subzero.server import build_mcp
+    from subzero.services import build_services
 
     settings = Settings(
         auth_mode="none",
@@ -56,7 +58,7 @@ async def test_registered_tool_schemas_pass_the_probe() -> None:
         oauth_signing_key="unused",
         worker_api_key="unused",
     )
-    tools = await build_mcp(settings).list_tools()
+    tools = await build_mcp(settings, build_services(settings, Database(settings))).list_tools()
     problems: list[str] = []
     for tool in tools:
         schema = getattr(tool, "parameters", None)

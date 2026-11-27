@@ -11,10 +11,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from subzero.bridge.service import BridgeService
 from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.ingest import _bearer_token, _validate_device_token
 from subzero.models import BridgeMessageCreate, BridgeSessionCreate
-from subzero.services import get_services
 
 
 def _unauthorized() -> JSONResponse:
@@ -37,7 +38,7 @@ async def _json(request: Request) -> dict[str, Any] | None:
     return body if isinstance(body, dict) else None
 
 
-def build_bridge_routes(settings: Settings) -> list[Route]:
+def build_bridge_routes(settings: Settings, *, bridge: BridgeService, db: Database) -> list[Route]:
     async def create_session(request: Request) -> JSONResponse:
         if not _sender_authorized(request, settings):
             return _unauthorized()
@@ -50,7 +51,7 @@ def build_bridge_routes(settings: Settings) -> list[Route]:
             return JSONResponse({"error": "invalid session fields"}, status_code=400)
         if not request_data.provider.strip():
             return JSONResponse({"error": "provider must be a non-empty string"}, status_code=400)
-        result = await get_services().bridge.create_session(
+        result = await bridge.create_session(
             provider=request_data.provider.strip(),
             title=request_data.title,
             model=request_data.model,
@@ -59,13 +60,13 @@ def build_bridge_routes(settings: Settings) -> list[Route]:
 
     async def get_session(request: Request) -> JSONResponse:
         token = _bearer_token(request)
-        if not token or await _validate_device_token(get_services().db, token) is None:
+        if not token or await _validate_device_token(db, token) is None:
             return _unauthorized()
         try:
             session_id = UUID(request.path_params["session_id"])
         except (KeyError, ValueError):
             return JSONResponse({"error": "not found"}, status_code=404)
-        result = await get_services().bridge.get_session(session_id)
+        result = await bridge.get_session(session_id)
         if result is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         return JSONResponse(result.model_dump(mode="json"))
@@ -88,7 +89,7 @@ def build_bridge_routes(settings: Settings) -> list[Route]:
             return JSONResponse({"error": "invalid message fields"}, status_code=400)
         if not request_data.text.strip():
             return JSONResponse({"error": "text is required"}, status_code=400)
-        result = await get_services().bridge.append_message(
+        result = await bridge.append_message(
             session_id,
             content=request_data.text,
             role=request_data.role,

@@ -18,20 +18,35 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
-from subzero.artifacts.filing import classify_and_file, queue_vault_mirror
+from subzero.artifacts.filing import ArtifactFiling
 from subzero.artifacts.keys import sanitize_relative_path
+from subzero.artifacts.service import ArtifactService
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.errors import ValidationError
 from subzero.models import ArtifactRecord
-from subzero.services import get_services
+from subzero.projects.service import ProjectService
+from subzero.storage.base import ObjectStore
 
 #: Inline base64 is allowed only for genuinely small payloads. Anything bigger
 #: goes through a signed upload so bytes never sit in a tool argument.
 MAX_INLINE_BASE64_BYTES = 2 * 1024 * 1024
 
 
-def register(mcp: FastMCP) -> None:
+def register(
+    mcp: FastMCP,
+    *,
+    artifacts: ArtifactService,
+    audit: AuditService,
+    db: Database,
+    projects: ProjectService,
+    settings: Settings,
+    store: ObjectStore,
+    filing: ArtifactFiling,
+) -> None:
     @mcp.tool(
         name="artifact_save_text",
         tags={"artifacts", "write"},
@@ -58,20 +73,19 @@ def register(mcp: FastMCP) -> None:
         script, a dataset in CSV or JSON, a diagram in Mermaid or SVG. For a
         multi-file project use artifact_save_bundle so it stays one artifact.
         """
-        services = get_services()
         principal = current_principal()
-        record = await services.artifacts.save_files(
+        record = await artifacts.save_files(
             title=title or filename,
             description=description,
             files={filename: content.encode("utf-8")},
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             project_slug=project,
             source_provider=principal.provider if principal.provider != "unknown" else None,
             source_type="generated_by_model",
             original_names={sanitize_relative_path(filename): filename},
         )
-        classification = await classify_and_file(services, record, stated_project=project)
-        await services.audit.record(
+        classification = await filing.classify_and_file(record, stated_project=project)
+        await audit.record(
             tool="artifact_save_text",
             action="create",
             object_type="artifact",
@@ -79,7 +93,7 @@ def register(mcp: FastMCP) -> None:
             principal=principal,
             resulting_version={"slug": record.slug, "version": record.version},
         )
-        refreshed = await services.artifacts.get(record.id) or record
+        refreshed = await artifacts.get(record.id) or record
         return {
             "artifact": refreshed.model_dump(mode="json"),
             "classification": classification,
@@ -126,22 +140,21 @@ def register(mcp: FastMCP) -> None:
         To update an existing artifact use artifact_create_revision, which
         links the new version to the old one.
         """
-        services = get_services()
         principal = current_principal()
         if not files:
             raise ValidationError("A bundle needs at least one file.")
 
-        record = await services.artifacts.save_files(
+        record = await artifacts.save_files(
             title=title,
             description=description,
             files={path: text.encode("utf-8") for path, text in files.items()},
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             project_slug=project,
             source_provider=principal.provider if principal.provider != "unknown" else None,
             source_type="generated_by_model",
         )
-        classification = await classify_and_file(services, record, stated_project=project)
-        await services.audit.record(
+        classification = await filing.classify_and_file(record, stated_project=project)
+        await audit.record(
             tool="artifact_save_bundle",
             action="create",
             object_type="artifact",
@@ -149,7 +162,7 @@ def register(mcp: FastMCP) -> None:
             principal=principal,
             resulting_version={"slug": record.slug, "files": record.file_count},
         )
-        refreshed = await services.artifacts.get(record.id) or record
+        refreshed = await artifacts.get(record.id) or record
         return {
             "artifact": refreshed.model_dump(mode="json"),
             "classification": classification,
@@ -187,7 +200,6 @@ def register(mcp: FastMCP) -> None:
         If you can see a file in the conversation but cannot read its bytes,
         do NOT guess at them: call artifact_register_reference.
         """
-        services = get_services()
         principal = current_principal()
         try:
             data = base64.b64decode(content_base64, validate=True)
@@ -202,18 +214,18 @@ def register(mcp: FastMCP) -> None:
                 f"{MAX_INLINE_BASE64_BYTES}. Use artifact_begin_upload."
             )
 
-        record = await services.artifacts.save_files(
+        record = await artifacts.save_files(
             title=title or filename,
             description=description,
             files={filename: data},
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             project_slug=project,
             source_provider=principal.provider if principal.provider != "unknown" else None,
             source_type="uploaded_by_user",
             original_names={sanitize_relative_path(filename): filename},
         )
-        classification = await classify_and_file(services, record, stated_project=project)
-        refreshed = await services.artifacts.get(record.id) or record
+        classification = await filing.classify_and_file(record, stated_project=project)
+        refreshed = await artifacts.get(record.id) or record
         return {
             "artifact": refreshed.model_dump(mode="json"),
             "classification": classification,
@@ -244,21 +256,20 @@ def register(mcp: FastMCP) -> None:
         arrived and their hash matches - until then it is NOT captured and
         must not be described to the user as saved.
         """
-        services = get_services()
         principal = current_principal()
-        if byte_size > services.settings.max_artifact_file_bytes:
+        if byte_size > settings.max_artifact_file_bytes:
             raise ValidationError(
                 f"{byte_size} bytes exceeds the per-file limit of "
-                f"{services.settings.max_artifact_file_bytes}."
+                f"{settings.max_artifact_file_bytes}."
             )
 
-        begun = await services.artifacts.begin_signed_upload(
+        begun = await artifacts.begin_signed_upload(
             title=title,
             filename=filename,
             byte_size=byte_size,
             mime_type=mime_type,
             description=description,
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             project_slug=project,
             source_provider=principal.provider if principal.provider != "unknown" else None,
         )
@@ -295,15 +306,14 @@ def register(mcp: FastMCP) -> None:
         The artifact becomes 'captured' only if the object exists in storage.
         If it does not, the status is left unchanged and this says so.
         """
-        services = get_services()
-        reason = await services.artifacts.complete_upload(
+        reason = await artifacts.complete_upload(
             artifact_id, sanitize_relative_path(relative_path), sha256
         )
         if reason is not None:
             return {"captured": False, "reason": reason}
-        record = await services.artifacts.get(artifact_id)
+        record = await artifacts.get(artifact_id)
         assert record is not None
-        classification = await classify_and_file(services, record, stated_project=None)
+        classification = await filing.classify_and_file(record, stated_project=None)
         return {
             "captured": record.storage_status == "captured",
             "artifact": record.model_dump(mode="json"),
@@ -352,20 +362,19 @@ def register(mcp: FastMCP) -> None:
         Never describe the result of this tool as "saved" or "archived". The
         bytes were not captured.
         """
-        services = get_services()
         principal = current_principal()
-        record = await services.artifacts.register_reference(
+        record = await artifacts.register_reference(
             title=title,
             description=description,
             status="pending_import",
             artifact_type=artifact_type,
             source_provider=principal.provider if principal.provider != "unknown" else None,
             source_type=source_type,
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             expected_files=expected_files,
             metadata={"provider_conversation_id": conversation_id},
         )
-        await services.audit.record(
+        await audit.record(
             tool="artifact_register_reference",
             action="create",
             object_type="artifact",
@@ -414,11 +423,10 @@ def register(mcp: FastMCP) -> None:
         Check storage_status on each result: 'captured' means the bytes are
         held and downloadable; anything else means only metadata exists.
         """
-        services = get_services()
-        return await services.artifacts.search(
+        return await artifacts.search(
             query,
             limit=limit,
-            project_id=await services.projects.resolve(project),
+            project_id=await projects.resolve(project),
             artifact_type=artifact_type,
             provider=provider,
             storage_status=storage_status,
@@ -434,7 +442,7 @@ def register(mcp: FastMCP) -> None:
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
     ) -> ArtifactRecord | dict:
         """One artifact with its full file list and capture status."""
-        record = await get_services().artifacts.get(artifact)
+        record = await artifacts.get(artifact)
         return record or {"error": f"No artifact matches {artifact!r}."}
 
     @mcp.tool(
@@ -447,7 +455,7 @@ def register(mcp: FastMCP) -> None:
         artifact: Annotated[str, Field(description="Artifact id or slug.")],
     ) -> dict:
         """The artifact's manifest: every file, its path, hash, MIME and size."""
-        return await get_services().artifacts.manifest(artifact)
+        return await artifacts.manifest(artifact)
 
     @mcp.tool(
         name="artifact_signed_download",
@@ -467,11 +475,8 @@ def register(mcp: FastMCP) -> None:
         to nothing. URLs expire quickly and expire faster for sensitive
         artifacts - fetch promptly and do not store them.
         """
-        services = get_services()
-        files = await services.artifacts.signed_download(
-            artifact_ref=artifact, relative_path=relative_path
-        )
-        await services.audit.record(
+        files = await artifacts.signed_download(artifact_ref=artifact, relative_path=relative_path)
+        await audit.record(
             tool="artifact_signed_download",
             action="read_sensitive",
             object_type="artifact",
@@ -505,14 +510,13 @@ def register(mcp: FastMCP) -> None:
         changes to something you already saved - it keeps the history connected
         rather than leaving two unrelated copies.
         """
-        services = get_services()
-        record = await services.artifacts.create_revision(
+        record = await artifacts.create_revision(
             artifact_ref=artifact,
             files={p: c.encode("utf-8") for p, c in files.items()},
             title=title,
             description=description,
         )
-        await services.audit.record(
+        await audit.record(
             tool="artifact_create_revision",
             action="create",
             object_type="artifact",
@@ -535,13 +539,12 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[str, Field(description="Project slug or name.")],
     ) -> dict:
         """Associate an artifact with a project."""
-        services = get_services()
-        record = await services.artifacts.get(artifact)
+        record = await artifacts.get(artifact)
         if record is None:
             return {"attached": False, "reason": f"No artifact matches {artifact!r}."}
-        project_id = await services.projects.require(project)
-        await services.artifacts.attach_to_project(record.id, project_id)
-        await services.audit.record(
+        project_id = await projects.require(project)
+        await artifacts.attach_to_project(record.id, project_id)
+        await audit.record(
             tool="artifact_attach_to_project",
             action="update",
             object_type="artifact",
@@ -563,8 +566,7 @@ def register(mcp: FastMCP) -> None:
         Large files are never mirrored; the note links to them in cloud storage
         instead. The write happens when the local sync worker next runs.
         """
-        services = get_services()
-        record = await services.artifacts.get(artifact)
+        record = await artifacts.get(artifact)
         if record is None:
             return {"queued": 0, "reason": f"No artifact matches {artifact!r}."}
         if record.storage_status != "captured":
@@ -575,8 +577,8 @@ def register(mcp: FastMCP) -> None:
                     "mirror until its bytes are captured."
                 ),
             }
-        queued = await queue_vault_mirror(
-            services, record, project_slug=record.project, classification_event_id=None
+        queued = await filing.queue_vault_mirror(
+            record, project_slug=record.project, classification_event_id=None
         )
         return {
             "queued": queued,
@@ -598,8 +600,7 @@ def register(mcp: FastMCP) -> None:
 
         Useful after a classifier outage, or once the right project exists.
         """
-        services = get_services()
-        record = await services.artifacts.get(artifact)
+        record = await artifacts.get(artifact)
         if record is None:
             return {"error": f"No artifact matches {artifact!r}."}
-        return await classify_and_file(services, record, stated_project=project)
+        return await filing.classify_and_file(record, stated_project=project)

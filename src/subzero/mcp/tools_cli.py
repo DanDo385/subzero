@@ -16,15 +16,16 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
 from subzero.cli_host.runner import runner_for, runs_on_this_host
+from subzero.config import Settings
 from subzero.errors import ValidationError
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
-from subzero.services import get_services
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, *, audit: AuditService, settings: Settings) -> None:
     @mcp.tool(
         name="run_cli_on_mbp",
         tags={"cli", "write"},
@@ -88,21 +89,20 @@ def register(mcp: FastMCP) -> None:
         principal = current_principal()
         if principal.is_anonymous:
             raise ValidationError("run_cli_on_mbp requires an authenticated caller.")
-        services = get_services()
-        if not runs_on_this_host(services.settings):
+        if not runs_on_this_host(settings):
             raise ValidationError(
                 "This process is not the Mac CLI runner, so no shell was started. "
                 "A server that is not on the Mac does not run commands; no outbound "
                 "worker is registered on this process."
             )
         result = await asyncio.to_thread(
-            runner_for(services.settings).run,
+            runner_for(settings).run,
             command,
             cwd=cwd,
             timeout_s=timeout_s,
             retain=retain,
         )
-        await services.audit.record(
+        await audit.record(
             tool="run_cli_on_mbp",
             action="run",
             object_type="cli_job",
@@ -139,12 +139,11 @@ def register(mcp: FastMCP) -> None:
         principal = current_principal()
         if principal.is_anonymous:
             raise ValidationError("cli_job_on_mbp requires an authenticated caller.")
-        services = get_services()
-        if not runs_on_this_host(services.settings):
+        if not runs_on_this_host(settings):
             raise ValidationError(
                 "This process is not the Mac CLI runner, so it has no local job to read."
             )
-        result = await asyncio.to_thread(runner_for(services.settings).status, job_id)
+        result = await asyncio.to_thread(runner_for(settings).status, job_id)
         return text_and_structured(_line(result), result)
 
 
