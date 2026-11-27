@@ -201,6 +201,19 @@ twice.
 | --- | --- |
 | `inbox_add` | Park something you cannot place. It waits in `00-Inbox/` until a review files it with `review_reclassify`. |
 
+### Notes (1)
+
+| Tool | What it does |
+| --- | --- |
+| `note_patch` | Fix one section of a note (or one metadata key) without rewriting the rest. Refuses when the note changed since you read it; preview with a dry run first. |
+
+Every vault note opens with a short "For future agent" summary so one note
+read alone still makes sense. Facts you save should carry their date:
+write `(as of 2026-11, source)` on counts, statuses, and anything else that
+can change, so a future session re-verifies instead of trusting a stale
+number. `subzero notes-freshness` lists dated claims older than a week and
+files review items for them; it never edits.
+
 ### Projects (6)
 
 | Tool | What it does |
