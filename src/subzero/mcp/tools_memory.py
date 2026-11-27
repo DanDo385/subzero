@@ -246,7 +246,12 @@ def register(
         facts: Annotated[
             list[CheckpointFact],
             Field(
-                description="Durable facts worth remembering in future sessions. Not conversational noise."
+                description=(
+                    "Durable facts worth remembering in future sessions. Not conversational noise. "
+                    "Date anything that can change: write '(as of 2026-11, source)' into the content "
+                    "for counts, statuses, balances and other fast facts, so a future session knows "
+                    "what to re-verify instead of trusting a stale number."
+                )
             ),
         ] = [],
         tasks: Annotated[

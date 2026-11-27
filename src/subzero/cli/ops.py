@@ -301,6 +301,54 @@ def check() -> None:
     click.secho("\nAll checks passed.", fg="green", bold=True)
 
 
+@main.command(name="notes-freshness")
+@click.option("--days", default=7, show_default=True, help="A marker older than this is stale.")
+@click.option("--limit", default=50, show_default=True, help="Most stale notes to report.")
+@click.option(
+    "--queue/--no-queue",
+    default=True,
+    show_default=True,
+    help="File a review item per stale note (idempotent: one open item per note).",
+)
+def notes_freshness(days: int, limit: int, queue: bool) -> None:
+    """Report notes with stale (as of ...) markers; optionally file reviews.
+
+    Weekly hygiene, run by hand or on a schedule: a dated claim that has
+    outlived its freshness window is flagged for a human (or a model with
+    the note open) to refresh or convert to a pointer. Never edits.
+    """
+    settings = get_settings()
+    _configure_cli_logging(settings)
+
+    async def run() -> None:
+        db = await Database.connect(settings)
+        try:
+            services = build_services(settings, db)
+            stale = await services.notes.stale_markers(days=days, limit=limit)
+            if not stale:
+                click.secho(f"No markers older than {days} days.", fg="green")
+                return
+            for row in stale:
+                line = f"{row['title']}: oldest marker {row['oldest']}"
+                if queue:
+                    await services.classification.queue_review(
+                        object_type="note",
+                        object_id=row["id"],
+                        reason="stale_marker",
+                        question=(
+                            f"“{row['title']}” has a dated claim from {row['oldest']} "
+                            f"(older than {days} days). Refresh the observation, convert "
+                            "it to a pointer at where truth lives, or confirm it is timeless."
+                        ),
+                    )
+                    line += " (review filed)"
+                click.echo(f"  {line}")
+        finally:
+            await db.close()
+
+    asyncio.run(run())
+
+
 @main.command()
 @click.argument("url")
 @click.option(

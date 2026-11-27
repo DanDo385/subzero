@@ -74,6 +74,41 @@ def render_next_steps(open_tasks: list[dict[str, Any]]) -> list[str]:
 GENERATED_START = "<!-- pc:generated - maintained by subzero; edits here are replaced -->"
 GENERATED_END = "<!-- /pc:generated -->"
 
+#: Fixed, greppable heading for the note preamble: a future agent reading
+#: one note in isolation gets its what, why and staleness caveat first.
+PREAMBLE_HEADING = "## For future agent"
+
+#: What each provenance is worth as a staleness caveat. User words stand;
+#: model conclusions and imports must be re-verified before they are trusted.
+_PRECAMBLES = {
+    "imported_metadata": "Imported from chat history: verify before treating as current.",
+    "assistant_generated": "Written by a model: treat as hypothesis until confirmed.",
+}
+
+
+def future_agent_preamble(
+    title: str,
+    *,
+    note_class: str | None = None,
+    source_provider: str | None = None,
+    provenance: str | None = None,
+) -> str:
+    """A deterministic two-sentence note preamble: what it is, why it was
+    saved, and the staleness caveat its provenance earns.
+
+    Deterministic on purpose: render_note reproduces it byte-for-byte on
+    every render, and extract_note_body recognises and strips it, so it
+    never duplicates and never leaks into stored content.
+    """
+    kind = f"a {note_class} note" if note_class else "a note"
+    what = f"This is {kind} about {title.strip()}."
+    if source_provider:
+        what += f" Saved from {source_provider}."
+    caveat = _PRECAMBLES.get(provenance or "")
+    body = f"{what} {caveat}" if caveat else what
+    return f"{PREAMBLE_HEADING}\n\n{body}"
+
+
 _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n?", re.S)
 _GENERATED = re.compile(
     re.escape(GENERATED_START.split(" - ")[0]) + r".*?" + re.escape(GENERATED_END), re.S
@@ -125,7 +160,13 @@ def render_note(
             "tags": tags,
         }
     )
-    parts = [front, "", f"# {note['title']}", "", note["content"].strip(), ""]
+    preamble = (meta.get("preamble") or "").strip() or future_agent_preamble(
+        note["title"],
+        note_class=note.get("note_class"),
+        source_provider=note.get("source_provider"),
+        provenance=note.get("provenance"),
+    )
+    parts = [front, "", f"# {note['title']}", "", preamble, "", note["content"].strip(), ""]
 
     generated: list[str] = []
     generated += render_next_steps(next_steps or [])
@@ -171,6 +212,16 @@ def extract_note_body(text: str, title: str | None = None) -> str:
     lines = body.strip("\n").split("\n")
     if lines and lines[0].startswith("# ") and (title is None or lines[0][2:].strip() == title):
         lines = lines[1:]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and lines[0].strip() == PREAMBLE_HEADING:
+        # The rendered preamble: heading, blank, one paragraph. It is
+        # regenerated on every render, so it is stripped, never stored.
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and lines[0].strip() and not lines[0].startswith("#"):
+            lines.pop(0)
     body = "\n".join(lines).strip()
     legacy = body.rfind("\n## Sources\n")
     if legacy != -1 and "\n## " not in body[legacy + 1 :].split("\n", 1)[-1]:

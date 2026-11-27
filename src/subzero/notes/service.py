@@ -320,6 +320,31 @@ class NoteService:
             patch,
         )
 
+    async def stale_markers(self, *, days: int = 7, limit: int = 50) -> list[dict[str, Any]]:
+        """Notes whose dated claims may have gone stale.
+
+        Finds ``(as of YYYY-MM-DD)`` markers older than ``days`` and returns
+        the oldest marker per note. Compared as text: ISO dates order
+        correctly, and a malformed stamp can never crash the cast because
+        there is none. Use the result to file review items, never to edit:
+        only a human (or a model with the note open) decides whether a fact
+        is stale or timeless.
+        """
+        rows = await self._db.fetch(
+            """
+            SELECT n.id, n.title, min(m[1]) AS oldest
+            FROM notes n,
+                 regexp_matches(n.content, '\\(as of ([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g') AS m
+            GROUP BY n.id, n.title
+            HAVING min(m[1]) < to_char(now() - make_interval(days => $1), 'YYYY-MM-DD')
+            ORDER BY min(m[1])
+            LIMIT $2
+            """,
+            days,
+            limit,
+        )
+        return [dict(r) for r in rows]
+
     async def search(
         self,
         query: str,

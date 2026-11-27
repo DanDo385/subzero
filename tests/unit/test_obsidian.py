@@ -71,6 +71,38 @@ def test_next_steps_round_trip_through_extract_note_body() -> None:
     assert extract_note_body(rendered, note["title"]) == "Body a human wrote."
 
 
+def test_preamble_renders_after_the_title_and_strips_on_extract() -> None:
+    note = {
+        "id": uuid.uuid4(),
+        "title": "Harbor Notes",
+        "content": "Body a human wrote.",
+        "note_class": "project",
+        "source_provider": "claude",
+        "provenance": "assistant_generated",
+    }
+    rendered = render_note(note)
+    assert "## For future agent" in rendered
+    assert "treat as hypothesis" in rendered
+    # Preamble sits between title and body, ahead of anything generated.
+    assert rendered.index("## For future agent") < rendered.index("Body a human wrote.")
+    # A re-render reproduces it byte-for-byte instead of duplicating it.
+    assert extract_note_body(rendered, note["title"]) == "Body a human wrote."
+
+
+def test_preamble_caveat_follows_provenance() -> None:
+    user_note = {
+        "id": uuid.uuid4(),
+        "title": "T",
+        "content": "Body.",
+        "provenance": "user_statement",
+    }
+    preamble = render_note(user_note).split("## For future agent")[1].split("## ")[0]
+    assert "verify" not in preamble
+
+    imported = dict(user_note, provenance="imported_metadata")
+    assert "verify before treating as current" in render_note(imported)
+
+
 def test_no_tasks_render_no_next_steps_section() -> None:
     assert render_next_steps([]) == []
     markdown = render_note(

@@ -13,6 +13,7 @@ leaves nothing behind.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -398,28 +399,23 @@ class SessionService(ConversationStore):
             sensitivity=sensitivity,
             stated_project=stated_project,
         )
-        result, routing, event_id = await self._classification.classify_checkpoint(
-            state, historical_import=historical_import
-        )
-
-        # The summary's vector is computed here, outside the transaction. An
-        # embedding call is a network round trip that can take seconds, and
-        # holding row locks and a pooled connection across it is how a slow
-        # provider turns into a hung checkpoint.
+        # Classification and both embedding calls are independent of each
+        # other (routing never depends on a vector), so they run together:
+        # the checkpoint waits for the slowest, not the sum. All three stay
+        # outside the transaction below: a network call must never hold row
+        # locks and a pooled connection while a provider is slow.
         summary_text = summary.strip() if summary else ""
-        summary_embedding = (
-            await self._embeddings.embed_one(
-                f"{title or ''}\n\n{summary_text}", sensitivity=sensitivity
-            )
+        memory_texts = [(d.statement.strip(), sensitivity) for d in decisions] + [
+            (f.content.strip(), f.sensitivity) for f in facts
+        ]
+        (classified, summary_embedding, memory_vectors) = await asyncio.gather(
+            self._classification.classify_checkpoint(state, historical_import=historical_import),
+            self._embeddings.embed_one(f"{title or ''}\n\n{summary_text}", sensitivity=sensitivity)
             if summary_text
-            else None
+            else asyncio.sleep(0, result=None),
+            self._memory_vectors(memory_texts),
         )
-        # Every memory this checkpoint may write, vectorised the same way and
-        # for the same reason: memories.save would otherwise embed inside it.
-        memory_vectors = await self._memory_vectors(
-            [(d.statement.strip(), sensitivity) for d in decisions]
-            + [(f.content.strip(), f.sensitivity) for f in facts]
-        )
+        result, routing, event_id = classified
 
         return steps.Route(
             explicit=explicit,
