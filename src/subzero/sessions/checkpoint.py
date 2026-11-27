@@ -14,6 +14,7 @@ from uuid import UUID
 import asyncpg
 
 from subzero import sigils
+from subzero.classifier.base import ClassificationResult
 from subzero.classifier.policy import Routing, Verdict
 from subzero.homes import home_metadata
 from subzero.memory.service import MemoryService
@@ -25,6 +26,7 @@ from subzero.models import (
     CheckpointTask,
 )
 from subzero.projects.service import ProjectService
+from subzero.retrieval.inference import ProjectRow
 from subzero.tasks import upsert_task
 from subzero.util import sha256_text
 
@@ -45,6 +47,18 @@ def _merge_texts(existing: list[Any] | None, new: list[str]) -> list[str]:
             seen.add(key)
             out.append(value)
     return out
+
+
+@dataclass(frozen=True)
+class Route:
+    """Everything decided before the checkpoint's transaction opens."""
+
+    explicit: ProjectRow | None
+    result: ClassificationResult
+    routing: Routing
+    event_id: UUID | None
+    summary_embedding: list[float] | None
+    memory_vectors: dict[tuple[str, str], list[float] | None]
 
 
 @dataclass

@@ -301,57 +301,29 @@ class SessionService:
         project, home = marks.project, marks.home
 
         # ---- 1. classify first, so routing informs what we write ---------
-        # A project the caller names outright decides where the session goes.
-        # It is matched like a search filter (slug, name, alias, near
-        # misspelling) and never creates a project.
-        if home and home.startswith("projects/") and not project:
-            project = home.removeprefix("projects/")
-        explicit = await self._match_project(project) if project and project.strip() else None
-        if project and project.strip() and explicit is None:
-            tally.notes.append(
-                f"No project matches {project!r}; the session was saved without one. "
-                "Call project_list to see the existing projects."
-            )
-        stated_reference = next(
-            (u.project for u in project_updates if u.project),
-            next((d.project for d in decisions if d.project), None),
-        )
-        stated = await self._match_project(stated_reference) if stated_reference else None
-        stated_project = explicit.slug if explicit else stated.slug if stated else stated_reference
-        state = self._checkpoint_state(
+        route = await self._route_checkpoint(
             provider=provider,
             title=title,
             summary=summary,
+            project=project,
+            home=home,
             decisions=decisions,
             facts=facts,
             tasks=tasks,
+            project_updates=project_updates,
             open_questions=open_questions,
             important_context=important_context,
             sensitivity=sensitivity,
-            stated_project=stated_project,
+            historical_import=historical_import,
+            tally=tally,
         )
-        result, routing, event_id = await self._classification.classify_checkpoint(
-            state, historical_import=historical_import
+        explicit, result, routing, event_id = (
+            route.explicit,
+            route.result,
+            route.routing,
+            route.event_id,
         )
-
-        # The summary's vector is computed here, outside the transaction. An
-        # embedding call is a network round trip that can take seconds, and
-        # holding row locks and a pooled connection across it is how a slow
-        # provider turns into a hung checkpoint.
-        summary_text = summary.strip() if summary else ""
-        summary_embedding = (
-            await self._embeddings.embed_one(
-                f"{title or ''}\n\n{summary_text}", sensitivity=sensitivity
-            )
-            if summary_text
-            else None
-        )
-        # Every memory this checkpoint may write, vectorised the same way and
-        # for the same reason: memories.save would otherwise embed inside it.
-        memory_vectors = await self._memory_vectors(
-            [(d.statement.strip(), sensitivity) for d in decisions]
-            + [(f.content.strip(), f.sensitivity) for f in facts]
-        )
+        summary_embedding, memory_vectors = route.summary_embedding, route.memory_vectors
 
         # ---- 2. everything else in one transaction ----------------------
         async with self._db.transaction() as conn:
@@ -413,49 +385,21 @@ class SessionService:
             )
 
             # -- session summary (layer 2) --------------------------------
-            summary_id = None
-            lists = await steps.merge_summary_lists(
+            summary_id = await self._write_summary_layer(
                 conn,
                 conversation_id=conversation_id,
+                provider=provider,
+                project_id=routed_project_id,
+                title=title,
+                summary=summary,
                 open_questions=open_questions,
                 resolved_questions=resolved_questions,
                 important_context=important_context,
+                sensitivity=sensitivity,
+                needs_review=routing.needs_review,
+                embedding=summary_embedding,
+                tally=tally,
             )
-            if summary and summary.strip():
-                summary_id, summary_created = await self._upsert_summary(
-                    conn,
-                    conversation_id=conversation_id,
-                    provider=provider,
-                    project_id=routed_project_id,
-                    title=title,
-                    summary=summary.strip(),
-                    open_questions=lists.questions,
-                    important_context=lists.context,
-                    resolved_questions=lists.resolved,
-                    sensitivity=sensitivity,
-                    needs_review=routing.needs_review,
-                    embedding=summary_embedding,
-                )
-                tally.bump(tally.created if summary_created else tally.updated, "session_summaries")
-            elif lists.exists and (open_questions or resolved_questions or important_context):
-                await conn.execute(
-                    """
-                    UPDATE session_summaries
-                    SET open_questions = $2, important_context = $3,
-                        metadata = metadata || jsonb_build_object('resolved_questions', $4::jsonb)
-                    WHERE conversation_id = $1
-                    """,
-                    conversation_id,
-                    lists.questions,
-                    lists.context,
-                    lists.resolved,
-                )
-                tally.bump(tally.updated, "session_summaries")
-            elif open_questions or resolved_questions:
-                tally.notes.append(
-                    "Open and resolved questions are kept with the session summary; "
-                    "send a summary so they are saved."
-                )
 
             # -- decisions, facts, tasks, artifacts -----------------------
             await steps.write_decisions(
@@ -576,6 +520,149 @@ class SessionService:
             review_items=review_items,
             notes=tally.notes,
         )
+
+    async def _route_checkpoint(
+        self,
+        *,
+        provider: str,
+        title: str | None,
+        summary: str | None,
+        project: str | None,
+        home: str | None,
+        decisions: list[CheckpointDecision],
+        facts: list[CheckpointFact],
+        tasks: list[CheckpointTask],
+        project_updates: list[CheckpointProjectUpdate],
+        open_questions: list[str],
+        important_context: list[str],
+        sensitivity: str,
+        historical_import: bool,
+        tally: Tally,
+    ) -> steps.Route:
+        """Match the named project, classify, and embed, all before any write."""
+        # A project the caller names outright decides where the session goes.
+        # It is matched like a search filter (slug, name, alias, near
+        # misspelling) and never creates a project.
+        if home and home.startswith("projects/") and not project:
+            project = home.removeprefix("projects/")
+        explicit = await self._match_project(project) if project and project.strip() else None
+        if project and project.strip() and explicit is None:
+            tally.notes.append(
+                f"No project matches {project!r}; the session was saved without one. "
+                "Call project_list to see the existing projects."
+            )
+        stated_reference = next(
+            (u.project for u in project_updates if u.project),
+            next((d.project for d in decisions if d.project), None),
+        )
+        stated = await self._match_project(stated_reference) if stated_reference else None
+        stated_project = explicit.slug if explicit else stated.slug if stated else stated_reference
+        state = self._checkpoint_state(
+            provider=provider,
+            title=title,
+            summary=summary,
+            decisions=decisions,
+            facts=facts,
+            tasks=tasks,
+            open_questions=open_questions,
+            important_context=important_context,
+            sensitivity=sensitivity,
+            stated_project=stated_project,
+        )
+        result, routing, event_id = await self._classification.classify_checkpoint(
+            state, historical_import=historical_import
+        )
+
+        # The summary's vector is computed here, outside the transaction. An
+        # embedding call is a network round trip that can take seconds, and
+        # holding row locks and a pooled connection across it is how a slow
+        # provider turns into a hung checkpoint.
+        summary_text = summary.strip() if summary else ""
+        summary_embedding = (
+            await self._embeddings.embed_one(
+                f"{title or ''}\n\n{summary_text}", sensitivity=sensitivity
+            )
+            if summary_text
+            else None
+        )
+        # Every memory this checkpoint may write, vectorised the same way and
+        # for the same reason: memories.save would otherwise embed inside it.
+        memory_vectors = await self._memory_vectors(
+            [(d.statement.strip(), sensitivity) for d in decisions]
+            + [(f.content.strip(), f.sensitivity) for f in facts]
+        )
+
+        return steps.Route(
+            explicit=explicit,
+            result=result,
+            routing=routing,
+            event_id=event_id,
+            summary_embedding=summary_embedding,
+            memory_vectors=memory_vectors,
+        )
+
+    async def _write_summary_layer(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        conversation_id: UUID,
+        provider: str,
+        project_id: UUID | None,
+        title: str | None,
+        summary: str | None,
+        open_questions: list[str],
+        resolved_questions: list[str],
+        important_context: list[str],
+        sensitivity: str,
+        needs_review: bool,
+        embedding: list[float] | None,
+        tally: Tally,
+    ) -> UUID | None:
+        """Write or extend the session summary; returns its id when one was written."""
+        summary_id = None
+        lists = await steps.merge_summary_lists(
+            conn,
+            conversation_id=conversation_id,
+            open_questions=open_questions,
+            resolved_questions=resolved_questions,
+            important_context=important_context,
+        )
+        if summary and summary.strip():
+            summary_id, summary_created = await self._upsert_summary(
+                conn,
+                conversation_id=conversation_id,
+                provider=provider,
+                project_id=project_id,
+                title=title,
+                summary=summary.strip(),
+                open_questions=lists.questions,
+                important_context=lists.context,
+                resolved_questions=lists.resolved,
+                sensitivity=sensitivity,
+                needs_review=needs_review,
+                embedding=embedding,
+            )
+            tally.bump(tally.created if summary_created else tally.updated, "session_summaries")
+        elif lists.exists and (open_questions or resolved_questions or important_context):
+            await conn.execute(
+                """
+                UPDATE session_summaries
+                SET open_questions = $2, important_context = $3,
+                    metadata = metadata || jsonb_build_object('resolved_questions', $4::jsonb)
+                WHERE conversation_id = $1
+                """,
+                conversation_id,
+                lists.questions,
+                lists.context,
+                lists.resolved,
+            )
+            tally.bump(tally.updated, "session_summaries")
+        elif open_questions or resolved_questions:
+            tally.notes.append(
+                "Open and resolved questions are kept with the session summary; "
+                "send a summary so they are saved."
+            )
+        return summary_id
 
     # ---------------------------------------------------------- internals
 
