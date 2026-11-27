@@ -9,9 +9,9 @@ up. The job is queued, not started.
 
 ## 1. Write the goal
 
-- `goal`: the user's own words, sigils included. `%Code/site` names the
-  project, `^zig` a lesson, `>claude` the agent. Do not rewrite the ask
-  into your own plan; add nothing they did not say.
+- `goal`: the work in the user's words. Keep their intent and scope.
+- `target`: the agent they named, if they chose one.
+- `home`: the named home if clear, such as `projects/site` or `lesson/zig`.
 - `worktree`: where the work lives, when the user named a folder:
   `repo/slug` for a worktree, `repo` for a checkout. The server refuses a
   path that does not exist under a configured exec root.
@@ -33,7 +33,7 @@ up. The job is queued, not started.
 ## 3. Report
 
 Say plainly: queued, not started, and name the agent that got it
-(`>claude`, or `crew` when routing is still open) and the mode. The board
+(`claude`, or `crew` when routing is still open) and the mode. The board
 shows it being picked up; `agents_status` answers "who is working on it".
 Never say work is done, in progress, or failed until a job record says so,
 and never summarize a result you have not seen.

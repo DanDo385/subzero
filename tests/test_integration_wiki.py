@@ -7,9 +7,8 @@ from typing import Any
 from conftest import requires_db
 from subzero.classifier.base import Answer, ClassificationResult
 from subzero.classifier.questions import QUESTIONS_VERSION
-from subzero.classifier.service import ClassificationService
 from subzero.obsidian.render import GENERATED_START, extract_note_body
-from subzero.wiki.service import WikiService
+from support.fakes import swap_classifier as _swap_classifier
 
 pytestmark = requires_db
 
@@ -64,7 +63,7 @@ async def _note(services, title: str, content: str) -> Any:
 
 
 def _use(services, fake: ScriptedJev) -> None:
-    services.classification = ClassificationService(services.db, fake, services.settings)
+    _swap_classifier(services, fake)
 
 
 async def test_a_title_mention_links_without_asking_jev(services) -> None:
@@ -73,7 +72,7 @@ async def test_a_title_mention_links_without_asking_jev(services) -> None:
     source = await _note(services, "MCP OAuth", "Clients use PKCE during the flow.")
     target = await _note(services, "PKCE", "Proof Key for Code Exchange.")
 
-    report = await WikiService(services).build_links()
+    report = await services.wiki.build_links()
 
     edge = await services.db.fetchrow(
         "SELECT status, source FROM note_edges WHERE source_note_id = $1 AND target_note_id = $2",
@@ -96,7 +95,7 @@ async def test_jev_confidence_bands_decide_links(services) -> None:
         services, "OAuth flows", "Authorization server, the audience of tokens, token refresh, rice"
     )
 
-    service = WikiService(services)
+    service = services.wiki
     await service.build_links(limit=1)
 
     status = {
@@ -139,7 +138,7 @@ async def test_a_human_decision_is_never_overwritten(services) -> None:
         a,
         b,
     )
-    await WikiService(services).build_links(redo=True)
+    await services.wiki.build_links(redo=True)
     assert (
         await services.db.fetchval(
             "SELECT status FROM note_edges WHERE source_note_id = $1 AND target_note_id = $2",
@@ -155,7 +154,7 @@ async def test_mocs_are_assigned_rendered_and_round_trip_cleanly(services) -> No
 
     fake = ScriptedJev({}, moc=("mcp", 0.95))
     _use(services, fake)
-    wiki = WikiService(services)
+    wiki = services.wiki
     await wiki.add_moc("MCP", description="Model Context Protocol.")
     pkce = await _note(services, "PKCE", "Proof Key for Code Exchange.")
     oauth = await _note(services, "MCP OAuth", "Clients use PKCE during the flow.")
@@ -178,13 +177,17 @@ async def test_mocs_are_assigned_rendered_and_round_trip_cleanly(services) -> No
             [oauth],
         )
     }
-    moc = await _render_job(services, jobs["write_moc"])
+    moc = await _render_job(
+        jobs["write_moc"], settings=services.settings, db=services.db, store=services.store
+    )
     assert moc is not None
     assert "## Fundamentals" in moc["content"]
     assert "[[mcp-oauth|MCP OAuth]]" in moc["content"]
     assert "[[pkce|PKCE]]" in moc["content"]
 
-    note = await _render_job(services, jobs["write_note"])
+    note = await _render_job(
+        jobs["write_note"], settings=services.settings, db=services.db, store=services.store
+    )
     assert note is not None
     content = note["content"]
     assert GENERATED_START in content
@@ -217,14 +220,14 @@ async def test_seed_mocs_from_extracted_topics(services) -> None:
             f"c{i}",
             ["MCP OAuth", "pgvector"] if i < 2 else ["MCP OAuth"],
         )
-    created = await WikiService(services).seed_mocs(min_mentions=3)
+    created = await services.wiki.seed_mocs(min_mentions=3)
     assert created == ["MCP OAuth"]
 
 
 async def test_doctor_reports_orphans(services) -> None:
     _use(services, ScriptedJev({}))
     await _note(services, "Lonely note", "Nothing links here.")
-    health = await WikiService(services).doctor()
+    health = await services.wiki.doctor()
     assert health["orphans"] == 1
     assert health["orphan_sample"] == ["Lonely note"]
 

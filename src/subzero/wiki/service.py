@@ -37,9 +37,13 @@ from subzero.classifier.questions import (
     WIKI_LINK_NAVIGATION_AUTO,
     WIKI_LINK_REVIEW,
 )
+from subzero.classifier.service import ClassificationService
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.importers.sensitivity import raise_to
 from subzero.logging_setup import get_logger
-from subzero.services import Services
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
 from subzero.util import slugify, truncate_for_budget
 
 logger = get_logger(__name__)
@@ -93,11 +97,20 @@ def stem(vault_path: str) -> str:
 
 
 class WikiService:
-    def __init__(self, services: Services) -> None:
-        self._services = services
-        self._db = services.db
-        self._classification = services.classification
-        self._settings = services.settings
+    def __init__(
+        self,
+        *,
+        classification: ClassificationService,
+        db: Database,
+        settings: Settings,
+        sync_queue: SyncQueue,
+        vault_paths: VaultPaths,
+    ) -> None:
+        self._classification = classification
+        self._db = db
+        self._settings = settings
+        self._sync_queue = sync_queue
+        self._vault_paths = vault_paths
 
     # ------------------------------------------------------------ links
 
@@ -569,7 +582,7 @@ class WikiService:
         they were last rendered. The content itself is produced when the
         worker leases the job (worker_api._render_job)."""
         report = WikiReport()
-        queue = self._services.sync_queue
+        queue = self._sync_queue
         notes = await self._db.fetch(
             """
             SELECT n.id, n.vault_path, n.vault_synced_sha256
@@ -617,7 +630,7 @@ class WikiService:
             everything,
         )
         for moc in mocs:
-            vault_path = moc["vault_path"] or self._services.vault_paths.moc(moc["title"])
+            vault_path = moc["vault_path"] or self._vault_paths.moc(moc["title"])
             job = await queue.enqueue(
                 job_type="write_moc",
                 object_type="moc",
@@ -682,9 +695,9 @@ class WikiService:
 
 
 async def note_graph(
-    services: Services, note_id: UUID
+    note_id: UUID, *, db: Database
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str]]]:
-    related = await services.db.fetch(
+    related = await db.fetch(
         """
         SELECT t.vault_path, t.title, e.relation_type
         FROM note_edges e JOIN notes t ON t.id = e.target_note_id
@@ -693,7 +706,7 @@ async def note_graph(
         """,
         note_id,
     )
-    maps = await services.db.fetch(
+    maps = await db.fetch(
         """
         SELECT m.vault_path, m.title
         FROM moc_memberships mm JOIN mocs m ON m.id = mm.moc_id
@@ -708,11 +721,11 @@ async def note_graph(
     )
 
 
-async def moc_render_input(services: Services, moc_id: UUID) -> dict[str, Any] | None:
-    moc = await services.db.fetchrow("SELECT * FROM mocs WHERE id = $1", moc_id)
+async def moc_render_input(moc_id: UUID, *, db: Database) -> dict[str, Any] | None:
+    moc = await db.fetchrow("SELECT * FROM mocs WHERE id = $1", moc_id)
     if moc is None:
         return None
-    members = await services.db.fetch(
+    members = await db.fetch(
         """
         SELECT mm.section, n.vault_path, n.title
         FROM moc_memberships mm JOIN notes n ON n.id = mm.note_id
@@ -725,11 +738,11 @@ async def moc_render_input(services: Services, moc_id: UUID) -> dict[str, Any] |
         sections.setdefault(member["section"], []).append(
             (stem(member["vault_path"]), member["title"])
         )
-    children = await services.db.fetch(
+    children = await db.fetch(
         "SELECT vault_path, title FROM mocs WHERE parent_moc_id = $1 AND vault_path IS NOT NULL",
         moc_id,
     )
-    parent = await services.db.fetchrow(
+    parent = await db.fetchrow(
         "SELECT vault_path, title FROM mocs WHERE id = $1 AND vault_path IS NOT NULL",
         moc["parent_moc_id"],
     )

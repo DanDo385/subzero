@@ -1,8 +1,10 @@
-"""The on-machine runner: claims dispatch jobs and runs them through tmux-axi and herdr-axi.
+"""The on-machine dispatch runner: claims dispatch jobs and runs them through tmux-axi and herdr-axi.
 
-This module is the only place in the repo that touches a shell, and it does so
-only by calling ``tmux-axi`` or ``herdr-axi`` as subprocesses with an argv
-list: never ``shell=True``, never ``tmux`` or ``herdr`` directly, never
+Direct commands that must return in the chat go through ``subzero.cli_host``
+(``run_cli_on_mbp``), which uses a private tmux socket and does not call
+tmux-axi or herdr. This module does not handle those jobs. Shell interaction
+here is only by calling ``tmux-axi`` or ``herdr-axi`` as subprocesses with an
+argv list: never ``shell=True``, never ``tmux`` or ``herdr`` directly, never
 ``os.system``. Both CLIs speak ``--json``: one JSON object on stdout, with
 ``{"error": ..., "suggestion": ...}`` on failure (tmux-axi exits 0 even when
 the wrapped command failed, so the command's code is read from the body's
@@ -356,7 +358,7 @@ class Runner:
                 job = self._claim()
                 if job is None:
                     if not loop:
-                        self._echo(f"Nothing queued for >{', >'.join(self.targets)}.")
+                        self._echo(f"Nothing queued for {', '.join(self.targets)}.")
                         return 0
                     self._sleep(interval)
                     continue
@@ -386,7 +388,7 @@ class Runner:
         ]
         self._echo(f"Environment OK. Roots: {', '.join(self._roots)}")
         if not queued:
-            self._echo(f"Nothing queued for >{', >'.join(self.targets)}; nothing would be claimed.")
+            self._echo(f"Nothing queued for {', '.join(self.targets)}; nothing would be claimed.")
             return 0
         for job in queued:
             self._echo(f"would claim job {str(job['id'])[:8]} [{job.get('kind') or 'goal'}]:")

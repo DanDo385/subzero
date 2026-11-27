@@ -9,13 +9,15 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import require_scopes
 from pydantic import Field
 
+from subzero.agents.service import AgentService
+from subzero.audit.service import AuditService
 from subzero.auth import scopes
 from subzero.auth.principal import current_principal
+from subzero.homes import Home
 from subzero.mcp.result import ToolResult, object_output_schema, text_and_structured
-from subzero.services import get_services
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, *, agents: AgentService, audit: AuditService) -> None:
     @mcp.tool(
         name="dispatch",
         tags={"agents", "write"},
@@ -26,13 +28,7 @@ def register(mcp: FastMCP) -> None:
     async def dispatch(
         goal: Annotated[
             str,
-            Field(
-                description=(
-                    "The job, in the user's words, sigils included: '%Code/site add dark "
-                    "mode >claude', '^zig build an arena allocator lesson'. A '>name' "
-                    "picks the agent; without one, Jev picks."
-                )
-            ),
+            Field(description="The job in the user's words."),
         ],
         mode: Annotated[
             Literal["scout", "ship"],
@@ -44,6 +40,14 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = "scout",
+        target: Annotated[
+            Literal["claude", "codex", "grok", "gemini", "pi", "me", "crew"] | None,
+            Field(description="Agent named by the user. Leave empty to route automatically."),
+        ] = None,
+        home: Annotated[
+            Home | None,
+            Field(description="Optional home, such as projects/portfolio-site or lesson/zig."),
+        ] = None,
         space: Annotated[
             str | None,
             Field(
@@ -73,9 +77,11 @@ def register(mcp: FastMCP) -> None:
         agent it went to. Their board shows it being picked up.
         """
         principal = current_principal()
-        job = await get_services().agents.dispatch(
+        job = await agents.dispatch(
             goal,
             mode=mode,
+            target=target,
+            home=home,
             created_by=principal.provider or "chat",
             space=space,
             worktree=worktree,
@@ -148,8 +154,7 @@ def register(mcp: FastMCP) -> None:
         which target it went to.
         """
         principal = current_principal()
-        services = get_services()
-        job = await services.agents.queue_command(
+        job = await agents.queue_command(
             command,
             worktree=worktree,
             space=space,
@@ -157,7 +162,7 @@ def register(mcp: FastMCP) -> None:
             target=target,
             created_by=principal.provider or "chat",
         )
-        await services.audit.record(
+        await audit.record(
             tool="agent_run",
             action="create",
             object_type="dispatch_job",
@@ -222,15 +227,14 @@ def register(mcp: FastMCP) -> None:
         the user it is queued and which target it went to.
         """
         principal = current_principal()
-        services = get_services()
-        job = await services.agents.queue_session(
+        job = await agents.queue_session(
             worktree=worktree,
             space=space,
             first_command=first_command,
             target=target,
             created_by=principal.provider or "chat",
         )
-        await services.audit.record(
+        await audit.record(
             tool="agent_open",
             action="create",
             object_type="dispatch_job",
@@ -252,8 +256,8 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(
                 description=(
-                    "Who gets it: a session name or id from agents_status, a home sigil "
-                    "(^cfa2, %Code/site, &herdr) for every agent working there, or 'me'."
+                    "Who gets it: a session name or id from agents_status, a home such as "
+                    "lesson/cfa2 for every agent working there, or 'me'."
                 )
             ),
         ],
@@ -261,9 +265,7 @@ def register(mcp: FastMCP) -> None:
     ) -> ToolResult:
         """Send a message to a running coding session. It sees it on its next prompt."""
         principal = current_principal()
-        message = await get_services().agents.send(
-            to=to, body=body, from_label=principal.provider or "chat"
-        )
+        message = await agents.send(to=to, body=body, from_label=principal.provider or "chat")
         return text_and_structured("Sent.", message)
 
     @mcp.tool(
@@ -280,7 +282,7 @@ def register(mcp: FastMCP) -> None:
         done, or if anyone is waiting on them. Sessions with status 'waiting'
         need the user (for example, to type code they are learning).
         """
-        board = await get_services().agents.board()
+        board = await agents.board()
         live = [s for s in board["sessions"] if s["status"] != "done"]
         waiting = [s for s in live if s["status"] == "waiting"]
         open_jobs = [j for j in board["jobs"] if j["status"] in ("queued", "claimed")]

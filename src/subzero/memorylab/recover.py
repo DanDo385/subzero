@@ -33,9 +33,13 @@ from uuid import UUID
 
 from subzero.classifier.base import ClassificationResult, answers_from_json
 from subzero.classifier.questions import QUESTIONS_VERSION
+from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.logging_setup import get_logger
 from subzero.memorylab.triage import Triage, has_triage, triage
-from subzero.services import Services
+from subzero.notes.service import NoteService
+from subzero.obsidian.paths import VaultPaths
+from subzero.obsidian.queue import SyncQueue
 from subzero.util import slugify, truncate_for_budget
 
 logger = get_logger(__name__)
@@ -138,8 +142,11 @@ def render_session_note(row: Any, decision: Triage) -> str:
 
 
 async def _write_note(
-    services: Services,
     *,
+    settings: Settings,
+    db: Database,
+    notes: NoteService,
+    sync_queue: SyncQueue,
     title: str,
     content: str,
     note_class: str,
@@ -149,7 +156,7 @@ async def _write_note(
     source_provider: str | None = None,
     source_conversation_id: UUID | None = None,
 ) -> UUID:
-    note_id, _created, _version = await services.notes.upsert(
+    note_id, _created, _version = await notes.upsert(
         title=title,
         content=content,
         note_class=note_class,
@@ -160,7 +167,7 @@ async def _write_note(
         provenance="system",
         author="system",
     )
-    await services.db.execute(
+    await db.execute(
         """
         UPDATE notes
         SET note_class = $2, vault_path = $3, metadata = metadata || $4::jsonb
@@ -171,8 +178,8 @@ async def _write_note(
         vault_path,
         metadata,  # the pool's jsonb codec encodes dicts; never json.dumps here
     )
-    if services.settings.obsidian_enabled:
-        await services.sync_queue.enqueue(
+    if settings.obsidian_enabled:
+        await sync_queue.enqueue(
             job_type="write_note",
             object_type="note",
             object_id=note_id,
@@ -182,8 +189,8 @@ async def _write_note(
     return note_id
 
 
-async def _unique_title(services: Services, title: str, conversation_id: UUID) -> str:
-    owner = await services.db.fetchval(
+async def _unique_title(title: str, conversation_id: UUID, *, db: Database) -> str:
+    owner = await db.fetchval(
         "SELECT source_conversation_id FROM notes WHERE slug = $1", slugify(title, fallback="note")
     )
     if owner is None or owner == conversation_id:
@@ -191,18 +198,26 @@ async def _unique_title(services: Services, title: str, conversation_id: UUID) -
     return f"{title} {str(conversation_id)[:6]}"
 
 
-async def _apply(services: Services, row: Any, decision: Triage) -> UUID | None:
+async def _apply(
+    row: Any,
+    decision: Triage,
+    *,
+    settings: Settings,
+    db: Database,
+    notes: NoteService,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+) -> UUID | None:
     if decision.outcome != "inbox":
         return None
-    title = await _unique_title(services, _title(row), row["conversation_id"])
+    title = await _unique_title(_title(row), row["conversation_id"], db=db)
     note_class = decision.note_class
-    path = services.vault_paths.note(
+    path = vault_paths.note(
         note_class=note_class,
         title=title,
         project_slug=row["project_slug"] if note_class == "project" else None,
     )
     return await _write_note(
-        services,
         title=title,
         content=render_session_note(row, decision),
         note_class=note_class,
@@ -222,6 +237,10 @@ async def _apply(services: Services, row: Any, decision: Triage) -> UUID | None:
         project_id=row["project_id"],
         source_provider=row["provider"],
         source_conversation_id=row["conversation_id"],
+        settings=settings,
+        db=db,
+        notes=notes,
+        sync_queue=sync_queue,
     )
 
 
@@ -278,16 +297,24 @@ ON CONFLICT (conversation_id) DO UPDATE SET
 """
 
 
-async def _store(services: Services, rows: list[tuple[Any, ...]]) -> None:
-    async with services.db.acquire() as conn:
+async def _store(rows: list[tuple[Any, ...]], *, db: Database) -> None:
+    async with db.acquire() as conn:
         await conn.executemany(_STORE_SQL, rows)
 
 
 async def recover(
-    services: Services, *, dry_run: bool = True, limit: int | None = None, redo: bool = False
+    *,
+    settings: Settings,
+    db: Database,
+    notes: NoteService,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+    dry_run: bool = True,
+    limit: int | None = None,
+    redo: bool = False,
 ) -> RecoveryReport:
     report = RecoveryReport(dry_run=dry_run)
-    rows = await services.db.fetch(_EVENTS_SQL, QUESTIONS_VERSION)
+    rows = await db.fetch(_EVENTS_SQL, QUESTIONS_VERSION)
     decided: list[tuple[Any, Triage]] = []
     pending: list[tuple[Any, ...]] = []
     for row in rows:
@@ -314,7 +341,15 @@ async def recover(
         decided.append((row, decision))
         if dry_run:
             continue
-        note_id = await _apply(services, row, decision)
+        note_id = await _apply(
+            row,
+            decision,
+            settings=settings,
+            db=db,
+            notes=notes,
+            sync_queue=sync_queue,
+            vault_paths=vault_paths,
+        )
         if note_id:
             report.notes_written += 1
         pending.append(
@@ -333,12 +368,20 @@ async def recover(
             )
         )
         if len(pending) >= TRIAGE_WRITE_BATCH:
-            await _store(services, pending)
+            await _store(pending, db=db)
             pending = []
     if pending:
-        await _store(services, pending)
+        await _store(pending, db=db)
     if not dry_run and report.seen:
-        await write_run_notes(services, report, decided)
+        await write_run_notes(
+            report,
+            decided,
+            settings=settings,
+            db=db,
+            notes=notes,
+            sync_queue=sync_queue,
+            vault_paths=vault_paths,
+        )
     return report
 
 
@@ -364,11 +407,11 @@ LEFT JOIN projects p ON p.id = c.project_id
 """
 
 
-async def all_decided(services: Services) -> list[tuple[Any, Triage]]:
+async def all_decided(*, db: Database) -> list[tuple[Any, Triage]]:
     """Every stored decision, so the run notes describe the whole history and
     not only the sessions one run happened to decide."""
     out: list[tuple[Any, Triage]] = []
-    for row in await services.db.fetch(_ALL_SQL):
+    for row in await db.fetch(_ALL_SQL):
         scores = row["scores"]
         if isinstance(scores, str):
             scores = json.loads(scores)
@@ -504,22 +547,32 @@ def render_candidates(decided: list[tuple[Any, Triage]], today: str) -> str:
 
 
 async def write_run_notes(
-    services: Services, report: RecoveryReport, decided: list[tuple[Any, Triage]]
+    report: RecoveryReport,
+    decided: list[tuple[Any, Triage]],
+    *,
+    settings: Settings,
+    db: Database,
+    notes: NoteService,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
 ) -> None:
     today = datetime.now(UTC).date().isoformat()
-    paths = services.vault_paths
+    paths = vault_paths
     meta = {"tags": ["memory-lab", "type/experiment"]}
-    everything = await all_decided(services)
+    everything = await all_decided(db=db)
     listed = [(r, d) for r, d in everything if d.reason != "sensitive_withheld"]
 
     title = f"Recovery report {today}"
     await _write_note(
-        services,
         title=title,
         content=render_report(totals(everything), today, this_run=len(decided)),
         note_class="experiment",
         vault_path=paths.experiment("Analysis", title),
         metadata=meta,
+        settings=settings,
+        db=db,
+        notes=notes,
+        sync_queue=sync_queue,
     )
 
     title = f"Recovery log {today}"
@@ -535,33 +588,46 @@ async def write_run_notes(
         ((r, d) for r, d in listed if d.outcome == "log"), key=lambda rd: _when(rd[0]), reverse=True
     )
     await _write_note(
-        services,
         title=title,
         content="\n".join(header + [_row_line(r, d) for r, d in logged]),
         note_class="experiment",
         vault_path=paths.experiment("Memory-Logs", title),
         metadata=meta,
+        settings=settings,
+        db=db,
+        notes=notes,
+        sync_queue=sync_queue,
     )
 
     title = "Hot memory candidates"
     await _write_note(
-        services,
         title=title,
         content=render_candidates(listed, today),
         note_class="experiment",
         vault_path=paths.experiment("Analysis", title),
         metadata=meta,
+        settings=settings,
+        db=db,
+        notes=notes,
+        sync_queue=sync_queue,
     )
 
 
-async def write_structured(services: Services) -> int:
+async def write_structured(
+    *,
+    settings: Settings,
+    db: Database,
+    notes: NoteService,
+    sync_queue: SyncQueue,
+    vault_paths: VaultPaths,
+) -> int:
     """Cloudflare-style structured memory: facts, events, instructions, tasks.
 
     Rendered from rows Subzero already holds (memories, decisions, open
     tasks) for sessions on the structured layer. No model call; the content
     comes from Claude in ``memory-lab extract``.
     """
-    facts = await services.db.fetch(
+    facts = await db.fetch(
         """
         SELECT m.kind, m.content, m.created_at FROM memories m
         WHERE m.status = 'active' AND m.sensitivity = 'normal'
@@ -570,13 +636,13 @@ async def write_structured(services: Services) -> int:
         ORDER BY m.importance DESC, m.created_at DESC LIMIT 400
         """
     )
-    decisions = await services.db.fetch(
+    decisions = await db.fetch(
         """
         SELECT statement, decided_at FROM decisions
         WHERE status = 'active' ORDER BY decided_at DESC LIMIT 200
         """
     )
-    tasks = await services.db.fetch(
+    tasks = await db.fetch(
         """
         SELECT t.text, p.name FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
         WHERE t.status = 'open' ORDER BY t.priority DESC, t.created_at DESC LIMIT 200
@@ -603,11 +669,14 @@ async def write_structured(services: Services) -> int:
         body += [f"## {heading} ({len(items)})", "", *items, ""]
     title = "Structured memories"
     await _write_note(
-        services,
         title=title,
         content="\n".join(body),
         note_class="experiment",
-        vault_path=services.vault_paths.experiment("Structured", title),
+        vault_path=vault_paths.experiment("Structured", title),
         metadata={"tags": ["memory-lab", "type/experiment"]},
+        settings=settings,
+        db=db,
+        notes=notes,
+        sync_queue=sync_queue,
     )
     return sum(len(items) for items in groups.values())

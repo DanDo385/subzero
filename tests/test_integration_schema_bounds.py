@@ -11,8 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
 
 from conftest import requires_db
@@ -35,6 +33,7 @@ REQUIRED: dict[str, dict[str, Any]] = {
     "artifact_search": {},
     "review_list": {},
     "agent_run": {"command": "true"},
+    "run_cli_on_mbp": {"command": "true"},
 }
 
 #: Numeric parameters allowed to have no declared maximum, and why.
@@ -43,26 +42,9 @@ UNBOUNDED_OK = {
 }
 
 
-@pytest.fixture
-def unthrottled(settings):
-    settings.rate_limit_per_minute = 1_000_000
-    settings.rate_limit_burst = 1_000_000
-    return settings
-
-
-@pytest.fixture
-async def client(unthrottled, services, live_server):
-    async with Client(
-        StreamableHttpTransport(
-            url=f"{live_server.base_url}{live_server.mcp_path}", auth="test-token"
-        )
-    ) as c:
-        yield c
-
-
-async def test_every_advertised_bound_is_the_enforced_bound(client) -> None:
+async def test_every_advertised_bound_is_the_enforced_bound(unthrottled, mcp_client) -> None:
     checked: list[str] = []
-    for tool in await client.list_tools():
+    for tool in await mcp_client.list_tools():
         properties = (tool.inputSchema or {}).get("properties", {})
         for name, spec in properties.items():
             if spec.get("type") not in ("integer", "number"):
@@ -76,7 +58,7 @@ async def test_every_advertised_bound_is_the_enforced_bound(client) -> None:
             for bound in ("minimum", "maximum"):
                 if bound not in spec:
                     continue
-                result = await client.call_tool(
+                result = await mcp_client.call_tool(
                     tool.name, {**base, name: spec[bound]}, raise_on_error=False
                 )
                 assert not result.is_error, (tool.name, name, spec[bound], result.content)
@@ -84,6 +66,6 @@ async def test_every_advertised_bound_is_the_enforced_bound(client) -> None:
             if "maximum" in spec:
                 step = 1 if spec["type"] == "integer" else 0.5
                 with pytest.raises(ToolError) as refused:
-                    await client.call_tool(tool.name, {**base, name: spec["maximum"] + step})
+                    await mcp_client.call_tool(tool.name, {**base, name: spec["maximum"] + step})
                 assert name in str(refused.value)
     assert len(checked) >= 20, checked

@@ -17,6 +17,7 @@ are stored through the same canonical writers as imported conversations.
 | --- | --- |
 | `AgentMail is not configured` | Leave email in `dry_run=true`, or configure the two `SUBZERO_AGENTMAIL_*` settings using [daily use](guides/12-daily-use.md#optional-email-setup). Restart the server. |
 | No `email` tool appears | Grant the client `email:send` in `SUBZERO_CLIENT_SCOPE_POLICY`, then reconnect it. Read-only clients cannot send. |
+| No `run_cli_on_mbp` tool appears | `cli:run` is not included in `"*"`. Add `"cli:run"` to that client's entry in `SUBZERO_CLIENT_SCOPE_POLICY`, restart the server, then remove and re-add the connector so it refreshes the tool list. |
 | `Resolve recipients explicitly` | Supply the full address confirmed by the user, not a name or display-name address. |
 | `send_at must be in the future with an explicit timezone` | Ask for a timezone and choose a future time. Do not silently send immediately. |
 | `Confirmation does not match the preview` | Read the existing draft, show it and get confirmation again. |
@@ -25,6 +26,7 @@ are stored through the same canonical writers as imported conversations.
 | `Email delivery is uncertain` | The safe retry window has expired. Reconcile the sending inbox in AgentMail before taking further action. |
 | `The approved send time has passed` | Check the original schedule in AgentMail if a send was attempted. For an unsent draft, review and confirm a new time. |
 | `This sensitivity level cannot be sent to AgentMail` | The content's privacy level is blocked by `SUBZERO_NO_EXTERNAL_SENSITIVITY`. Keep it local; do not lower the level just to send it. |
+| `Home must be projects/{slug}, lesson/{category}, setup/{tool}, or other` | Use a home in that format for CLI options, API calls, or the first line of a `.subzero` file. |
 | `A project home must match an existing project` | Use `project_search` to find the existing project slug or select `other`. |
 | `This object already has a different vault path` | No second copy was queued. Keep the original home, or relocate the managed file and update its tracked path before retrying. Files are not auto-moved. |
 | Vault result is `busy`, `failed` or `conflict` | The note is not confirmed written. Inspect `sync_status` and the helper's log; preserve human edits when resolving conflicts. |
@@ -66,6 +68,8 @@ are stored through the same canonical writers as imported conversations.
 | `database: cannot connect (gaierror / timeout)` | The address can't be reached. | Use Supabase's **Transaction pooler** string, not *Direct connection*. |
 | `N pending migrations` | New database changes haven't been applied. | Run `uv run subzero export-lists --out DIR` first: migration 0020 drops the old `lists` and `list_items` tables and only task items are carried over. Then `uv run subzero migrate`. |
 | Everything stopped working after a week of not using it | Supabase paused the free project. | Resume it in the Supabase dashboard. |
+| An app says *Subzero's database schema is behind this server's code* (Gemini may show only `INVALID_REQUEST`, ChatGPT `INVALID_ARGUMENT`) | The server runs newer code than the database: a migration was not applied before the restart. Your arguments are fine. | Run `subzero migrate` with the server's settings. The server notices within half a minute; `/readyz` turns back to `{"ready":true}`. See [guide 14, Update it](guides/14-run-on-your-mac-over-tailscale.md#update-it). |
+| `/readyz` answers `{"ready": false, "reason": "migrations_pending", "pending": N}` | N migrations in the code are not in the database. The log line `database schema is behind this server` names them. | Same: `subzero migrate`. |
 
 ## Online (Vercel)
 
@@ -97,6 +101,9 @@ are stored through the same canonical writers as imported conversations.
 | A chat's work doesn't show up when you start a new chat about that project | That session was saved without a project. | Ask the app to name the project when it checkpoints (`project` in `session_checkpoint`). Untagged sessions that mention the project by name still appear, marked as possibly belonging to it. |
 | `No project matches '...'; the session was saved without one` | The app named a project that doesn't exist, or misspelled it badly. | Ask the app to call `project_list` and checkpoint again with the real name. Nothing is created automatically. |
 | A package lists `conflicts` | A newer item on the same subject may overrule an older decision, and the server can't tell which one stands. | Tell the app which one is current; it can record that as a new decision. |
+| An app says *Internal error in Subzero. Reference* followed by a code | Something failed inside the server that it does not explain to apps on purpose (details could include internal names). | Search the server log for that code: `grep <code> ~/Library/Logs/subzero/server.out.log` shows the full error and the tool. |
+| An app says *Subzero's database took too long to answer* | A query timed out, usually a slow or overloaded database connection. | Retry. If it keeps happening, ask for fewer results (`limit`, `token_budget`) and check the database's health in Supabase. |
+| An app says *Unexpected keyword argument* for `title`, `opening_message` or `conversation_id` on `context_bootstrap` | Your saved app instructions describe parameters this server does not have. | Remove that text from the app's custom instructions and use the current [instructions/shared.md](../instructions/shared.md): `context_bootstrap` takes `query` and `project`; `session_checkpoint` records the conversation. |
 
 ## Obsidian
 

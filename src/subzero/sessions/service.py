@@ -13,20 +13,16 @@ leaves nothing behind.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
 from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
-from subzero.classifier.policy import Verdict
 from subzero.classifier.service import ClassificationService
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
-from subzero.homes import home_metadata
 from subzero.logging_setup import get_logger
 from subzero.memory.service import MemoryService
 from subzero.memorylab.triage import has_triage, triage
@@ -40,92 +36,18 @@ from subzero.models import (
 )
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference
-from subzero.tasks import upsert_task
-from subzero.util import sha256_text, truncate_for_budget, utcnow
+from subzero.sessions import checkpoint as steps
+from subzero.sessions.checkpoint import Tally
+from subzero.sessions.conversations import ConversationStore
+from subzero.util import sha256_text, truncate_for_budget
 
 logger = get_logger(__name__)
-
-#: Batch insert for add_messages. $3..$10 are parallel arrays, one entry per
-#: message; WITH ORDINALITY keeps the caller's order for the sequence numbers.
-_INSERT_MESSAGES_SQL = """
-WITH incoming AS (
-    SELECT *
-    FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
-                $8::text[], $9::timestamptz[], $10::text[])
-         WITH ORDINALITY AS m(provider_message_id, model, role, content, content_sha256,
-                              provenance, created_at, metadata, ord)
-),
-fresh AS (
-    SELECT i.*
-    FROM incoming i
-    WHERE i.provider_message_id IS NULL
-       OR NOT EXISTS (
-            SELECT 1 FROM messages e
-            WHERE e.conversation_id = $1 AND e.provider_message_id = i.provider_message_id)
-),
-next_free AS (
-    SELECT coalesce(max(sequence), -1) + 1 AS n FROM messages WHERE conversation_id = $1
-)
-INSERT INTO messages (
-    conversation_id, provider, provider_message_id, model, role,
-    content, content_sha256, provenance, sequence, created_at, metadata
-)
-SELECT $1, $2, f.provider_message_id, f.model, f.role,
-       f.content, f.content_sha256, f.provenance::sz_provenance,
-       next_free.n + row_number() OVER (ORDER BY f.ord) - 1,
-       coalesce(f.created_at, now()), f.metadata::jsonb
-FROM fresh f, next_free
-ORDER BY f.ord
-ON CONFLICT (conversation_id, provider_message_id)
-    WHERE provider_message_id IS NOT NULL
-DO NOTHING
-RETURNING id
-"""
-
-
-def _message_rows(messages: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
-    """add_messages input as rows for _INSERT_MESSAGES_SQL: empty messages
-    dropped, a provider message id repeated in one batch kept once."""
-    rows: list[tuple[Any, ...]] = []
-    seen: set[str] = set()
-    for message in messages:
-        content = (message.get("content") or "").strip()
-        if not content:
-            continue
-        message_id = message.get("provider_message_id")
-        if message_id is not None:
-            message_id = str(message_id)
-            if message_id in seen:
-                continue
-            seen.add(message_id)
-        role = message.get("role") or "user"
-        provenance = message.get("provenance") or (
-            "user_statement"
-            if role == "user"
-            else "tool_result"
-            if role == "tool"
-            else "assistant_generated"
-        )
-        rows.append(
-            (
-                message_id,
-                message.get("model"),
-                role,
-                content,
-                sha256_text(content),
-                provenance,
-                message.get("created_at"),
-                json.dumps(message.get("metadata") or {}),
-            )
-        )
-    return rows
-
 
 #: How much of a summary is worth sending to the classifier.
 _CLASSIFIER_SUMMARY_TOKENS = 3000
 
 
-class SessionService:
+class SessionService(ConversationStore):
     def __init__(
         self,
         db: Database,
@@ -136,114 +58,12 @@ class SessionService:
         embeddings: EmbeddingService,
         audit: AuditService,
     ) -> None:
-        self._db = db
+        super().__init__(db)
         self._memories = memories
         self._projects = projects
         self._classification = classification
         self._embeddings = embeddings
         self._audit = audit
-
-    # ------------------------------------------------------ conversations
-
-    async def ensure_conversation(
-        self,
-        *,
-        provider: str,
-        provider_conversation_id: str | None,
-        title: str | None = None,
-        model: str | None = None,
-        project_id: UUID | None = None,
-        imported: bool = False,
-        started_at: Any = None,
-        conn: asyncpg.Connection | None = None,
-    ) -> tuple[UUID, bool]:
-        """Idempotent on (provider, provider_conversation_id).
-
-        When the provider gives us no conversation id - which several of them
-        do not - we mint a stable synthetic one from the provider, the title
-        and the day, so repeated checkpoints in one session still collapse
-        onto one conversation instead of creating a new row each time.
-        """
-        executor = conn or self._db
-        external_id = provider_conversation_id or (
-            f"synthetic:{sha256_text(f'{provider}:{title or ""}:{utcnow():%Y-%m-%d}')[:32]}"
-        )
-        row = await executor.fetchrow(
-            """
-            INSERT INTO conversations (
-                provider, provider_conversation_id, title, model, project_id,
-                imported, started_at, import_key
-            ) VALUES ($1,$2,$3,$4,$5,$6,coalesce($7, now()),$8)
-            ON CONFLICT (provider, provider_conversation_id)
-                WHERE provider_conversation_id IS NOT NULL
-            DO UPDATE SET
-                -- A capture without a title or model (blank, as page-read
-                -- providers often send) never erases the stored one.
-                title = coalesce(nullif(btrim(EXCLUDED.title), ''), conversations.title),
-                model = coalesce(nullif(btrim(EXCLUDED.model), ''), conversations.model),
-                project_id = coalesce(EXCLUDED.project_id, conversations.project_id),
-                updated_at = now()
-            RETURNING id, project_id, metadata, (xmax = 0) AS created
-            """,
-            provider,
-            external_id,
-            title,
-            model,
-            project_id,
-            imported,
-            started_at,
-            f"{provider}:{external_id}",
-        )
-        if row is None:  # pragma: no cover - the upsert always returns a row
-            raise RuntimeError("conversation upsert returned no row")
-        if not (row["metadata"] or {}).get("home"):
-            slug = await executor.fetchval(
-                "SELECT slug FROM projects WHERE id = $1", row["project_id"]
-            )
-            await executor.execute(
-                "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
-                row["id"],
-                home_metadata(None, slug),
-            )
-        return row["id"], bool(row["created"])
-
-    async def add_messages(
-        self,
-        conversation_id: UUID,
-        messages: list[dict[str, Any]],
-        *,
-        provider: str,
-        conn: asyncpg.Connection | None = None,
-    ) -> int:
-        """Insert raw messages (layer 1). Idempotent on provider message id.
-
-        One statement for the whole batch, however many messages: against a
-        remote database (Supabase is ~200 ms away from a home machine) a
-        round trip per message made re-sending a long conversation take
-        tens of seconds. Messages already stored are skipped; new ones take
-        the next free sequence numbers in the order given, without gaps.
-        """
-        rows = _message_rows(messages)
-        if not rows:
-            return 0
-        if conn is None:
-            async with self._db.transaction() as own:
-                return await self.add_messages(
-                    conversation_id, messages, provider=provider, conn=own
-                )
-        # Numbering reads max(sequence), so two writers for one conversation
-        # must take turns: the second waits here, then reads the first's rows.
-        # NO KEY UPDATE serialises writers without blocking foreign-key checks.
-        await conn.execute(
-            "SELECT 1 FROM conversations WHERE id = $1 FOR NO KEY UPDATE", conversation_id
-        )
-        inserted = await conn.fetch(
-            _INSERT_MESSAGES_SQL,
-            conversation_id,
-            provider,
-            *(list(column) for column in zip(*rows, strict=True)),
-        )
-        return len(inserted)
 
     # -------------------------------------------------------- checkpoint
 
@@ -293,35 +113,247 @@ class SessionService:
         resolved_questions = [q for q in (resolved_questions or []) if q.strip()]
         artifacts = artifacts or []
         important_context = important_context or []
-
-        created: dict[str, int] = {}
-        updated: dict[str, int] = {}
-        skipped: dict[str, int] = {}
-        notes_out: list[str] = []
-
-        def bump(bucket: dict[str, int], key: str, n: int = 1) -> None:
-            if n:
-                bucket[key] = bucket.get(key, 0) + n
-
-        # ---- 0. sigils the user typed beat any model judgement -----------
-        # %project only names a project (matched below, never created); a
-        # ^lesson or &setup home is used as is; #concepts and @people tag.
-        # Every sigil typed is kept: the first home-kind one files the session
-        # and the rest tag it in the metadata build below, so a session about
-        # two lessons, or a project and a setup, is not narrowed to whichever
-        # sigil came first.
-        marks = sigils.parse_all(title, summary)
-        people: list[str] | None = list(marks.people) or None
-        if marks.any:
-            if marks.project and not project and not (home or "").startswith("projects/"):
-                project = marks.project
-            if not home and marks.home and not marks.home.startswith("projects/"):
-                home = marks.home
-            if concepts is None and marks.concepts:
-                concepts = list(marks.concepts)
-            notes_out.append("Sigils read: " + " ".join(marks.found))
+        tally = Tally()
 
         # ---- 1. classify first, so routing informs what we write ---------
+        route = await self._route_checkpoint(
+            provider=provider,
+            title=title,
+            summary=summary,
+            project=project,
+            home=home,
+            decisions=decisions,
+            facts=facts,
+            tasks=tasks,
+            project_updates=project_updates,
+            open_questions=open_questions,
+            important_context=important_context,
+            sensitivity=sensitivity,
+            historical_import=historical_import,
+            tally=tally,
+        )
+        explicit, result, routing, event_id = (
+            route.explicit,
+            route.result,
+            route.routing,
+            route.event_id,
+        )
+        summary_embedding, memory_vectors = route.summary_embedding, route.memory_vectors
+
+        # ---- 2. everything else in one transaction ----------------------
+        async with self._db.transaction() as conn:
+            routed_project_id = explicit.id if explicit else None
+            if routed_project_id is None and routing.project_slug:
+                routed_project_id = await self._projects.resolve(routing.project_slug, conn=conn)
+            conversation_id, conv_created = await self.ensure_conversation(
+                provider=provider,
+                provider_conversation_id=provider_conversation_id,
+                title=title,
+                model=model,
+                project_id=routed_project_id,
+                imported=historical_import,
+                conn=conn,
+            )
+            tally.bump(tally.created if conv_created else tally.updated, "conversations")
+
+            # Classification ran before the conversation existed, so its
+            # event carries no object id. Link it inside this transaction:
+            # memory-lab recover only sees events bound to a conversation,
+            # and triage is what routes this session to the vault. The NULL
+            # guard keeps a re-checkpoint from repointing an event that an
+            # import or a reclassification already linked.
+            if event_id is not None:
+                await conn.execute(
+                    "UPDATE classification_events SET object_id = $2 "
+                    "WHERE id = $1 AND object_id IS NULL",
+                    event_id,
+                    conversation_id,
+                )
+
+            # -- project updates (explicit beats inferred) ----------------
+            routed_project_id = await steps.write_project_updates(
+                conn,
+                self._projects,
+                project_updates,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                tally=tally,
+            )
+            if routed_project_id:
+                await conn.execute(
+                    "UPDATE conversations SET project_id = coalesce(project_id, $2) WHERE id = $1"
+                    if explicit is None
+                    else "UPDATE conversations SET project_id = $2 WHERE id = $1",
+                    conversation_id,
+                    routed_project_id,
+                )
+                await self._projects.touch(routed_project_id, conn=conn)
+
+            metadata = await steps.write_home_metadata(
+                conn,
+                conversation_id=conversation_id,
+                explicit_project=explicit is not None,
+                home=home,
+                concepts=concepts,
+            )
+
+            # -- session summary (layer 2) --------------------------------
+            summary_id = await self._write_summary_layer(
+                conn,
+                conversation_id=conversation_id,
+                provider=provider,
+                project_id=routed_project_id,
+                title=title,
+                summary=summary,
+                open_questions=open_questions,
+                resolved_questions=resolved_questions,
+                important_context=important_context,
+                sensitivity=sensitivity,
+                needs_review=routing.needs_review,
+                embedding=summary_embedding,
+                tally=tally,
+            )
+
+            # -- decisions, facts, tasks, artifacts -----------------------
+            await steps.write_decisions(
+                conn,
+                self._projects,
+                self._memories,
+                decisions,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                routing=routing,
+                sensitivity=sensitivity,
+                memory_vectors=memory_vectors,
+                tally=tally,
+            )
+            await steps.write_facts(
+                conn,
+                self._projects,
+                self._memories,
+                facts,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                routing=routing,
+                memory_vectors=memory_vectors,
+                tally=tally,
+            )
+            await steps.write_tasks(
+                conn,
+                self._projects,
+                tasks,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                sensitivity=sensitivity,
+                home=metadata["home"],
+                tally=tally,
+            )
+            await conn.execute(
+                "UPDATE session_summaries SET metadata = metadata || $2::jsonb WHERE conversation_id = $1",
+                conversation_id,
+                metadata,
+            )
+            await steps.link_artifacts(
+                conn,
+                artifacts,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                tally=tally,
+            )
+
+            # -- 3. reviews, reclassification --------------------------------
+            # Inside the transaction on purpose. These used to be written
+            # after COMMIT, each on its own pooled connection, so a crash in
+            # between left a checkpoint that was saved and reported as saved
+            # but never queued for review, with no row anywhere recording
+            # that a review was owed. The worker only sees a job once this
+            # commits, so queuing here cannot hand it work that is not there.
+            review_items = 0
+
+            if routing.needs_review:
+                review_items = await self._queue_reviews(
+                    routing, conn=conn, conversation_id=conversation_id, event_id=event_id
+                )
+
+            if result.degraded:
+                # Classification runs before the transaction, so it had no
+                # conversation id to queue against. Now there is one.
+                await self._classification.queue_reclassification(
+                    object_type="checkpoint",
+                    object_id=conversation_id,
+                    reason=result.error or "classifier_degraded",
+                    conn=conn,
+                )
+
+        # The audit record stays outside the transaction, and stays
+        # best-effort: a failure to log a mutation must not roll back the
+        # mutation itself, which is why AuditService.record swallows its own
+        # errors.
+        await self._audit.record(
+            tool="session_checkpoint",
+            action="create",
+            object_type="conversation",
+            object_id=conversation_id,
+            principal=principal,
+            model=model,
+            classification_event_id=event_id,
+            resulting_version={
+                "created": tally.created,
+                "updated": tally.updated,
+                "skipped": tally.skipped,
+            },
+            provenance="assistant_generated",
+            metadata={"routing": routing.as_json()},
+        )
+
+        if result.degraded:
+            tally.notes.append(
+                "The semantic classifier was unavailable, so routing fell back to "
+                "deterministic rules. The checkpoint itself was saved in full and "
+                "is queued for reclassification."
+            )
+
+        return CheckpointResult(
+            conversation_id=conversation_id,
+            session_summary_id=summary_id,
+            created=tally.created,
+            updated=tally.updated,
+            skipped=tally.skipped,
+            classification={
+                "classifier": result.classifier,
+                "model": result.model,
+                "degraded": result.degraded,
+                **routing.as_json(),
+                **metadata,
+                **_triage_json(result),
+            },
+            review_items=review_items,
+            notes=tally.notes,
+        )
+
+    async def _route_checkpoint(
+        self,
+        *,
+        provider: str,
+        title: str | None,
+        summary: str | None,
+        project: str | None,
+        home: str | None,
+        decisions: list[CheckpointDecision],
+        facts: list[CheckpointFact],
+        tasks: list[CheckpointTask],
+        project_updates: list[CheckpointProjectUpdate],
+        open_questions: list[str],
+        important_context: list[str],
+        sensitivity: str,
+        historical_import: bool,
+        tally: Tally,
+    ) -> steps.Route:
+        """Match the named project, classify, and embed, all before any write."""
         # A project the caller names outright decides where the session goes.
         # It is matched like a search filter (slug, name, alias, near
         # misspelling) and never creates a project.
@@ -329,7 +361,7 @@ class SessionService:
             project = home.removeprefix("projects/")
         explicit = await self._match_project(project) if project and project.strip() else None
         if project and project.strip() and explicit is None:
-            notes_out.append(
+            tally.notes.append(
                 f"No project matches {project!r}; the session was saved without one. "
                 "Call project_list to see the existing projects."
             )
@@ -374,379 +406,77 @@ class SessionService:
             + [(f.content.strip(), f.sensitivity) for f in facts]
         )
 
-        # ---- 2. everything else in one transaction ----------------------
-        async with self._db.transaction() as conn:
-            routed_project_id = explicit.id if explicit else None
-            if routed_project_id is None and routing.project_slug:
-                routed_project_id = await self._projects.resolve(routing.project_slug, conn=conn)
-            conversation_id, conv_created = await self.ensure_conversation(
+        return steps.Route(
+            explicit=explicit,
+            result=result,
+            routing=routing,
+            event_id=event_id,
+            summary_embedding=summary_embedding,
+            memory_vectors=memory_vectors,
+        )
+
+    async def _write_summary_layer(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        conversation_id: UUID,
+        provider: str,
+        project_id: UUID | None,
+        title: str | None,
+        summary: str | None,
+        open_questions: list[str],
+        resolved_questions: list[str],
+        important_context: list[str],
+        sensitivity: str,
+        needs_review: bool,
+        embedding: list[float] | None,
+        tally: Tally,
+    ) -> UUID | None:
+        """Write or extend the session summary; returns its id when one was written."""
+        summary_id = None
+        lists = await steps.merge_summary_lists(
+            conn,
+            conversation_id=conversation_id,
+            open_questions=open_questions,
+            resolved_questions=resolved_questions,
+            important_context=important_context,
+        )
+        if summary and summary.strip():
+            summary_id, summary_created = await self._upsert_summary(
+                conn,
+                conversation_id=conversation_id,
                 provider=provider,
-                provider_conversation_id=provider_conversation_id,
+                project_id=project_id,
                 title=title,
-                model=model,
-                project_id=routed_project_id,
-                imported=historical_import,
-                conn=conn,
+                summary=summary.strip(),
+                open_questions=lists.questions,
+                important_context=lists.context,
+                resolved_questions=lists.resolved,
+                sensitivity=sensitivity,
+                needs_review=needs_review,
+                embedding=embedding,
             )
-            bump(created if conv_created else updated, "conversations")
-
-            # Classification ran before the conversation existed, so its
-            # event carries no object id. Link it inside this transaction:
-            # memory-lab recover only sees events bound to a conversation,
-            # and triage is what routes this session to the vault. The NULL
-            # guard keeps a re-checkpoint from repointing an event that an
-            # import or a reclassification already linked.
-            if event_id is not None:
-                await conn.execute(
-                    "UPDATE classification_events SET object_id = $2 "
-                    "WHERE id = $1 AND object_id IS NULL",
-                    event_id,
-                    conversation_id,
-                )
-
-            # -- project updates (explicit beats inferred) ----------------
-            for update in project_updates:
-                project_id = await self._projects.resolve(update.project, conn=conn)
-                if project_id is None:
-                    project_id, _ = await self._projects.create(
-                        name=update.project,
-                        goals=update.goals,
-                        source_provider=provider,
-                        conn=conn,
-                    )
-                    bump(created, "projects")
-                else:
-                    await self._projects.update(
-                        update.project, status=update.status, goals=update.goals, conn=conn
-                    )
-                    bump(updated, "projects")
-                if update.event:
-                    if await self._projects.add_event(
-                        project_id,
-                        summary=update.event,
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        conn=conn,
-                    ):
-                        bump(created, "project_events")
-                    else:
-                        bump(skipped, "project_events")
-                routed_project_id = routed_project_id or project_id
-
-            if routed_project_id:
-                await conn.execute(
-                    "UPDATE conversations SET project_id = coalesce(project_id, $2) WHERE id = $1"
-                    if explicit is None
-                    else "UPDATE conversations SET project_id = $2 WHERE id = $1",
-                    conversation_id,
-                    routed_project_id,
-                )
-                await self._projects.touch(routed_project_id, conn=conn)
-
-            saved = await conn.fetchrow(
-                "SELECT c.metadata, p.slug FROM conversations c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = $1 FOR UPDATE OF c",
-                conversation_id,
-            )
-            assert saved is not None
-            previous = saved["metadata"] or {}
-            # An explicit project can replace the initial unassigned home.
-            default_home = None if (explicit and not home) else previous.get("home")
-            chosen_home = home or default_home
-            # The homes sigils named beyond the one this session is filed
-            # under. A named project has to exist to tag anything, the same
-            # rule as routing; lessons and setups are names, not rows.
-            extra_homes: list[str] = []
-            for path in marks.homes:
-                if chosen_home and path == chosen_home:
-                    continue
-                if path.startswith("projects/"):
-                    slug = path.removeprefix("projects/")
-                    if await self._projects.resolve(slug, conn=conn) is None:
-                        notes_out.append(
-                            f"No project matches %{slug}; it was read but tags nothing."
-                        )
-                        continue
-                extra_homes.append(path)
-            metadata = home_metadata(
-                chosen_home,
-                saved["slug"],
-                concepts
-                if concepts is not None
-                else [
-                    t.removeprefix("concept/")
-                    for t in previous.get("tags", [])
-                    if t.startswith("concept/")
-                ],
-                people
-                if people is not None
-                else [t for t in previous.get("tags", []) if t.startswith("person/")],
-                extra_homes=extra_homes or None,
-            )
+            tally.bump(tally.created if summary_created else tally.updated, "session_summaries")
+        elif lists.exists and (open_questions or resolved_questions or important_context):
             await conn.execute(
-                "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
-                conversation_id,
-                metadata,
-            )
-
-            # -- session summary (layer 2) --------------------------------
-            summary_id = None
-            # Open questions and important context accumulate across
-            # checkpoints of one session instead of being replaced by the
-            # latest call. Resolved questions are recorded on this session and
-            # hidden from every handoff of the project when it is read, so an
-            # older session is never edited (which would also make it look new).
-            existing = await conn.fetchrow(
                 """
-                SELECT open_questions, important_context,
-                       coalesce(metadata->'resolved_questions', '[]'::jsonb) AS resolved
-                FROM session_summaries WHERE conversation_id = $1 FOR UPDATE
+                UPDATE session_summaries
+                SET open_questions = $2, important_context = $3,
+                    metadata = metadata || jsonb_build_object('resolved_questions', $4::jsonb)
+                WHERE conversation_id = $1
                 """,
                 conversation_id,
+                lists.questions,
+                lists.context,
+                lists.resolved,
             )
-            resolved_all = _merge_texts(
-                existing["resolved"] if existing else [], resolved_questions
+            tally.bump(tally.updated, "session_summaries")
+        elif open_questions or resolved_questions:
+            tally.notes.append(
+                "Open and resolved questions are kept with the session summary; "
+                "send a summary so they are saved."
             )
-            merged_questions = [
-                q
-                for q in _merge_texts(
-                    existing["open_questions"] if existing else [], open_questions
-                )
-                if question_key(q) not in {question_key(r) for r in resolved_all}
-            ]
-            merged_context = _merge_texts(
-                existing["important_context"] if existing else [], important_context
-            )
-            if summary and summary.strip():
-                summary_id, summary_created = await self._upsert_summary(
-                    conn,
-                    conversation_id=conversation_id,
-                    provider=provider,
-                    project_id=routed_project_id,
-                    title=title,
-                    summary=summary.strip(),
-                    open_questions=merged_questions,
-                    important_context=merged_context,
-                    resolved_questions=resolved_all,
-                    sensitivity=sensitivity,
-                    needs_review=routing.needs_review,
-                    embedding=summary_embedding,
-                )
-                bump(created if summary_created else updated, "session_summaries")
-            elif existing and (open_questions or resolved_questions or important_context):
-                await conn.execute(
-                    """
-                    UPDATE session_summaries
-                    SET open_questions = $2, important_context = $3,
-                        metadata = metadata || jsonb_build_object('resolved_questions', $4::jsonb)
-                    WHERE conversation_id = $1
-                    """,
-                    conversation_id,
-                    merged_questions,
-                    merged_context,
-                    resolved_all,
-                )
-                bump(updated, "session_summaries")
-            elif open_questions or resolved_questions:
-                notes_out.append(
-                    "Open and resolved questions are kept with the session summary; "
-                    "send a summary so they are saved."
-                )
-
-            # -- decisions ------------------------------------------------
-            for decision in decisions:
-                project_id = (
-                    await self._projects.resolve(decision.project, conn=conn) or routed_project_id
-                )
-                inserted = await conn.fetchval(
-                    """
-                    INSERT INTO decisions (
-                        statement, statement_sha256, rationale, project_id,
-                        source_provider, source_conversation_id, provenance
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7::sz_provenance)
-                    ON CONFLICT (statement_sha256) DO NOTHING
-                    RETURNING id
-                    """,
-                    decision.statement.strip(),
-                    sha256_text(decision.statement.strip().lower()),
-                    decision.rationale,
-                    project_id,
-                    provider,
-                    conversation_id,
-                    decision.provenance,
-                )
-                bump(created if inserted else skipped, "decisions")
-                # A decision is also durable memory; storing it once in each
-                # place is what makes it retrievable by both paths.
-                if inserted:
-                    memory_saved = await self._memories.save(
-                        content=decision.statement.strip(),
-                        kind="decision",
-                        subject=decision.project or routing.project_slug,
-                        project_id=project_id,
-                        provenance=decision.provenance,
-                        sensitivity=sensitivity,
-                        importance=max(0.7, routing.importance),
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        conn=conn,
-                        embedding=memory_vectors.get((decision.statement.strip(), sensitivity)),
-                    )
-                    bump(created if memory_saved.outcome == "created" else updated, "memories")
-
-            # -- facts / durable memory -----------------------------------
-            if routing.save_memory is not Verdict.NO or facts:
-                for fact in facts:
-                    project_id = (
-                        await self._projects.resolve(fact.project, conn=conn) or routed_project_id
-                    )
-                    memory_saved = await self._memories.save(
-                        content=fact.content,
-                        kind=fact.kind,
-                        subject=fact.subject,
-                        project_id=project_id,
-                        provenance=fact.provenance,
-                        sensitivity=fact.sensitivity,
-                        importance=(
-                            fact.importance
-                            if fact.importance is not None
-                            else max(0.4, routing.importance)
-                        ),
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        confidence=routing.confidence or None,
-                        conn=conn,
-                        embedding=memory_vectors.get((fact.content.strip(), fact.sensitivity)),
-                    )
-                    bump(
-                        created
-                        if memory_saved.outcome == "created"
-                        else skipped
-                        if memory_saved.outcome == "duplicate"
-                        else updated,
-                        "memories",
-                    )
-            elif facts:  # pragma: no cover - defensive
-                bump(skipped, "memories", len(facts))
-
-            # -- tasks ----------------------------------------------------
-            for task in tasks:
-                project_id = (
-                    await self._projects.resolve(task.project, conn=conn) or routed_project_id
-                )
-                _, task_created = await upsert_task(
-                    conn,
-                    text=task.text,
-                    project_id=project_id,
-                    source_conversation_id=conversation_id,
-                    source_provider=provider,
-                    sensitivity=sensitivity,
-                    priority=task.priority,
-                    due_date=task.due_date,
-                    home=task.home or metadata["home"],
-                )
-                bump(created if task_created else skipped, "tasks")
-
-            await conn.execute(
-                "UPDATE session_summaries SET metadata = metadata || $2::jsonb WHERE conversation_id = $1",
-                conversation_id,
-                metadata,
-            )
-
-            # -- artifact associations ------------------------------------
-            for artifact_ref in artifacts:
-                if artifact_ref.artifact_id is None:
-                    bump(skipped, "artifacts")
-                    notes_out.append(
-                        f"Artifact {artifact_ref.title!r} was referenced without an id; "
-                        "capture it with artifact_save_* or artifact_register_reference "
-                        "first, then checkpoint."
-                    )
-                    continue
-                await conn.execute(
-                    """
-                    INSERT INTO artifact_relationships (
-                        artifact_id, relation, target_type, target_id, provenance
-                    ) VALUES ($1,$2,'conversation',$3,'assistant_generated'::sz_provenance)
-                    ON CONFLICT DO NOTHING
-                    """,
-                    artifact_ref.artifact_id,
-                    artifact_ref.relation,
-                    conversation_id,
-                )
-                if routed_project_id:
-                    await conn.execute(
-                        "UPDATE artifacts SET project_id = coalesce(project_id, $2) WHERE id = $1",
-                        artifact_ref.artifact_id,
-                        routed_project_id,
-                    )
-                bump(updated, "artifacts")
-
-            # -- 3. reviews, reclassification --------------------------------
-            # Inside the transaction on purpose. These used to be written
-            # after COMMIT, each on its own pooled connection, so a crash in
-            # between left a checkpoint that was saved and reported as saved
-            # but never queued for review, with no row anywhere recording
-            # that a review was owed. The worker only sees a job once this
-            # commits, so queuing here cannot hand it work that is not there.
-            review_items = 0
-
-            if routing.needs_review:
-                review_items = await self._queue_reviews(
-                    routing, conn=conn, conversation_id=conversation_id, event_id=event_id
-                )
-
-            if result.degraded:
-                # Classification runs before the transaction, so it had no
-                # conversation id to queue against. Now there is one.
-                await self._classification.queue_reclassification(
-                    object_type="checkpoint",
-                    object_id=conversation_id,
-                    reason=result.error or "classifier_degraded",
-                    conn=conn,
-                )
-
-        # The audit record stays outside the transaction, and stays
-        # best-effort: a failure to log a mutation must not roll back the
-        # mutation itself, which is why AuditService.record swallows its own
-        # errors.
-
-        await self._audit.record(
-            tool="session_checkpoint",
-            action="create",
-            object_type="conversation",
-            object_id=conversation_id,
-            principal=principal,
-            model=model,
-            classification_event_id=event_id,
-            resulting_version={"created": created, "updated": updated, "skipped": skipped},
-            provenance="assistant_generated",
-            metadata={"routing": routing.as_json()},
-        )
-
-        if result.degraded:
-            notes_out.append(
-                "The semantic classifier was unavailable, so routing fell back to "
-                "deterministic rules. The checkpoint itself was saved in full and "
-                "is queued for reclassification."
-            )
-
-        return CheckpointResult(
-            conversation_id=conversation_id,
-            session_summary_id=summary_id,
-            created=created,
-            updated=updated,
-            skipped=skipped,
-            classification={
-                "classifier": result.classifier,
-                "model": result.model,
-                "degraded": result.degraded,
-                **routing.as_json(),
-                **metadata,
-                **_triage_json(result),
-            },
-            review_items=review_items,
-            notes=notes_out,
-        )
+        return summary_id
 
     # ---------------------------------------------------------- internals
 
@@ -893,60 +623,6 @@ class SessionService:
             ):
                 count += 1
         return count
-
-    # ------------------------------------------------------------- reads
-
-    async def recent_summaries(
-        self, *, limit: int = 10, provider: str | None = None, project_id: UUID | None = None
-    ) -> list[dict[str, Any]]:
-        rows = await self._db.fetch(
-            """
-            SELECT s.id, s.title, s.summary, s.provider, s.updated_at,
-                   s.open_questions, c.provider_conversation_id, p.slug AS project_slug
-            FROM session_summaries s
-            JOIN conversations c ON c.id = s.conversation_id
-            LEFT JOIN projects p ON p.id = s.project_id
-            WHERE ($1::text IS NULL OR s.provider = $1)
-              AND ($2::uuid IS NULL OR s.project_id = $2)
-            ORDER BY s.updated_at DESC LIMIT $3
-            """,
-            provider,
-            project_id,
-            limit,
-        )
-        return [dict(r) for r in rows]
-
-    async def conversation_messages(
-        self, conversation_id: UUID, *, limit: int = 50
-    ) -> list[dict[str, Any]]:
-        rows = await self._db.fetch(
-            """
-            SELECT role, content, provenance, sequence, created_at, model
-            FROM messages WHERE conversation_id = $1
-            ORDER BY sequence LIMIT $2
-            """,
-            conversation_id,
-            limit,
-        )
-        return [dict(r) for r in rows]
-
-
-def question_key(text: str) -> str:
-    """Compare questions loosely: case, spacing and trailing punctuation ignored."""
-    return " ".join(str(text).lower().split()).rstrip("?.!: ")
-
-
-def _merge_texts(existing: list[Any] | None, new: list[str]) -> list[str]:
-    """Union, oldest first, without near-identical repeats."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for text in [*(existing or []), *new]:
-        value = str(text).strip()
-        key = question_key(value)
-        if value and key not in seen:
-            seen.add(key)
-            out.append(value)
-    return out
 
 
 def _triage_json(result: Any) -> dict[str, Any]:

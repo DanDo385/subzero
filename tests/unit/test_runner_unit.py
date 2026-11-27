@@ -341,7 +341,7 @@ def test_once_with_empty_queue_says_so_and_exits_zero(tmp_path: Path) -> None:
     api = FakeApi(None)
     r, _, _, said = make_runner(tmp_path, None, api)
     assert r.run() == 0
-    assert any("Nothing queued for >crew" in line for line in said)
+    assert any("Nothing queued for crew" in line for line in said)
     assert api.finishes == []
 
 

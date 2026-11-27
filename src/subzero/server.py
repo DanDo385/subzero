@@ -8,7 +8,7 @@ Route map:
 
     /                      service identity only; no personal data
     /healthz               liveness
-    /readyz                readiness (checks the database)
+    /readyz                readiness (the database answers and has every migration)
     /mcp[/<server-id>]     the MCP endpoint, authenticated (a trailing slash
                            is served too, not redirected)
     /.well-known/*         OAuth metadata, added by the auth provider
@@ -24,7 +24,7 @@ import contextlib
 import json
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode
 
@@ -43,7 +43,8 @@ from subzero.auth.provider import build_auth_provider
 from subzero.auth.ratelimit import RateLimitMiddleware
 from subzero.bridge.api import build_bridge_routes
 from subzero.config import Settings, get_settings
-from subzero.db.pool import Database, set_database
+from subzero.db import schema_status
+from subzero.db.pool import Database
 from subzero.embeddings.refresh import background_refresh
 from subzero.importers.reclassify import background_classify
 from subzero.ingest import build_ingest_routes
@@ -53,7 +54,9 @@ from subzero.logging_setup import (
     request_id_var,
 )
 from subzero.mcp import register_all
-from subzero.services import build_services, get_services, set_services
+from subzero.mcp.errors import ReadableErrorsMiddleware
+from subzero.request_context import close_record, open_record
+from subzero.services import Services, build_services
 from subzero.storage import build_object_store
 from subzero.storage.local import LocalObjectStore
 
@@ -92,13 +95,19 @@ a package lists conflicts, ask the user which one stands; do not pick one.
 
 For work on the user's machines, call dispatch (it queues; say so). \
 agents_status shows running coding sessions and who is waiting on the user.
+
+When the user asks to run a command on this Mac and see the result in this \
+chat, call run_cli_on_mbp with their exact command. Report the host, working \
+directory and exit code. A non-zero exit is the result. Do not use dispatch \
+or agent_run for that command: those queue a coding harness and do not return \
+its output here. Call cli_job_on_mbp when the result says the job is still running.
 """
 
 
-def build_mcp(settings: Settings) -> FastMCP:
-    # The OAuth store resolves its pool lazily, so the server - and every one
-    # of its routes - exists before the database does.
-    auth = build_auth_provider(settings, client_storage=PostgresKeyValue())
+def build_mcp(settings: Settings, services: Services) -> FastMCP:
+    # `services.db` is not open yet. Nothing touches it until a request
+    # arrives, so the server and every route exist before the database does.
+    auth = build_auth_provider(settings, client_storage=PostgresKeyValue(services.db))
     mcp = FastMCP(
         name="Subzero",
         instructions=SERVER_INSTRUCTIONS,
@@ -108,12 +117,16 @@ def build_mcp(settings: Settings) -> FastMCP:
             RateLimitMiddleware(
                 per_minute=settings.rate_limit_per_minute,
                 burst=settings.rate_limit_burst,
-            )
+            ),
+            # Inside the rate limit: turns tool exceptions into messages a
+            # client can act on (see subzero.mcp.errors).
+            ReadableErrorsMiddleware(expose_details=not settings.is_prod),
         ],
-        # Tool results are data, not secrets to leak in a traceback.
+        # Tool results are data, not secrets to leak in a traceback. Anything
+        # ReadableErrorsMiddleware does not translate stays masked.
         mask_error_details=settings.is_prod,
     )
-    register_all(mcp)
+    register_all(mcp, services)
     return mcp
 
 
@@ -404,6 +417,7 @@ class RequestLogMiddleware:
         is_mcp = scope["method"] == "POST" and scope["path"].rstrip("/") == self.mcp_path
         body = bytearray()
         status = 0
+        record = open_record()
 
         async def receive_wrapper() -> Any:
             message = await receive()
@@ -420,6 +434,7 @@ class RequestLogMiddleware:
         try:
             await self.app(scope, receive_wrapper if is_mcp else receive, send_wrapper)
         finally:
+            tool_failures = close_record(record)
             fields: dict[str, Any] = {
                 "http_method": scope["method"],
                 "path": scope["path"],
@@ -434,6 +449,9 @@ class RequestLogMiddleware:
                 fields.update(_rpc_summary(bytes(body)))
                 if self.log_bodies:
                     fields["rpc_body"] = body.decode("utf-8", "replace")
+            if tool_failures:
+                # HTTP says 200 for a failed tool call; this says it failed.
+                fields["tool_failures"] = tool_failures
             logger.info("http request", extra=fields)
 
 
@@ -450,7 +468,7 @@ def _verified_key(request: Request, store: LocalObjectStore) -> tuple[str, str] 
     return key, bucket
 
 
-def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
+def _build_routes(settings: Settings, services: Services, mcp_app: Any) -> list[Route | Mount]:
     """Build every route as a closure over THIS app's settings.
 
     Handlers deliberately do not reach for the process-wide `get_settings()`:
@@ -475,10 +493,19 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
 
     async def readyz(request: Request) -> Response:
         try:
-            await get_services().db.fetchval("SELECT 1")
+            await services.db.fetchval("SELECT 1")
+            pending = await schema_status.check(services.db)
         except Exception:
             logger.exception("readiness check failed")
             return JSONResponse({"ready": False}, status_code=503)
+        if pending:
+            # A database that answers but lacks this code's migrations is not
+            # ready: tools that read the new schema fail. The versions are in
+            # the log; this route may be public (Vercel), so only the count.
+            return JSONResponse(
+                {"ready": False, "reason": "migrations_pending", "pending": len(pending)},
+                status_code=503,
+            )
         return JSONResponse({"ready": True})
 
     def local_store() -> LocalObjectStore | None:
@@ -529,39 +556,59 @@ def _build_routes(settings: Settings, mcp_app: Any) -> list[Route | Mount]:
         )
         return JSONResponse({"ok": True})
 
-    def worker_route(handler):  # type: ignore[no-untyped-def]
+    def worker_route(handler: Callable[[Request], Awaitable[Response]]):  # type: ignore[no-untyped-def]
         # Authorization is decided from settings alone, so an unauthenticated
         # caller gets 401 whether or not the database happens to be up. A 500
         # would confirm the endpoint exists and is wired to something.
         async def endpoint(request: Request) -> Response:
             if not worker_api.authorize(request, settings):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
-            try:
-                services = get_services()
-            except RuntimeError:
+            if not services.db.is_open:
                 return JSONResponse({"error": "unavailable"}, status_code=503)
-            return await handler(request, services)
+            return await handler(request)
 
         return endpoint
+
+    async def lease(request: Request) -> Response:
+        return await worker_api.lease_jobs(
+            request,
+            settings=settings,
+            db=services.db,
+            store=services.store,
+            sync_queue=services.sync_queue,
+        )
+
+    async def ack(request: Request) -> Response:
+        return await worker_api.ack_job(request, settings=settings, sync_queue=services.sync_queue)
+
+    async def edits(request: Request) -> Response:
+        return await worker_api.push_edits(
+            request, settings=settings, notes=services.notes, sync_queue=services.sync_queue
+        )
 
     return [
         Route("/", root, methods=["GET"]),
         Route("/healthz", healthz, methods=["GET"]),
         Route("/readyz", readyz, methods=["GET"]),
-        Route("/worker/jobs/lease", worker_route(worker_api.lease_jobs), methods=["POST"]),
-        Route("/worker/jobs/ack", worker_route(worker_api.ack_job), methods=["POST"]),
-        Route("/worker/edits", worker_route(worker_api.push_edits), methods=["POST"]),
+        Route("/worker/jobs/lease", worker_route(lease), methods=["POST"]),
+        Route("/worker/jobs/ack", worker_route(ack), methods=["POST"]),
+        Route("/worker/edits", worker_route(edits), methods=["POST"]),
         Route("/artifacts/download", local_download, methods=["GET"]),
         Route("/artifacts/upload", local_upload, methods=["PUT", "POST"]),
-        *build_ingest_routes(settings),
-        *build_agent_routes(),
-        *build_bridge_routes(settings),
+        *build_ingest_routes(
+            settings,
+            db=services.db,
+            sessions=services.sessions,
+            classification=services.classification,
+        ),
+        *build_agent_routes(db=services.db, agents=services.agents, retrieval=services.retrieval),
+        *build_bridge_routes(settings, bridge=services.bridge, db=services.db),
         # The MCP app owns its own path plus the /.well-known OAuth metadata.
         Mount("/", app=mcp_app),
     ]
 
 
-def create_app(settings: Settings | None = None) -> Starlette:
+def create_app(settings: Settings | None = None, *, services: Services | None = None) -> Starlette:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
 
@@ -578,7 +625,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # and closes state. This matters for more than tidiness - it is what makes
     # an unauthenticated request get a 401 rather than a 404 when the database
     # is unreachable, so a database outage cannot look like "no such endpoint".
-    mcp = build_mcp(settings)
+    # Tests pass services whose database is already open; open() is a no-op then.
+    if services is None:
+        services = build_services(settings, Database(settings))
+    db = services.db
+    mcp = build_mcp(settings, services)
     mcp_app = mcp.http_app(
         path=settings.mcp_path,
         stateless_http=True,  # Cloud Run scales to zero; no sticky sessions.
@@ -591,10 +642,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
-        db = await Database.connect(settings)
-        set_database(db)
-        services = await build_services(settings, db)
-        set_services(services)
+        await db.open()
+        # Serve anyway when migrations are pending: most tools still work, and
+        # refusing to start would hide the server from the operator too. The
+        # check logs one clear error and /readyz reports not ready.
+        with contextlib.suppress(Exception):
+            await schema_status.check(db, force=True)
 
         if settings.storage_backend == "supabase":
             with contextlib.suppress(Exception):
@@ -617,15 +670,19 @@ def create_app(settings: Settings | None = None) -> Starlette:
             async with (
                 mcp_app.router.lifespan_context(app),
                 background_refresh(db, services.embeddings, settings),
-                background_classify(services),
+                background_classify(
+                    settings=settings,
+                    db=db,
+                    classification=services.classification,
+                    router=services.router,
+                ),
             ):
                 yield
         finally:
             await services.aclose()
-            set_services(None)
-            set_database(None)
+            schema_status.reset()
 
-    routes = _build_routes(settings, mcp_app)
+    routes = _build_routes(settings, services, mcp_app)
 
     middleware = [
         Middleware(SecurityHeadersMiddleware),

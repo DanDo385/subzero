@@ -45,12 +45,12 @@ async def test_a_claim_reserves_what_it_returns(services):
     first = await _captured(services, "first")
     second = await _captured(services, "second")
 
-    claimed = await due_conversations(services, limit=10)
+    claimed = await due_conversations(limit=10, db=services.db)
     assert set(claimed) == {first, second}
 
     # The claim pushed next_attempt_at forward, so the next tick does not pick
     # the same conversations up again while the first run is still working.
-    assert await due_conversations(services, limit=10) == []
+    assert await due_conversations(limit=10, db=services.db) == []
 
 
 async def test_a_held_claim_is_skipped_not_waited_for(services):
@@ -60,9 +60,9 @@ async def test_a_held_claim_is_skipped_not_waited_for(services):
         await conn.fetch("SELECT id FROM reclassification_queue FOR UPDATE")
         # Two servers running the loop must not both be handed this
         # conversation, and the second must not block on the first.
-        assert await due_conversations(services, limit=10) == []
+        assert await due_conversations(limit=10, db=services.db) == []
 
-    assert await due_conversations(services, limit=10) == [queued]
+    assert await due_conversations(limit=10, db=services.db) == [queued]
 
 
 async def test_only_a_usable_classification_clears_the_queue(services):
@@ -71,7 +71,7 @@ async def test_only_a_usable_classification_clears_the_queue(services):
     await _event(services, degraded, degraded=True)
     await _event(services, classified, degraded=False)
 
-    await clear_classified(services, [degraded, classified])
+    await clear_classified([degraded, classified], db=services.db)
 
     rows = await services.db.fetch(
         "SELECT object_id FROM reclassification_queue WHERE object_type = 'checkpoint'"
@@ -95,4 +95,4 @@ async def test_requeueing_pushes_the_next_attempt_out(services):
         "SELECT next_attempt_at FROM reclassification_queue WHERE object_id = $1", conv_id
     )
     assert after > before
-    assert await due_conversations(services, limit=10) == []
+    assert await due_conversations(limit=10, db=services.db) == []

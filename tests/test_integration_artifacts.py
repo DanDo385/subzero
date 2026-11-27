@@ -1,4 +1,7 @@
-"""Integration: artifact capture, bundles, revisions, manifests, downloads."""
+"""Integration: artifact capture, bundles, revisions, manifests, downloads.
+
+MCP smoke: tests/e2e/test_artifacts.py. These tests hit ArtifactService directly.
+"""
 
 from __future__ import annotations
 

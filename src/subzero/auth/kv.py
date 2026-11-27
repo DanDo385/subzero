@@ -23,25 +23,16 @@ _PURGE_EVERY_SECONDS = 3600.0
 class PostgresKeyValue:
     """Implements the ``key_value.aio.protocols.AsyncKeyValue`` protocol.
 
-    The pool is resolved on first use rather than injected, so the OAuth
-    provider - which needs a store at construction time - can be built before
-    the database connects. That keeps every route registered at import time,
-    which in turn means the authorization boundary can be tested without a
-    database standing behind it.
+    The :class:`Database` is passed in unopened when the OAuth provider is
+    built, and connects later in the server's lifespan. Every route can then
+    exist before the database does, so the authorization boundary is testable
+    without one standing behind it.
     """
 
-    def __init__(self, db: Database | None = None, *, namespace: str = "fastmcp") -> None:
-        self._explicit_db = db
+    def __init__(self, db: Database, *, namespace: str = "fastmcp") -> None:
+        self._db = db
         self._namespace = namespace
         self._last_purge: float | None = None
-
-    @property
-    def _db(self) -> Database:
-        if self._explicit_db is not None:
-            return self._explicit_db
-        from subzero.db.pool import get_database
-
-        return get_database()
 
     def _collection(self, collection: str | None) -> str:
         return f"{self._namespace}:{collection or _DEFAULT_COLLECTION}"

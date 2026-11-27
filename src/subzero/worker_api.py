@@ -18,13 +18,16 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from subzero.config import Settings
+from subzero.db.pool import Database
 from subzero.logging_setup import get_logger
+from subzero.notes.service import NoteService
+from subzero.obsidian.queue import SyncQueue
 from subzero.obsidian.render import (
     render_artifact_note,
     render_moc,
     render_note,
 )
-from subzero.services import Services
+from subzero.storage.base import ObjectStore
 from subzero.wiki.service import SECTION_TITLES, moc_render_input, note_graph
 
 logger = get_logger(__name__)
@@ -51,26 +54,28 @@ def _json_body(raw: bytes) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-async def lease_jobs(request: Request, services: Services) -> Response:
-    if not authorize(request, services.settings):
+async def lease_jobs(
+    request: Request, *, settings: Settings, db: Database, store: ObjectStore, sync_queue: SyncQueue
+) -> Response:
+    if not authorize(request, settings):
         return _unauthorized()
     body = _json_body(await request.body())
     worker_id = str(body.get("worker_id") or "unknown")
     requested_limit = body.get("limit")
     limit = 10 if requested_limit is None else max(0, min(int(requested_limit), 50))
 
-    jobs = await services.sync_queue.lease(worker_id=worker_id, limit=limit)
+    jobs = await sync_queue.lease(worker_id=worker_id, limit=limit)
 
     deliverable: list[dict[str, Any]] = []
     for job in jobs:
-        rendered = await _render_job(services, job)
+        rendered = await _render_job(job, settings=settings, db=db, store=store)
         if rendered is not None:
             deliverable.append(rendered)
             continue
         # A job we cannot render was still leased. Release it explicitly with
         # a reason, rather than leaving a row that is invisible to the worker
         # and silently blocked until its lease expires.
-        await services.sync_queue.fail(
+        await sync_queue.fail(
             job["id"],
             worker_id=worker_id,
             error="server could not render this job; its target may have been deleted",
@@ -86,13 +91,15 @@ async def lease_jobs(request: Request, services: Services) -> Response:
             # The server sets the worker's next wait rather than leaving it to
             # guess: only the server knows whether work is still arriving, and
             # nothing can push a job to the laptop.
-            "poll_in_seconds": await services.sync_queue.poll_hint(backlog=bool(deliverable)),
+            "poll_in_seconds": await sync_queue.poll_hint(backlog=bool(deliverable)),
         },
         status_code=200,
     )
 
 
-async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any] | None:
+async def _render_job(
+    job: dict[str, Any], *, settings: Settings, db: Database, store: ObjectStore
+) -> dict[str, Any] | None:
     """Turn a queued job into exactly the bytes the worker should write.
 
     Rendering happens here, not on the laptop, so the worker stays a dumb,
@@ -108,7 +115,7 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
 
     try:
         if job["job_type"] == "write_note":
-            row = await services.db.fetchrow(
+            row = await db.fetchrow(
                 """
                 SELECT n.*, p.slug AS project_slug
                 FROM notes n LEFT JOIN projects p ON p.id = n.project_id
@@ -118,13 +125,13 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
             )
             if row is None:
                 return None
-            related, mocs = await note_graph(services, job["object_id"])
+            related, mocs = await note_graph(job["object_id"], db=db)
             # A project or area note carries its own next steps: the open
             # tasks render inside the generated block of the note.
             next_steps = (
                 [
                     dict(t)
-                    for t in await services.db.fetch(
+                    for t in await db.fetch(
                         """
                         SELECT text, due_date FROM tasks
                         WHERE project_id = $1 AND status = 'open'
@@ -142,7 +149,7 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
             payload["content_type"] = "text/markdown"
 
         elif job["job_type"] == "write_moc":
-            data = await moc_render_input(services, job["object_id"])
+            data = await moc_render_input(job["object_id"], db=db)
             if data is None:
                 return None
             payload["content"] = render_moc(
@@ -155,7 +162,7 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
             payload["content_type"] = "text/markdown"
 
         elif job["job_type"] == "write_artifact_note":
-            artifact = await services.db.fetchrow(
+            artifact = await db.fetchrow(
                 """
                 SELECT a.*, p.slug AS project_slug
                 FROM artifacts a LEFT JOIN projects p ON p.id = a.project_id
@@ -165,7 +172,7 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
             )
             if artifact is None:
                 return None
-            files = await services.db.fetch(
+            files = await db.fetch(
                 "SELECT * FROM artifact_files WHERE artifact_id = $1 ORDER BY relative_path",
                 job["object_id"],
             )
@@ -186,8 +193,8 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
                 return None
             # Signed URL rather than the bytes: the worker fetches directly,
             # keeping large files out of this response.
-            payload["download_url"] = await services.store.signed_download_url(
-                object_key, expires_in=services.settings.signed_url_ttl_seconds
+            payload["download_url"] = await store.signed_download_url(
+                object_key, expires_in=settings.signed_url_ttl_seconds
             )
             payload["expected_content_sha256"] = job["content_sha256"]
             payload["content_type"] = "application/octet-stream"
@@ -203,8 +210,8 @@ async def _render_job(services: Services, job: dict[str, Any]) -> dict[str, Any]
     return payload
 
 
-async def ack_job(request: Request, services: Services) -> Response:
-    if not authorize(request, services.settings):
+async def ack_job(request: Request, *, settings: Settings, sync_queue: SyncQueue) -> Response:
+    if not authorize(request, settings):
         return _unauthorized()
     body = _json_body(await request.body())
     try:
@@ -216,26 +223,26 @@ async def ack_job(request: Request, services: Services) -> Response:
     status = str(body.get("status") or "done")
 
     if status == "done":
-        await services.sync_queue.complete(
-            job_id, worker_id=worker_id, written_sha256=body.get("sha256")
-        )
+        await sync_queue.complete(job_id, worker_id=worker_id, written_sha256=body.get("sha256"))
     elif status == "conflict":
-        await services.sync_queue.fail(
+        await sync_queue.fail(
             job_id,
             worker_id=worker_id,
             error=str(body.get("error") or "file changed on disk"),
             conflict=True,
         )
     else:
-        await services.sync_queue.fail(
+        await sync_queue.fail(
             job_id, worker_id=worker_id, error=str(body.get("error") or "unknown error")
         )
     return JSONResponse({"ok": True})
 
 
-async def push_edits(request: Request, services: Services) -> Response:
+async def push_edits(
+    request: Request, *, settings: Settings, notes: NoteService, sync_queue: SyncQueue
+) -> Response:
     """Human edits made in the vault, pushed back up by the worker."""
-    if not authorize(request, services.settings):
+    if not authorize(request, settings):
         return _unauthorized()
     body = _json_body(await request.body())
     worker_id = str(body.get("worker_id") or "unknown")
@@ -245,13 +252,13 @@ async def push_edits(request: Request, services: Services) -> Response:
         kind = edit.get("kind")
         try:
             if kind == "note":
-                result = await services.notes.apply_vault_edit(
+                result = await notes.apply_vault_edit(
                     vault_path=edit["vault_path"],
                     content=edit["content"],
                     file_sha256=str(edit.get("sha256") or "") or None,
                 )
                 applied.append({"vault_path": edit["vault_path"], **result})
-            await services.sync_queue.record_inbound(
+            await sync_queue.record_inbound(
                 vault_path=str(edit.get("vault_path")),
                 sha256=str(edit.get("sha256") or ""),
                 worker_id=worker_id,

@@ -158,7 +158,7 @@ Machines you pair share the same memory. From a terminal:
 - `subzero msg` leaves a message for a session, a project, or you.
 - `subzero board` opens a live view on that computer only (`127.0.0.1`). The page never receives the device token.
 
-Setup, hooks, and sigils for a code folder are in
+Setup, hooks, and home settings for a code folder are in
 [Agents, messages and the board](docs/guides/15-agents-messages-and-the-board.md).
 
 ---

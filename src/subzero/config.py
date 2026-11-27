@@ -293,6 +293,19 @@ class Settings(BaseSettings):
         default_factory=lambda: ["~/Code", "~/Code/worktrees"]
     )
 
+    #: ``auto`` starts a shell only when this process is on macOS (the
+    #: connector's server on the Mac). ``local`` forces it. ``off`` never
+    #: starts one. A non-Mac process refuses; it does not open a shell endpoint.
+    cli_runner: Literal["auto", "local", "off"] = "auto"
+    #: ``tmux -L`` name. A private server, not the user's default tmux socket.
+    cli_runner_socket: str = "subzero-cli"
+    #: How long ``run_cli_on_mbp`` waits before returning a still-running job id.
+    cli_runner_sync_wait_s: float = 8.0
+    #: Tail kept from each of stdout and stderr. The rest is not returned.
+    cli_runner_output_chars: int = 16 * 1024
+    #: Empty uses ``$XDG_STATE_HOME/subzero/cli-runner``.
+    cli_runner_state_dir: str = ""
+
     # ------------------------------------------------------------ retrieval
     default_token_budget: int = 2500
     context_search_default_limit: int = 10
@@ -431,6 +444,16 @@ class Settings(BaseSettings):
                     "SUBZERO_EXEC_ROOTS entries must be absolute directories "
                     f"('~' is fine): {root!r}."
                 )
+
+        socket_name = self.cli_runner_socket
+        if (
+            not socket_name
+            or len(socket_name) > 64
+            or any(not (ch.isalnum() or ch in "_-") for ch in socket_name)
+        ):
+            problems.append(
+                "SUBZERO_CLI_RUNNER_SOCKET must be 1-64 characters of letters, digits, '_' or '-'."
+            )
 
         legacy = legacy_env_names()
         if legacy:

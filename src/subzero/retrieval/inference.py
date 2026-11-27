@@ -207,3 +207,15 @@ def infer(text: str, projects: list[ProjectRow]) -> Inference:
             candidates=[top],
         )
     return Inference(top.project, top.reason, candidates=[], score=round(top.score, 3))
+
+
+def name_tsquery(project: ProjectRow | None) -> str:
+    """tsquery text matching any way of writing the project's name."""
+    if project is None:
+        return ""
+    phrases = []
+    for spelling in project.spellings():
+        if len(spelling) == 1 and (len(spelling[0]) < 4 or spelling[0] in _GENERIC):
+            continue
+        phrases.append("(" + " <-> ".join(f"'{w}'" for w in spelling) + ")")
+    return " | ".join(phrases)

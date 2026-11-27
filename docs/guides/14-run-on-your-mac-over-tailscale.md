@@ -86,6 +86,30 @@ Open your Google (or GitHub) OAuth client from [guide 3](03-google-sign-in.md) a
 Check it from your phone with Tailscale on: open the address followed by `/healthz` in a browser.
 It should say `ok`.
 
+## Update it
+
+When you pull a newer version, update the database **before** you restart the server. New code
+can expect database changes (migrations) that are not there yet; until they are, the tools that
+use them fail. On 2026-11-24 that broke `context_bootstrap` and `context_search` in every app for a
+day.
+
+```bash
+cd ~/Code/subzero
+git pull --ff-only
+uv sync
+op run --env-file=deploy/production.env.op -- .venv/bin/subzero migrate --status   # what is pending
+op run --env-file=deploy/production.env.op -- .venv/bin/subzero migrate            # 1. the database
+launchctl kickstart -k gui/$(id -u)/com.subzero.server                             # 2. the server
+curl -s http://127.0.0.1:8080/readyz                                               # {"ready":true}
+```
+
+Use whichever settings file your server uses in place of `deploy/production.env.op`. If you forget
+the order, the server still starts and tells you: `/readyz` answers
+`{"ready": false, "reason": "migrations_pending", ...}`, the log says
+`database schema is behind this server: run subzero migrate`, and a tool that needs the missing
+change answers *Subzero's database schema is behind this server's code*. Run `subzero migrate`;
+the server notices within half a minute, with no restart.
+
 ## Share agent guidance
 
 Chat apps (ChatGPT, Claude, Gemini, Grok, Muse) have no files of their own, so
@@ -157,6 +181,7 @@ tail -f ~/Library/Logs/subzero/server.err.log # see what it's doing
 | `Tailscale is not connected` | The Tailscale app is closed or signed out. | Open it and sign in, then run the script again. |
 | `Could not read this Mac's tailnet name` | MagicDNS or HTTPS certificates are off. | Do step 1. |
 | `The server did not start` | A setting is missing or wrong. | Run `uv run subzero check`; it lists what to fix. |
+| `/readyz` says `"reason": "migrations_pending"` | The code is newer than the database. | Run `subzero migrate` with the server's settings ([Update it](#update-it)). |
 | An app says the connector is unavailable | The Mac is asleep, or you installed without `--public`. | Wake the Mac, or re-run with `--public`. |
 | The extension or `subzero agent` says `not found` | It is reaching the Mac through the public address from a device that is not on your tailnet. | Turn Tailscale on for that device. These parts are tailnet-only on purpose. |
 | `redirect_uri_mismatch` when signing in | Step 3 was skipped or has a typo. | Copy the **Sign-in** line exactly. |

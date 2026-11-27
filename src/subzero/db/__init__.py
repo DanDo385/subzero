@@ -1,3 +1,3 @@
-from .pool import Database, get_database, set_database
+from .pool import Database
 
-__all__ = ["Database", "get_database", "set_database"]
+__all__ = ["Database"]

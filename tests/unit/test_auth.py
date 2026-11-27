@@ -39,7 +39,8 @@ def _settings(**overrides: Any) -> Settings:
 
 def test_expand_shorthands() -> None:
     assert expand(["*"]) == set(ALL_SCOPES) - set(scopes.EXEC_SCOPES)
-    assert expand(["*", scopes.AGENTS_EXEC]) == set(ALL_SCOPES)
+    assert expand(["*", *scopes.EXEC_SCOPES]) == set(ALL_SCOPES)
+    assert expand(["*", scopes.AGENTS_EXEC]) == set(ALL_SCOPES) - {scopes.CLI_RUN}
     assert expand(["read"]) == {s for s in ALL_SCOPES if s.endswith(":read")}
     assert expand([scopes.MEMORY_WRITE]) == {scopes.MEMORY_WRITE}
 
@@ -63,6 +64,10 @@ def test_an_unmatched_client_never_gets_exec() -> None:
     # wildcard that carried exec would hand every chat app a shell on the
     # user's machine.
     assert scopes.AGENTS_EXEC not in expand(["*"])
+    assert scopes.CLI_RUN not in expand(["*"])
+    assert scopes.CLI_RUN not in resolve_client_scopes(
+        {"*": ["*"]}, client_id="a-chatgpt-client", app="chatgpt"
+    )
     assert scopes.AGENTS_EXEC not in resolve_client_scopes(
         {"*": ["*"]}, client_id="a-chatgpt-client", app="chatgpt"
     )

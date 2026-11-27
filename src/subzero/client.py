@@ -26,12 +26,12 @@ from urllib.parse import urlparse
 
 import httpx
 
-from subzero import sigils
+from subzero.errors import ValidationError
+from subzero.homes import validate_home
 
 CONFIG_DIR = Path(os.environ.get("SUBZERO_CONFIG_DIR", Path.home() / ".config" / "subzero"))
 STATE_DIR = Path(os.environ.get("SUBZERO_STATE_DIR", Path.home() / ".cache" / "subzero"))
-#: A file in a project or worktree whose first line holds its sigils
-#: (``^zig #comptime`` for a lesson worktree, ``%Code/site`` for a project).
+#: A file in a project or worktree whose first line holds its home.
 HOME_FILE = ".subzero"
 
 
@@ -151,17 +151,20 @@ def repo_root(cwd: str) -> Path | None:
     return Path(top) if top else None
 
 
-def home_sigils(cwd: str) -> sigils.Sigils:
-    """Sigils from the nearest ``.subzero`` file at or above ``cwd``."""
+def configured_home(cwd: str) -> str | None:
+    """The home from the nearest ``.subzero`` file inside the checkout."""
     here = Path(cwd).resolve()
     for folder in (here, *here.parents):
         candidate = folder / HOME_FILE
         if candidate.is_file():
-            first = candidate.read_text(errors="replace").strip().splitlines()[:1]
-            return sigils.parse(first[0] if first else "")
+            try:
+                first = candidate.read_text(errors="replace").splitlines()
+                return validate_home(first[0].strip()) if first else None
+            except (OSError, ValidationError):
+                return None
         if (folder / ".git").exists():
             break
-    return sigils.parse("")
+    return None
 
 
 # ---------------------------------------------------------------- session cache

@@ -35,7 +35,7 @@ async def test_a_job_held_by_a_silent_session_is_failed_visibly(services) -> Non
     session = await services.agents.start(
         harness="claude-code", external_id=None, machine="mbp", cwd="/tmp/x", home=None
     )
-    job = await services.agents.dispatch("tidy the README >claude")
+    job = await services.agents.dispatch("tidy the README", target="claude")
     await services.agents.claim(UUID(session["id"]), targets=["claude"])
     # The session crashed: no end, no heartbeat for more than a day.
     await services.db.execute(

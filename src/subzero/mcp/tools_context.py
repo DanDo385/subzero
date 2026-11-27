@@ -16,13 +16,15 @@ from pydantic import Field
 
 from subzero.agent_context import Document, read_agent_context
 from subzero.auth import scopes
+from subzero.config import Settings
+from subzero.homes import Home
 from subzero.mcp.compact import dump
 from subzero.mcp.render import bootstrap_text
 from subzero.mcp.result import ToolResult, object_output_schema
-from subzero.services import get_services
+from subzero.retrieval.service import RetrievalService
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, *, retrieval: RetrievalService, settings: Settings) -> None:
     @mcp.tool(
         name="context_bootstrap",
         tags={"context", "read"},
@@ -45,6 +47,12 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Project slug or name, when you know it. Inferred otherwise."),
         ] = None,
+        home: Annotated[
+            Home | None,
+            Field(
+                description="Explicit home for a handoff, for example lesson/cfa2 or setup/neovim."
+            ),
+        ] = None,
         token_budget: Annotated[
             int, Field(ge=200, le=4000, description="Approximate token ceiling for the result.")
         ] = 1200,
@@ -63,8 +71,8 @@ def register(mcp: FastMCP) -> None:
         The text begins with the owner's standing context from dotfiles (a
         context header, SOUL for voice, AGENTS for what to do); follow it for
         the whole chat. Pass query terms and the project only when the request
-        depends on past work (a project, earlier decisions, tasks, "remember",
-        "last time"); leave them empty for a standalone question.
+        depends on past work (a project, earlier decisions, "remember", "last
+        time"); leave them empty for a standalone question.
 
         Returns the project's handoff first (latest session summaries with
         their open questions, open tasks, active decisions), then items
@@ -75,9 +83,8 @@ def register(mcp: FastMCP) -> None:
         context (about 1k tokens) comes on top. The same package is in the
         text and in the structured result.
         """
-        services = get_services()
-        package = await services.retrieval.bootstrap(
-            query, user_message=user_message, token_budget=token_budget, project=project
+        package = await retrieval.bootstrap(
+            query, user_message=user_message, token_budget=token_budget, project=project, home=home
         )
         payload = dump(package)
         return ToolResult(content=bootstrap_text(payload), structured_content=payload)
@@ -107,7 +114,7 @@ def register(mcp: FastMCP) -> None:
         content_id and the content. To change a document, give the owner the
         edit for their dotfiles repository; this tool cannot write.
         """
-        guidance = await read_agent_context(get_services().settings, document)
+        guidance = await read_agent_context(settings, document)
         return dump(guidance) if guidance else {"status": "unavailable", "document": document}
 
     @mcp.tool(
@@ -144,8 +151,7 @@ def register(mcp: FastMCP) -> None:
         over an assistant's summary and recent items over old ones. An empty
         result means nothing matched: say so rather than guess.
         """
-        services = get_services()
-        items = await services.retrieval.search(
+        items = await retrieval.search(
             query,
             limit=limit,
             project=project,
@@ -166,8 +172,7 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[str | None, Field(description="Filter by project.")] = None,
     ) -> list[dict[str, Any]]:
         """Newest session summaries. Use for catch-up, not for a specific topic."""
-        services = get_services()
-        items = await services.retrieval.recent(limit=limit, provider=provider, project=project)
+        items = await retrieval.recent(limit=limit, provider=provider, project=project)
         return [dump(item) for item in items]
 
     @mcp.tool(
@@ -189,10 +194,7 @@ def register(mcp: FastMCP) -> None:
         project: Annotated[str | None, Field(description="Project slug or name.")] = None,
     ) -> dict[str, Any]:
         """Budgeted package about one topic. Prefer this over include_messages."""
-        services = get_services()
-        package = await services.retrieval.for_topic(
-            topic, token_budget=token_budget, project=project
-        )
+        package = await retrieval.for_topic(topic, token_budget=token_budget, project=project)
         return dump(package)
 
     @mcp.tool(
@@ -228,12 +230,7 @@ def register(mcp: FastMCP) -> None:
         conversation_id. Costs more than context_search; do not call it for
         every request. If "semantic" is false, only exact words were matched.
         """
-        from subzero.retrieval.semantic import deep_search
-
-        services = get_services()
-        result = await deep_search(
-            services.db, services.embeddings, query, limit=limit, provider=provider
-        )
+        result = await retrieval.deep_search(query, limit=limit, provider=provider)
         payload: dict[str, Any] = {
             "query": result.query,
             "semantic": result.semantic,
