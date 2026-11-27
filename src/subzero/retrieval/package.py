@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from subzero.models import (
-    AgentContext,
     ConflictReport,
     ContextItem,
     ContextPackage,
@@ -52,7 +51,7 @@ from subzero.retrieval.sql import (
     HOME_HANDOFF_SQL as _HOME_HANDOFF_SQL,
 )
 from subzero.sessions.checkpoint import question_key
-from subzero.util import estimate_tokens, truncate_for_budget
+from subzero.util import truncate_for_budget
 
 if TYPE_CHECKING:
     from subzero.retrieval.service import RetrievalService
@@ -86,7 +85,6 @@ class PackageBuilder:
         include_handoff: bool,
         notes: list[str] | None = None,
         home: str | None = None,
-        guidance: AgentContext | None = None,
     ) -> ContextPackage:
         """Gather candidates from every layer, then fill the budget by priority.
 
@@ -210,8 +208,7 @@ class PackageBuilder:
             order += h[5:]
         order += relevant[2:] + semantic + raw
 
-        guidance_cost = estimate_tokens(guidance.model_dump_json()) if guidance else 0
-        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD + guidance_cost)
+        budget = _Budget(token_budget, spent=_PACKAGE_OVERHEAD)
         chosen: dict[UUID, ContextItem] = {}
         left_out = 0
 
@@ -352,7 +349,6 @@ class PackageBuilder:
 
         package = ContextPackage(
             query=truncate_for_budget(query, 60),
-            agent_context=guidance,
             items=items,
             token_budget=token_budget,
             estimated_tokens=0,

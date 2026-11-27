@@ -31,46 +31,65 @@ async def test_client_can_list_the_full_tool_surface(mcp_client) -> None:
 async def test_tool_descriptions_tell_the_model_when_not_to_call(mcp_client) -> None:
     tools = {t.name: t for t in await mcp_client.list_tools()}
     bootstrap = tools["context_bootstrap"].description or ""
-    assert "Skip for trivial questions" in bootstrap
+    # Bootstrap runs once per chat; the query terms are what to leave out.
+    assert "Call once at the start of every chat" in bootstrap
+    assert "leave them empty for a standalone question" in bootstrap
 
 
-async def test_guidance_refresh_and_budget_through_mcp(mcp_client, settings, tmp_path) -> None:
-    """Bootstrap carries a short excerpt of the dotfiles guidance; the full
-    documents are one read away, and an edit on disk shows up on the next call."""
+async def test_standing_context_reaches_text_only_clients(mcp_client, settings, tmp_path) -> None:
+    """What a chat app sees: the standing context and the handoff in the text block."""
     checkout = tmp_path / "dotfiles"
     (checkout / "subzero").mkdir(parents=True)
-    (checkout / "cli").mkdir()
+    (checkout / "subzero" / "CONTEXT.md").write_text("# Context header\n\nFILE-MAP")
+    (checkout / "subzero" / "SOUL.md").write_text("# SOUL\n\nVOICE-RULE")
     agents = checkout / "subzero" / "AGENTS.md"
-    agents.write_text("# Initial guidance\n\n" + "Details for an on-demand read. " * 50)
+    agents.write_text("# Subzero chat instructions\n\nCHAT-RULE")
+    (checkout / "subzero" / "MEMORY.md").write_text("# Memory (pointer)")
     (checkout / "subzero" / "PRE-PROMPT.md").write_text("reference-only marker")
-    (checkout / "cli" / "MACHINES.md").write_text("# Machine details")
+    (checkout / "MACHINES.md").write_text("# Machine details")
+    (checkout / "cli").mkdir()
+    (checkout / "cli" / "AGENTS.md").write_text("CLI-ONLY landing rules")
     link = tmp_path / "linked-dotfiles"
     link.symlink_to(checkout, target_is_directory=True)
     settings.dotfiles_root = link
 
-    first = await mcp_client.call_tool("context_bootstrap", {"token_budget": 600})
+    first = await mcp_client.call_tool("context_bootstrap", {})
+    text = first.content[0].text
     payload = first.structured_content
-    assert payload["estimated_tokens"] <= 600
-    assert payload["agent_context"]["content"].startswith("# Initial guidance")
-    assert agents.read_text().startswith(payload["agent_context"]["content"].split(" […]")[0])
-    assert "reference-only marker" not in json.dumps(payload)
-    assert "Machine details" not in json.dumps(payload)
-    small = await mcp_client.call_tool("context_bootstrap", {"token_budget": 200})
-    assert "agent_context" not in small.structured_content
-    detail = await mcp_client.call_tool("context_read_guidance", {"document": "agents"})
-    assert detail.structured_content["content"] == agents.read_text().strip()
+    assert text.index("FILE-MAP") < text.index("VOICE-RULE") < text.index("CHAT-RULE")
+    ids = {d["document"]: d["content_id"] for d in payload["standing"]}
+    assert list(ids) == ["context", "soul", "agents"]
+    assert f"subzero/SOUL.md (id {ids['soul']}, local)" in text
+    # Only the three standing documents: no reference copy, no machines, no CLI rules.
+    for absent in ("reference-only marker", "Machine details", "CLI-ONLY", "Memory (pointer)"):
+        assert absent not in text
+        assert absent not in json.dumps(payload)
+    # The standing context is on top of the retrieval budget, not inside it.
+    assert payload["estimated_tokens"] <= payload["token_budget"]
+
     machines = await mcp_client.call_tool("context_read_guidance", {"document": "machines"})
     assert machines.structured_content["content"] == "# Machine details"
-    agents.write_text("# Updated guidance")
-    second = await mcp_client.call_tool("context_bootstrap", {"token_budget": 600})
-    assert second.structured_content["agent_context"]["content"] == "# Updated guidance"
-    assert (
-        second.structured_content["agent_context"]["sha256"] != payload["agent_context"]["sha256"]
-    )
+    assert machines.structured_content["path"] == "MACHINES.md"
+    memory = await mcp_client.call_tool("context_read_guidance", {"document": "memory"})
+    assert memory.structured_content["content"] == "# Memory (pointer)"
+
+    # A local edit is visible on the next call, with a new id.
+    agents.write_text("# Subzero chat instructions\n\nUPDATED-RULE")
+    second = await mcp_client.call_tool("context_bootstrap", {})
+    assert "UPDATED-RULE" in second.content[0].text
+    assert second.structured_content["standing"][2]["content_id"] != ids["agents"]
+
     bad = await mcp_client.call_tool(
         "context_read_guidance", {"document": "../PRE-PROMPT.md"}, raise_on_error=False
     )
     assert bad.is_error
+
+
+async def test_bootstrap_without_dotfiles_says_why(mcp_client, settings) -> None:
+    settings.dotfiles_root = None
+    result = await mcp_client.call_tool("context_bootstrap", {})
+    assert "standing" not in result.structured_content
+    assert "No dotfiles source is configured on this server." in result.content[0].text
 
 
 async def test_artifact_tools_warn_against_claiming_capture(mcp_client) -> None:

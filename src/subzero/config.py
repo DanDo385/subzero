@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     )
     dotfiles_github_ref: str = "main"
     dotfiles_github_token: SecretStr = SecretStr("")
+    #: How long a GitHub read is reused. Local checkouts are always read fresh.
+    dotfiles_cache_seconds: int = Field(default=60, ge=0)
 
     # ------------------------------------------------------------- database
     database_url: SecretStr = SecretStr("")
