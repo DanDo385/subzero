@@ -250,3 +250,7 @@ class Database:
     async def execute(self, query: str, *args: Any) -> str:
         async with self.acquire() as conn:
             return await conn.execute(query, *args)
+
+    async def executemany(self, query: str, args: list[tuple[Any, ...]]) -> None:
+        async with self.acquire() as conn:
+            await conn.executemany(query, args)
