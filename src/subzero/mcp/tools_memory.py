@@ -219,6 +219,16 @@ def register(
                 )
             ),
         ] = None,
+        session_id: Annotated[
+            UUID | None,
+            Field(
+                description=(
+                    "The id session_open returned for this chat. Prefer this over "
+                    "provider_conversation_id: it selects the session directly, "
+                    "even one another app opened."
+                )
+            ),
+        ] = None,
         title: Annotated[str | None, Field(description="Short title for the session.")] = None,
         summary: Annotated[
             str | None,
@@ -326,6 +336,7 @@ def register(
             provider=provider,
             principal=current_principal(),
             provider_conversation_id=provider_conversation_id,
+            session_id=session_id,
             title=title,
             summary=summary,
             project=project,

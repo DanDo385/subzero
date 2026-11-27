@@ -24,6 +24,7 @@ from subzero.auth.principal import Principal
 from subzero.classifier.service import ClassificationService
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
+from subzero.errors import NotFoundError
 from subzero.logging_setup import get_logger
 from subzero.memory.service import MemoryService
 from subzero.memorylab.triage import has_triage, triage
@@ -89,6 +90,7 @@ class SessionService(ConversationStore):
         provider: str,
         principal: Principal,
         provider_conversation_id: str | None = None,
+        session_id: UUID | None = None,
         title: str | None = None,
         summary: str | None = None,
         project: str | None = None,
@@ -154,6 +156,19 @@ class SessionService(ConversationStore):
             tally.notes.append(f"Filed under {home} by the classifier; no home was given.")
         if routing.concept and routing.concept not in (concepts or []):
             concepts = [*(concepts or []), routing.concept]
+
+        # A Subzero session id selects its conversation directly, across
+        # providers: a chat in one app can keep writing to a session another
+        # app opened. The row keeps its origin provider; new content is
+        # labelled with the calling one.
+        if session_id is not None:
+            row = await self._db.fetchrow(
+                "SELECT provider_conversation_id FROM conversations WHERE id = $1",
+                session_id,
+            )
+            if row is None:
+                raise NotFoundError(f"No session matches {session_id}.")
+            provider_conversation_id = row["provider_conversation_id"]
 
         # ---- 2. everything else in one transaction ----------------------
         async with self._db.transaction() as conn:

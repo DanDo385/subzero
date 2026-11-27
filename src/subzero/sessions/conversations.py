@@ -9,6 +9,7 @@ from uuid import UUID
 import asyncpg
 
 from subzero.db.pool import Database
+from subzero.errors import NotFoundError, ValidationError
 from subzero.homes import home_metadata
 from subzero.util import sha256_text, utcnow
 
@@ -84,11 +85,119 @@ def _message_rows(messages: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
     return rows
 
 
+#: Prefix distinguishing model-held live session ids from platform ids.
+#: A model cannot see its platform's conversation id, so it generates one
+#: UUID per chat and the server stores it under this prefix. Retries with
+#: the same id return the same row instead of duplicating the session.
+LIVE_ID_PREFIX = "live:"
+
+_VALID_ROLES = frozenset({"user", "assistant", "system", "tool"})
+
+_SESSION_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+
+
 class ConversationStore:
     """Ensure conversations, append messages, and read transcripts."""
 
     def __init__(self, db: Database) -> None:
         self._db = db
+
+    async def open_session(
+        self,
+        *,
+        provider: str,
+        client_session_id: str,
+        title: str | None = None,
+        model: str | None = None,
+    ) -> tuple[UUID, bool]:
+        """Create the conversation row for a live chat, or return the open one.
+
+        Idempotent on (provider, client_session_id): calling twice with the
+        same id (a retry, a reconnect) returns the same session.
+        """
+        clean = (client_session_id or "").strip()
+        if not clean or len(clean) > 64 or any(c not in _SESSION_ID_CHARS for c in clean):
+            raise ValidationError(
+                "client_session_id must be 1-64 letters, digits, dashes or underscores: "
+                "generate one UUID per chat and keep passing it back."
+            )
+        return await self.ensure_conversation(
+            provider=provider,
+            provider_conversation_id=f"{LIVE_ID_PREFIX}{clean}",
+            title=title,
+            model=model,
+        )
+
+    async def append_session_messages(
+        self,
+        session_id: UUID,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        """Append raw transcript messages to a live session.
+
+        Idempotent per message: repeats with the same message_id are skipped,
+        so a retried update never duplicates the transcript.
+        """
+        for message in messages:
+            role = (message.get("role") or "user").strip().lower()
+            if role not in _VALID_ROLES:
+                raise ValidationError(
+                    f"Role {message.get('role')!r} is not one of user, assistant, system, tool."
+                )
+            message["role"] = role
+            if message.get("message_id") is not None:
+                message["provider_message_id"] = str(message["message_id"])
+        row = await self._db.fetchrow(
+            "SELECT provider FROM conversations WHERE id = $1", session_id
+        )
+        if row is None:
+            raise NotFoundError(f"No session matches {session_id}.")
+        return await self.add_messages(session_id, messages, provider=row["provider"])
+
+    async def list_sessions(
+        self,
+        *,
+        provider: str | None = None,
+        project: str | None = None,
+        include_ended: bool = False,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Sessions newest-first by last message: who, what, and when."""
+        rows = await self._db.fetch(
+            """
+            SELECT c.id, c.provider, c.title, c.model, c.started_at, c.updated_at,
+                   c.ended_at, c.end_reason, p.slug AS project_slug,
+                   count(m.id)::int AS message_count, max(m.created_at) AS last_message_at
+            FROM conversations c
+            LEFT JOIN projects p ON p.id = c.project_id
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE ($1::text IS NULL OR c.provider = $1)
+              AND ($2::text IS NULL OR p.slug = $2)
+              AND ($3::bool OR c.ended_at IS NULL)
+            GROUP BY c.id, p.slug
+            ORDER BY max(m.created_at) DESC NULLS LAST, c.updated_at DESC
+            LIMIT $4
+            """,
+            provider,
+            project,
+            include_ended,
+            limit,
+        )
+        return [dict(r) for r in rows]
+
+    async def close_session(self, session_id: UUID, *, reason: str | None = None) -> bool:
+        """Mark a session ended. Closing twice is fine; the first stamp wins."""
+        status = await self._db.execute(
+            """
+            UPDATE conversations
+            SET ended_at = coalesce(ended_at, now()),
+                end_reason = coalesce($2, end_reason)
+            WHERE id = $1
+            """,
+            session_id,
+            (reason or "").strip() or None,
+        )
+        return status != "UPDATE 0"
 
     async def ensure_conversation(
         self,

@@ -77,12 +77,33 @@ def register(mcp: FastMCP, *, inventory: StatusService) -> None:
             "If the request is trivially self-contained, skip retrieval entirely."
         )
 
+    @mcp.prompt(name="sessions")
+    def sessions() -> str:
+        """How to keep this chat's session in Subzero and resume others."""
+        return (
+            "A chat Subzero can see is a chat another app can resume. Keep it visible:\\n\\n"
+            "1. First prompt: call session_open once (generate one UUID for this chat, "
+            "pass it as client_session_id) and keep the returned session_id.\\n"
+            "2. Every few turns: call session_update with the new messages since the last "
+            "update, both sides, each with a stable message_id. It stores the raw transcript; "
+            "it classifies and embeds nothing.\\n"
+            "3. When something durable is settled: session_checkpoint as usual, passing the "
+            "session_open id as session_id so the summary lands on this session, even one another app opened.\\n"
+            "4. At goodbye: session_close, so the session stops showing as live.\\n\\n"
+            "To resume work started elsewhere: session_list shows live sessions newest-first "
+            "by last message (filter by provider or project); context_bootstrap with that "
+            "project continues the work, and session_checkpoint with its id keeps writing "
+            "to the same session."
+        )
+
     @mcp.prompt(name="checkpoint_session")
     def checkpoint_session() -> str:
         """How and when to checkpoint durable state."""
         return (
             "Checkpoint when the conversation has established something that "
-            "should outlive it. Call session_checkpoint ONCE with everything:\n\n"
+            "should outlive it. Call session_checkpoint ONCE with everything "
+            "(pass the session_open id as provider_conversation_id so the summary "
+            "lands on this session):\n\n"
             "- summary: a few sentences written for a future session that cannot "
             "see this conversation\n"
             "- project: the project this session was about, when there is one\n"

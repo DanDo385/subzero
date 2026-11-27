@@ -31,6 +31,7 @@ from subzero.mcp import (
     tools_notes,
     tools_projects,
     tools_review,
+    tools_sessions,
 )
 from subzero.mcp.compact import dump
 from subzero.models import ContextItem, ContextPackage, Provenance_
@@ -64,6 +65,7 @@ def _server() -> FastMCP:
         vault_paths=stub,
     )
     tools_notes.register(mcp, audit=stub, notes=stub, settings=stub, sync_queue=stub)
+    tools_sessions.register(mcp, audit=stub, sessions=stub)
     tools_projects.register(mcp, audit=stub, projects=stub)
     tools_artifacts.register(
         mcp,
@@ -108,12 +110,16 @@ def tools() -> list[Any]:
 
 def test_every_provider_sees_the_same_tools(tools: list[Any]) -> None:
     names = sorted(t.name for t in tools)
-    assert len(names) >= 40, names
+    assert len(names) >= 51, names
     assert len(set(names)) == len(names), "duplicate tool names"
     for name in (
         "context_bootstrap",
         "context_search",
         "session_checkpoint",
+        "session_open",
+        "session_update",
+        "session_list",
+        "session_close",
         "inbox_add",
         "note_patch",
         "project_list",

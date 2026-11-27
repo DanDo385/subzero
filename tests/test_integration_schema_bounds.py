@@ -27,6 +27,7 @@ REQUIRED: dict[str, dict[str, Any]] = {
     "memory_save": {"content": "Bounds are honest."},
     "memory_search": {"query": "anything"},
     "session_recent": {},
+    "session_list": {},
     "project_list": {},
     "project_search": {"query": "anything"},
     "artifact_begin_upload": {"title": "t", "filename": "t.txt", "mime_type": "text/plain"},

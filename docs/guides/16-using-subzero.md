@@ -188,12 +188,25 @@ setup.
 | `memory_save` | Save one durable fact. |
 | `memory_search` | Search saved facts, not whole conversations. |
 | `memory_history` | Every version of one fact, newest first. |
-| `session_checkpoint` | The shared write: summary, decisions, facts, tasks, project updates, open questions, in one transaction. |
+| `session_checkpoint` | The shared write: summary, decisions, facts, tasks, project updates, open questions, in one transaction. Pass the `session_open` id as `session_id` so the summary lands on this session. |
 | `session_recent` | Recent summaries and their open questions. |
 
 Send one checkpoint, not several. Repeat calls with the same conversation id
 update one record. A content hash keeps a decision or fact from being stored
 twice.
+
+### Sessions (4)
+
+Your live chats, visible to every connected app. Open once per chat, update
+as you go, close at goodbye; another app resumes through `session_list`
+plus `context_bootstrap`.
+
+| Tool | What it does |
+| --- | --- |
+| `session_open` | Start this chat's session on the first prompt. Returns its id; keep passing it back. Calling twice with the same id returns the same session. |
+| `session_update` | Append new transcript lines, both sides. Cheap: no classification, no embeddings. Repeats with the same message id are skipped. |
+| `session_list` | Live sessions newest-first by last message: who, what project, and when. Filter by app or project; closed sessions stay out unless asked for. |
+| `session_close` | Mark this chat ended so it stops showing as live. Checkpoint first if anything durable was decided. |
 
 ### Inbox (1)
 

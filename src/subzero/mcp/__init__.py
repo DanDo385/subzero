@@ -16,6 +16,7 @@ from subzero.mcp import (
     tools_notes,
     tools_projects,
     tools_review,
+    tools_sessions,
 )
 from subzero.services import Services
 
@@ -45,6 +46,7 @@ def register_all(mcp: FastMCP, s: Services) -> None:
         settings=s.settings,
         sync_queue=s.sync_queue,
     )
+    tools_sessions.register(mcp, audit=s.audit, sessions=s.sessions)
     tools_projects.register(mcp, audit=s.audit, projects=s.projects)
     tools_artifacts.register(
         mcp,
