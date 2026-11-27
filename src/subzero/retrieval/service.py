@@ -50,7 +50,7 @@ from subzero.models import (
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference, semantic
 from subzero.retrieval.query import ParsedQuery, parse
-from subzero.sessions.service import question_key
+from subzero.sessions.checkpoint import question_key
 from subzero.util import estimate_tokens, truncate_for_budget
 
 #: Per-item ceiling so one enormous note cannot eat the whole package.

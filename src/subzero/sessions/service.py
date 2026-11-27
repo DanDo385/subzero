@@ -19,10 +19,8 @@ from uuid import UUID
 
 import asyncpg
 
-from subzero import sigils
 from subzero.audit.service import AuditService
 from subzero.auth.principal import Principal
-from subzero.classifier.policy import Verdict
 from subzero.classifier.service import ClassificationService
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
@@ -40,7 +38,8 @@ from subzero.models import (
 )
 from subzero.projects.service import ProjectService
 from subzero.retrieval import inference
-from subzero.tasks import upsert_task
+from subzero.sessions import checkpoint as steps
+from subzero.sessions.checkpoint import Tally
 from subzero.util import sha256_text, truncate_for_budget, utcnow
 
 logger = get_logger(__name__)
@@ -293,33 +292,13 @@ class SessionService:
         resolved_questions = [q for q in (resolved_questions or []) if q.strip()]
         artifacts = artifacts or []
         important_context = important_context or []
-
-        created: dict[str, int] = {}
-        updated: dict[str, int] = {}
-        skipped: dict[str, int] = {}
-        notes_out: list[str] = []
-
-        def bump(bucket: dict[str, int], key: str, n: int = 1) -> None:
-            if n:
-                bucket[key] = bucket.get(key, 0) + n
+        tally = Tally()
 
         # ---- 0. sigils the user typed beat any model judgement -----------
-        # %project only names a project (matched below, never created); a
-        # ^lesson or &setup home is used as is; #concepts and @people tag.
-        # Every sigil typed is kept: the first home-kind one files the session
-        # and the rest tag it in the metadata build below, so a session about
-        # two lessons, or a project and a setup, is not narrowed to whichever
-        # sigil came first.
-        marks = sigils.parse_all(title, summary)
-        people: list[str] | None = list(marks.people) or None
-        if marks.any:
-            if marks.project and not project and not (home or "").startswith("projects/"):
-                project = marks.project
-            if not home and marks.home and not marks.home.startswith("projects/"):
-                home = marks.home
-            if concepts is None and marks.concepts:
-                concepts = list(marks.concepts)
-            notes_out.append("Sigils read: " + " ".join(marks.found))
+        marks = steps.read_sigils(
+            title, summary, project=project, home=home, concepts=concepts, tally=tally
+        )
+        project, home = marks.project, marks.home
 
         # ---- 1. classify first, so routing informs what we write ---------
         # A project the caller names outright decides where the session goes.
@@ -329,7 +308,7 @@ class SessionService:
             project = home.removeprefix("projects/")
         explicit = await self._match_project(project) if project and project.strip() else None
         if project and project.strip() and explicit is None:
-            notes_out.append(
+            tally.notes.append(
                 f"No project matches {project!r}; the session was saved without one. "
                 "Call project_list to see the existing projects."
             )
@@ -388,7 +367,7 @@ class SessionService:
                 imported=historical_import,
                 conn=conn,
             )
-            bump(created if conv_created else updated, "conversations")
+            tally.bump(tally.created if conv_created else tally.updated, "conversations")
 
             # Classification ran before the conversation existed, so its
             # event carries no object id. Link it inside this transaction:
@@ -405,34 +384,15 @@ class SessionService:
                 )
 
             # -- project updates (explicit beats inferred) ----------------
-            for update in project_updates:
-                project_id = await self._projects.resolve(update.project, conn=conn)
-                if project_id is None:
-                    project_id, _ = await self._projects.create(
-                        name=update.project,
-                        goals=update.goals,
-                        source_provider=provider,
-                        conn=conn,
-                    )
-                    bump(created, "projects")
-                else:
-                    await self._projects.update(
-                        update.project, status=update.status, goals=update.goals, conn=conn
-                    )
-                    bump(updated, "projects")
-                if update.event:
-                    if await self._projects.add_event(
-                        project_id,
-                        summary=update.event,
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        conn=conn,
-                    ):
-                        bump(created, "project_events")
-                    else:
-                        bump(skipped, "project_events")
-                routed_project_id = routed_project_id or project_id
-
+            routed_project_id = await steps.write_project_updates(
+                conn,
+                self._projects,
+                project_updates,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                tally=tally,
+            )
             if routed_project_id:
                 await conn.execute(
                     "UPDATE conversations SET project_id = coalesce(project_id, $2) WHERE id = $1"
@@ -443,78 +403,23 @@ class SessionService:
                 )
                 await self._projects.touch(routed_project_id, conn=conn)
 
-            saved = await conn.fetchrow(
-                "SELECT c.metadata, p.slug FROM conversations c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = $1 FOR UPDATE OF c",
-                conversation_id,
-            )
-            assert saved is not None
-            previous = saved["metadata"] or {}
-            # An explicit project can replace the initial unassigned home.
-            default_home = None if (explicit and not home) else previous.get("home")
-            chosen_home = home or default_home
-            # The homes sigils named beyond the one this session is filed
-            # under. A named project has to exist to tag anything, the same
-            # rule as routing; lessons and setups are names, not rows.
-            extra_homes: list[str] = []
-            for path in marks.homes:
-                if chosen_home and path == chosen_home:
-                    continue
-                if path.startswith("projects/"):
-                    slug = path.removeprefix("projects/")
-                    if await self._projects.resolve(slug, conn=conn) is None:
-                        notes_out.append(
-                            f"No project matches %{slug}; it was read but tags nothing."
-                        )
-                        continue
-                extra_homes.append(path)
-            metadata = home_metadata(
-                chosen_home,
-                saved["slug"],
-                concepts
-                if concepts is not None
-                else [
-                    t.removeprefix("concept/")
-                    for t in previous.get("tags", [])
-                    if t.startswith("concept/")
-                ],
-                people
-                if people is not None
-                else [t for t in previous.get("tags", []) if t.startswith("person/")],
-                extra_homes=extra_homes or None,
-            )
-            await conn.execute(
-                "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
-                conversation_id,
-                metadata,
+            metadata = await steps.write_home_metadata(
+                conn,
+                self._projects,
+                conversation_id=conversation_id,
+                explicit_project=explicit is not None,
+                marks=marks,
+                tally=tally,
             )
 
             # -- session summary (layer 2) --------------------------------
             summary_id = None
-            # Open questions and important context accumulate across
-            # checkpoints of one session instead of being replaced by the
-            # latest call. Resolved questions are recorded on this session and
-            # hidden from every handoff of the project when it is read, so an
-            # older session is never edited (which would also make it look new).
-            existing = await conn.fetchrow(
-                """
-                SELECT open_questions, important_context,
-                       coalesce(metadata->'resolved_questions', '[]'::jsonb) AS resolved
-                FROM session_summaries WHERE conversation_id = $1 FOR UPDATE
-                """,
-                conversation_id,
-            )
-            resolved_all = _merge_texts(
-                existing["resolved"] if existing else [], resolved_questions
-            )
-            merged_questions = [
-                q
-                for q in _merge_texts(
-                    existing["open_questions"] if existing else [], open_questions
-                )
-                if question_key(q) not in {question_key(r) for r in resolved_all}
-            ]
-            merged_context = _merge_texts(
-                existing["important_context"] if existing else [], important_context
+            lists = await steps.merge_summary_lists(
+                conn,
+                conversation_id=conversation_id,
+                open_questions=open_questions,
+                resolved_questions=resolved_questions,
+                important_context=important_context,
             )
             if summary and summary.strip():
                 summary_id, summary_created = await self._upsert_summary(
@@ -524,15 +429,15 @@ class SessionService:
                     project_id=routed_project_id,
                     title=title,
                     summary=summary.strip(),
-                    open_questions=merged_questions,
-                    important_context=merged_context,
-                    resolved_questions=resolved_all,
+                    open_questions=lists.questions,
+                    important_context=lists.context,
+                    resolved_questions=lists.resolved,
                     sensitivity=sensitivity,
                     needs_review=routing.needs_review,
                     embedding=summary_embedding,
                 )
-                bump(created if summary_created else updated, "session_summaries")
-            elif existing and (open_questions or resolved_questions or important_context):
+                tally.bump(tally.created if summary_created else tally.updated, "session_summaries")
+            elif lists.exists and (open_questions or resolved_questions or important_context):
                 await conn.execute(
                     """
                     UPDATE session_summaries
@@ -541,145 +446,66 @@ class SessionService:
                     WHERE conversation_id = $1
                     """,
                     conversation_id,
-                    merged_questions,
-                    merged_context,
-                    resolved_all,
+                    lists.questions,
+                    lists.context,
+                    lists.resolved,
                 )
-                bump(updated, "session_summaries")
+                tally.bump(tally.updated, "session_summaries")
             elif open_questions or resolved_questions:
-                notes_out.append(
+                tally.notes.append(
                     "Open and resolved questions are kept with the session summary; "
                     "send a summary so they are saved."
                 )
 
-            # -- decisions ------------------------------------------------
-            for decision in decisions:
-                project_id = (
-                    await self._projects.resolve(decision.project, conn=conn) or routed_project_id
-                )
-                inserted = await conn.fetchval(
-                    """
-                    INSERT INTO decisions (
-                        statement, statement_sha256, rationale, project_id,
-                        source_provider, source_conversation_id, provenance
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7::sz_provenance)
-                    ON CONFLICT (statement_sha256) DO NOTHING
-                    RETURNING id
-                    """,
-                    decision.statement.strip(),
-                    sha256_text(decision.statement.strip().lower()),
-                    decision.rationale,
-                    project_id,
-                    provider,
-                    conversation_id,
-                    decision.provenance,
-                )
-                bump(created if inserted else skipped, "decisions")
-                # A decision is also durable memory; storing it once in each
-                # place is what makes it retrievable by both paths.
-                if inserted:
-                    memory_saved = await self._memories.save(
-                        content=decision.statement.strip(),
-                        kind="decision",
-                        subject=decision.project or routing.project_slug,
-                        project_id=project_id,
-                        provenance=decision.provenance,
-                        sensitivity=sensitivity,
-                        importance=max(0.7, routing.importance),
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        conn=conn,
-                        embedding=memory_vectors.get((decision.statement.strip(), sensitivity)),
-                    )
-                    bump(created if memory_saved.outcome == "created" else updated, "memories")
-
-            # -- facts / durable memory -----------------------------------
-            if routing.save_memory is not Verdict.NO or facts:
-                for fact in facts:
-                    project_id = (
-                        await self._projects.resolve(fact.project, conn=conn) or routed_project_id
-                    )
-                    memory_saved = await self._memories.save(
-                        content=fact.content,
-                        kind=fact.kind,
-                        subject=fact.subject,
-                        project_id=project_id,
-                        provenance=fact.provenance,
-                        sensitivity=fact.sensitivity,
-                        importance=(
-                            fact.importance
-                            if fact.importance is not None
-                            else max(0.4, routing.importance)
-                        ),
-                        source_provider=provider,
-                        source_conversation_id=conversation_id,
-                        confidence=routing.confidence or None,
-                        conn=conn,
-                        embedding=memory_vectors.get((fact.content.strip(), fact.sensitivity)),
-                    )
-                    bump(
-                        created
-                        if memory_saved.outcome == "created"
-                        else skipped
-                        if memory_saved.outcome == "duplicate"
-                        else updated,
-                        "memories",
-                    )
-            elif facts:  # pragma: no cover - defensive
-                bump(skipped, "memories", len(facts))
-
-            # -- tasks ----------------------------------------------------
-            for task in tasks:
-                project_id = (
-                    await self._projects.resolve(task.project, conn=conn) or routed_project_id
-                )
-                _, task_created = await upsert_task(
-                    conn,
-                    text=task.text,
-                    project_id=project_id,
-                    source_conversation_id=conversation_id,
-                    source_provider=provider,
-                    sensitivity=sensitivity,
-                    priority=task.priority,
-                    due_date=task.due_date,
-                    home=task.home or metadata["home"],
-                )
-                bump(created if task_created else skipped, "tasks")
-
+            # -- decisions, facts, tasks, artifacts -----------------------
+            await steps.write_decisions(
+                conn,
+                self._projects,
+                self._memories,
+                decisions,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                routing=routing,
+                sensitivity=sensitivity,
+                memory_vectors=memory_vectors,
+                tally=tally,
+            )
+            await steps.write_facts(
+                conn,
+                self._projects,
+                self._memories,
+                facts,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                routing=routing,
+                memory_vectors=memory_vectors,
+                tally=tally,
+            )
+            await steps.write_tasks(
+                conn,
+                self._projects,
+                tasks,
+                provider=provider,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                sensitivity=sensitivity,
+                home=metadata["home"],
+                tally=tally,
+            )
             await conn.execute(
                 "UPDATE session_summaries SET metadata = metadata || $2::jsonb WHERE conversation_id = $1",
                 conversation_id,
                 metadata,
             )
-
-            # -- artifact associations ------------------------------------
-            for artifact_ref in artifacts:
-                if artifact_ref.artifact_id is None:
-                    bump(skipped, "artifacts")
-                    notes_out.append(
-                        f"Artifact {artifact_ref.title!r} was referenced without an id; "
-                        "capture it with artifact_save_* or artifact_register_reference "
-                        "first, then checkpoint."
-                    )
-                    continue
-                await conn.execute(
-                    """
-                    INSERT INTO artifact_relationships (
-                        artifact_id, relation, target_type, target_id, provenance
-                    ) VALUES ($1,$2,'conversation',$3,'assistant_generated'::sz_provenance)
-                    ON CONFLICT DO NOTHING
-                    """,
-                    artifact_ref.artifact_id,
-                    artifact_ref.relation,
-                    conversation_id,
-                )
-                if routed_project_id:
-                    await conn.execute(
-                        "UPDATE artifacts SET project_id = coalesce(project_id, $2) WHERE id = $1",
-                        artifact_ref.artifact_id,
-                        routed_project_id,
-                    )
-                bump(updated, "artifacts")
+            await steps.link_artifacts(
+                conn,
+                artifacts,
+                conversation_id=conversation_id,
+                routed_project_id=routed_project_id,
+                tally=tally,
+            )
 
             # -- 3. reviews, reclassification --------------------------------
             # Inside the transaction on purpose. These used to be written
@@ -709,7 +535,6 @@ class SessionService:
         # best-effort: a failure to log a mutation must not roll back the
         # mutation itself, which is why AuditService.record swallows its own
         # errors.
-
         await self._audit.record(
             tool="session_checkpoint",
             action="create",
@@ -718,13 +543,17 @@ class SessionService:
             principal=principal,
             model=model,
             classification_event_id=event_id,
-            resulting_version={"created": created, "updated": updated, "skipped": skipped},
+            resulting_version={
+                "created": tally.created,
+                "updated": tally.updated,
+                "skipped": tally.skipped,
+            },
             provenance="assistant_generated",
             metadata={"routing": routing.as_json()},
         )
 
         if result.degraded:
-            notes_out.append(
+            tally.notes.append(
                 "The semantic classifier was unavailable, so routing fell back to "
                 "deterministic rules. The checkpoint itself was saved in full and "
                 "is queued for reclassification."
@@ -733,9 +562,9 @@ class SessionService:
         return CheckpointResult(
             conversation_id=conversation_id,
             session_summary_id=summary_id,
-            created=created,
-            updated=updated,
-            skipped=skipped,
+            created=tally.created,
+            updated=tally.updated,
+            skipped=tally.skipped,
             classification={
                 "classifier": result.classifier,
                 "model": result.model,
@@ -745,7 +574,7 @@ class SessionService:
                 **_triage_json(result),
             },
             review_items=review_items,
-            notes=notes_out,
+            notes=tally.notes,
         )
 
     # ---------------------------------------------------------- internals
@@ -929,24 +758,6 @@ class SessionService:
             limit,
         )
         return [dict(r) for r in rows]
-
-
-def question_key(text: str) -> str:
-    """Compare questions loosely: case, spacing and trailing punctuation ignored."""
-    return " ".join(str(text).lower().split()).rstrip("?.!: ")
-
-
-def _merge_texts(existing: list[Any] | None, new: list[str]) -> list[str]:
-    """Union, oldest first, without near-identical repeats."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for text in [*(existing or []), *new]:
-        value = str(text).strip()
-        key = question_key(value)
-        if value and key not in seen:
-            seen.add(key)
-            out.append(value)
-    return out
 
 
 def _triage_json(result: Any) -> dict[str, Any]:
