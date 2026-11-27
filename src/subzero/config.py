@@ -169,7 +169,7 @@ class Settings(BaseSettings):
     #: We budget conservatively in characters.
     jev_max_state_chars: int = 48_000
     jev_max_project_candidates: int = 40
-    #: Homes and concepts offered to Jev for a session that carries no sigils.
+    #: Homes and concepts offered to Jev for a session that names none.
     #: Bounded like projects: a long list makes the Choice worse, and an object
     #: whose home is not offered lands untagged rather than misfiled.
     jev_max_home_candidates: int = 12
