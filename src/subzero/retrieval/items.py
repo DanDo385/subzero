@@ -81,6 +81,7 @@ def item(
     max_tokens: int = MAX_ITEM_TOKENS,
     layer: str | None = None,
     retrieval_confidence: str | None = None,
+    section: str | None = None,
 ) -> ContextItem:
     trimmed = truncate_for_budget(content.strip(), max_tokens)
     questions = [str(q) for q in (get(row, "open_questions") or []) if str(q).strip()]
@@ -108,6 +109,7 @@ def item(
         open_questions=questions,
         reason=get(row, "reason"),
         retrieval_confidence=retrieval_confidence,  # type: ignore[arg-type]
+        section=get(row, "section") or section,
     )
     ctx.estimated_tokens = cost(ctx)
     return ctx

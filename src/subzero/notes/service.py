@@ -18,6 +18,7 @@ from subzero.embeddings.service import EmbeddingService
 from subzero.errors import NotFoundError
 from subzero.homes import home_metadata
 from subzero.models import NoteClass, NoteRecord
+from subzero.notes.chunks import chunk_note
 from subzero.obsidian.render import extract_note_body
 from subzero.util import sha256_text, slugify
 
@@ -202,6 +203,7 @@ class NoteService:
                 content_hash,
                 author or source_provider or "system",
             )
+            await self._rebuild_chunks(executor, note_id, title, content)
             return note_id, True, 1
 
         await executor.execute(
@@ -248,7 +250,30 @@ class NoteService:
             content_hash,
             author or source_provider or "system",
         )
+        await self._rebuild_chunks(executor, existing["id"], title, content)
         return existing["id"], False, version
+
+    @staticmethod
+    async def _rebuild_chunks(executor: Any, note_id: UUID, title: str, content: str) -> None:
+        """Chunk rows follow the body: rebuilt on every content change.
+
+        Delete + insert keeps no stale rows; chunk vectors start NULL for
+        the background refresh loop. Chunking is pure Python, so this adds
+        no network call inside the caller's transaction.
+        """
+        await executor.execute("DELETE FROM note_chunks WHERE note_id = $1", note_id)
+        chunks = chunk_note(title, content)
+        if chunks:
+            await executor.executemany(
+                """
+                INSERT INTO note_chunks (note_id, heading_path, chunk_index, content, content_sha256)
+                VALUES ($1,$2,$3,$4,$5)
+                """,
+                [
+                    (note_id, chunk.heading_path, chunk.index, chunk.text, sha256_text(chunk.text))
+                    for chunk in chunks
+                ],
+            )
 
     @staticmethod
     async def _add_version(
@@ -415,6 +440,7 @@ class NoteService:
             version,
             file_sha256,
         )
+        await self._rebuild_chunks(self._db, row["id"], row["title"], body)
         await self._add_version(
             self._db, row["id"], version, row["title"], body, content_hash, author
         )

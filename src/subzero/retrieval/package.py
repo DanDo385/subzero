@@ -17,6 +17,7 @@ from subzero.models import (
 )
 from subzero.retrieval import inference
 from subzero.retrieval import semantic as _semantic
+from subzero.retrieval.fusion import rrf as _fusion_rrf
 from subzero.retrieval.inference import name_tsquery
 from subzero.retrieval.items import (
     COMPACT_BELOW as _COMPACT_BELOW,
@@ -404,7 +405,8 @@ class PackageBuilder:
         item_cap: int,
         embed_task: asyncio.Task[list[float] | None] | None = None,
     ) -> tuple[list[ContextItem], str | None]:
-        """Up to three past messages nearest the query in meaning.
+        """Up to three past messages and note sections nearest the query in
+        meaning, fused by rank.
 
         Returns (items, None) when the layer ran, or ([], reason) when skipped.
         ``embed_task`` is the embedding started in build() so its latency hid
@@ -424,32 +426,69 @@ class PackageBuilder:
             vector = await embed_task
         if vector is None:
             return [], "query could not be embedded in time"
-        hits = await _semantic.semantic_messages(self._svc._db, vector, limit=8)
+        message_hits, chunk_rows = await asyncio.gather(
+            _semantic.semantic_messages(self._svc._db, vector, limit=8),
+            _semantic.chunk_hits(self._svc._db, vector, limit=8),
+        )
+        scores = _fusion_rrf(
+            [[("m", h.id) for h in message_hits], [("c", r["chunk_id"]) for r in chunk_rows]],
+        )
+        by_message = {h.id: h for h in message_hits}
+        by_chunk = {r["chunk_id"]: r for r in chunk_rows}
         items = []
-        for hit in hits:
-            if hit.id in exclude:
-                continue
-            row = {
-                "id": hit.id,
-                "project_slug": hit.project,
-                "provenance": hit.provenance,
-                "provider": hit.provider,
-                "conversation_id": hit.conversation_id,
-                "created_at": hit.created_at,
-            }
-            items.append(
-                _item(
-                    kind="message",
-                    row=row,
-                    content=hit.content,
-                    title=hit.title,
-                    score=hit.similarity,
-                    max_tokens=item_cap,
-                    # The layer drops everything under MIN_SIMILARITY, so a
-                    # hit that survived is by definition not a weak one.
-                    retrieval_confidence="ok",
+        seen_notes: set[UUID] = set()
+        for arm, ident in sorted(scores, key=scores.get, reverse=True):  # type: ignore[arg-type]
+            if arm == "m":
+                hit = by_message[ident]
+                if hit.id in exclude:
+                    continue
+                row = {
+                    "id": hit.id,
+                    "project_slug": hit.project,
+                    "provenance": hit.provenance,
+                    "provider": hit.provider,
+                    "conversation_id": hit.conversation_id,
+                    "created_at": hit.created_at,
+                }
+                items.append(
+                    _item(
+                        kind="message",
+                        row=row,
+                        content=hit.content,
+                        title=hit.title,
+                        score=scores[("m", ident)],
+                        max_tokens=item_cap,
+                        # The layer drops everything under MIN_SIMILARITY, so a
+                        # hit that survived is by definition not a weak one.
+                        retrieval_confidence="ok",
+                    )
                 )
-            )
+            else:
+                chunk = by_chunk[ident]
+                if chunk["note_id"] in exclude or chunk["note_id"] in seen_notes:
+                    continue
+                seen_notes.add(chunk["note_id"])
+                row = {
+                    "id": chunk["note_id"],
+                    "title": chunk["title"],
+                    "project_slug": chunk["project_slug"],
+                    "provenance": chunk["provenance"],
+                    "source_provider": chunk["provider"],
+                    "source_conversation_id": chunk["conversation_id"],
+                    "updated_at": chunk["updated_at"],
+                }
+                items.append(
+                    _item(
+                        kind="note",
+                        row=row,
+                        content=chunk["content"],
+                        title=chunk["title"],
+                        score=scores[("c", ident)],
+                        max_tokens=item_cap,
+                        section=chunk["heading_path"] or None,
+                        retrieval_confidence="ok",
+                    )
+                )
             if len(items) == 3:
                 break
         return items, None

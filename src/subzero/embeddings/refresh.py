@@ -36,6 +36,7 @@ from subzero.db.lease import TTL_TICKS, hold_lease, release_lease
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.logging_setup import get_logger
+from subzero.notes.chunks import Chunk, embed_text
 
 logger = get_logger(__name__)
 
@@ -102,6 +103,15 @@ def _memory_text(row: dict[str, Any]) -> str:
     return (row.get("content") or "").strip()
 
 
+def _chunk_text(row: dict[str, Any]) -> str:
+    # The section under its heading path (see notes/chunks.py): the same
+    # text a checkpoint would embed for this section, so vectors compare.
+    return embed_text(
+        row.get("note_title") or "",
+        Chunk(heading_path=row.get("heading_path") or "", index=0, text=row.get("content") or ""),
+    )
+
+
 _SOURCES: tuple[_Source, ...] = (
     _Source(
         name="messages",
@@ -162,6 +172,24 @@ _SOURCES: tuple[_Source, ...] = (
         ),
         store_sql=_store_sql("session_summaries"),
         text=_note_text,
+        min_chars=0,
+    ),
+    _Source(
+        name="note_chunks",
+        # Sections under their heading paths; sensitivity comes from the
+        # parent note, so a chunk of a highly_sensitive note is never sent out.
+        pending_sql="""
+            SELECT c.id, left(c.content, $2) AS content, c.heading_path,
+                   n.title AS note_title, n.sensitivity::text AS sensitivity
+            FROM note_chunks c
+            JOIN notes n ON n.id = c.note_id
+            WHERE c.embedding IS NULL AND NOT c.embedding_skipped
+            ORDER BY n.updated_at DESC
+            LIMIT $1
+            """,
+        skip_sql="UPDATE note_chunks SET embedding_skipped = true WHERE id = ANY($1::uuid[])",
+        store_sql=_store_sql("note_chunks"),
+        text=_chunk_text,
         min_chars=0,
     ),
 )

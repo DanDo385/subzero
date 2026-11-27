@@ -173,6 +173,9 @@ class ContextItem(Base):
     effective_at: datetime | None = Field(default=None, exclude=True)
     #: Which bootstrap layer returned it: handoff, relevant or raw.
     layer: str | None = None
+    #: The note section a meaning-search hit matched, e.g. "Plan > Risks".
+    #: Absent for whole-item matches.
+    section: str | None = None
     #: "superseded" (with the id that replaced it) for a decision that was
     #: replaced. Absent for live items.
     status: str | None = None

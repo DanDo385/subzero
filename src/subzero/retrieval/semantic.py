@@ -22,6 +22,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import asyncpg
+
 from subzero.db.pool import Database, vector_literal
 from subzero.embeddings.service import EmbeddingService
 from subzero.logging_setup import get_logger
@@ -59,6 +61,21 @@ LEFT JOIN projects p ON p.id = c.project_id,
 WHERE m.search_tsv @@ q
   AND ($3::text IS NULL OR m.provider = $3)
 ORDER BY text_rank DESC
+LIMIT $2
+"""
+
+_CHUNK_SQL = """
+SELECT c.id AS chunk_id, c.note_id, c.heading_path, c.content,
+       n.title, n.project_id, p.slug AS project_slug,
+       n.provenance::text AS provenance,
+       n.source_provider AS provider, n.source_conversation_id AS conversation_id,
+       n.updated_at,
+       1 - (c.embedding <=> $1::text::vector) AS similarity
+FROM note_chunks c
+JOIN notes n ON n.id = c.note_id
+LEFT JOIN projects p ON p.id = n.project_id
+WHERE c.embedding IS NOT NULL
+ORDER BY c.embedding <=> $1::text::vector
 LIMIT $2
 """
 
@@ -136,6 +153,23 @@ async def semantic_messages(
         hit.score = hit.similarity
         hits.append(hit)
     return hits
+
+
+async def chunk_hits(
+    db: Database,
+    vector: list[float],
+    *,
+    limit: int,
+    min_similarity: float = MIN_SIMILARITY,
+) -> list[asyncpg.Record]:
+    """Note sections nearest the query in meaning, best first.
+
+    One row per chunk (a note can match several); callers keep the best
+    chunk per note. Ordered by distance, so rows below the noise floor end
+    the list exactly like semantic_messages.
+    """
+    rows = await db.fetch(_CHUNK_SQL, vector_literal(vector), limit)
+    return [row for row in rows if row["similarity"] >= min_similarity]
 
 
 def _excerpt(text: str, limit: int) -> str:
