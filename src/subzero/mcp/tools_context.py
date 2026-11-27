@@ -65,17 +65,12 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService) -> None:
     ) -> ToolResult:
         """Start a chat that continues earlier work: one call, one package.
 
-        Call only when the request depends on past work: a project, earlier
-        decisions, tasks, "remember", "last time", a continuing task.
-        Skip for trivial questions and anything self-contained.
+        WHEN TO USE: The request depends on past work (a project, earlier decisions, tasks, "remember", "last time", a continuing task).
+        WHEN NOT TO USE: Trivial questions or anything self-contained that doesn't need memory.
+        EXAMPLE: User says "continue the harbor notes deploy" -> call with query="harbor notes deploy".
 
-        Returns the project's handoff first (latest session summaries with
-        their open questions, open tasks, active decisions), then items
-        matching query, then raw transcript excerpts only if nothing else
-        matched. Says which project it used and why, which layers ran, and
-        flags decisions a newer item may overrule. Raise token_budget only if
-        truncated. The text result is one line of counts; the package is the
-        structured result.
+        Returns the project's handoff first, then matching items. The text line shows used/budget tokens.
+        Raise token_budget only if truncated. Skip for self-contained questions.
         """
         package = await retrieval.bootstrap(
             query, user_message=user_message, token_budget=token_budget, project=project, home=home
@@ -83,10 +78,17 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService) -> None:
         payload = dump(package)
         items = payload.get("items") or []
         count = len(items)
+        used = payload.get("estimated_tokens", 0)
+        budget = payload.get("token_budget", token_budget)
         noun = "item" if count == 1 else "items"
-        line = f"{count} {noun}, {payload['estimated_tokens']} of {payload['token_budget']} tokens"
+        line = f"{count} {noun}, {used}/{budget} tokens"
         if payload.get("truncated"):
             line = f"{line}, truncated"
+        # Ensure stable header for caching
+        payload["header"] = {"used": used, "budget": budget, "truncated": payload.get("truncated", False)}
+        if not items:
+            payload["empty_message"] = "0 results"
+        payload["help"] = ["Raise token_budget if truncated.", "Use context_search for more targeted results."]
         return text_and_structured(line, payload)
 
     @mcp.tool(
@@ -115,7 +117,11 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService) -> None:
             bool,
             Field(description="Verbatim excerpts. Leave false; summaries are smaller."),
         ] = False,
-    ) -> list[dict[str, Any]]:
+        response_format: Annotated[
+            str,
+            Field(description="concise (default, 3-4 key fields) or detailed (full item)."),
+        ] = "concise",
+    ) -> dict[str, Any]:
         """Ranked search over decisions, memories, summaries, notes, tasks and artifacts.
 
         Use when bootstrap did not cover what you need. Results match any of the
@@ -130,7 +136,27 @@ def register(mcp: FastMCP, *, retrieval: RetrievalService) -> None:
             provider=provider,
             include_messages=include_messages,
         )
-        return [dump(item) for item in items]
+        dumped = [dump(item) for item in items]
+        total = len(dumped)
+        if response_format == "concise":
+            # Keep 3-4 key fields per item
+            concise_items = []
+            for it in dumped:
+                concise_items.append({
+                    k: it[k] for k in ("id", "type", "title", "content", "score") if k in it
+                })
+            dumped = concise_items
+        empty = total == 0
+        result = {
+            "total": total,
+            "items": dumped,
+            "truncated": total >= limit,
+            "help": ["Use memory_deep_search if nothing matched and you need semantic search."] if empty else [],
+        }
+        if empty:
+            proj = f" in %{project}" if project else ""
+            result["empty_message"] = f"0 results for {query!r}{proj}"
+        return result
 
     @mcp.tool(
         name="context_recent",
