@@ -188,11 +188,15 @@ class JevClassifier:
         return await self.classify_checkpoint(state, project_candidates)
 
     async def classify_checkpoint(
-        self, state: dict[str, Any], project_candidates: dict[str, str]
+        self,
+        state: dict[str, Any],
+        project_candidates: dict[str, str],
+        home_candidates: dict[str, str] | None = None,
+        concept_candidates: dict[str, str] | None = None,
     ) -> ClassificationResult:
         return await self._ask(
             state,
-            checkpoint_questions(project_candidates),
+            checkpoint_questions(project_candidates, home_candidates, concept_candidates),
             fallback=self._fallback.classify_checkpoint,
             candidates=project_candidates,
         )

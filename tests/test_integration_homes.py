@@ -97,3 +97,50 @@ async def test_bootstrap_continues_a_lesson_from_its_home(services) -> None:
 
     unscoped = await services.retrieval.bootstrap("^cfa2 convexity")
     assert not any(item.layer == "handoff" for item in unscoped.items)
+
+
+def _classifier_picks(services, monkeypatch, *, home: str, concept: str) -> None:
+    from dataclasses import replace
+
+    original = services.classification.classify_checkpoint
+
+    async def classify(state, **kwargs):
+        result, routing, event_id = await original(state, **kwargs)
+        return result, replace(routing, home=home, concept=concept), event_id
+
+    monkeypatch.setattr(services.classification, "classify_checkpoint", classify)
+
+
+async def test_a_session_without_a_home_is_filed_by_the_classifier(services, monkeypatch) -> None:
+    """Nothing given: a confident home files the session and the concept tags it."""
+    _classifier_picks(services, monkeypatch, home="lesson/cfa2", concept="duration")
+    result = await services.sessions.checkpoint(
+        provider="claude",
+        principal=ME,
+        provider_conversation_id="jev-1",
+        title="Duration",
+        summary="Macaulay against modified, with the convexity caveat.",
+    )
+    metadata = await _home_and_tags(services, "jev-1")
+    assert metadata["home"] == "lesson/cfa2"
+    assert "concept/duration" in metadata["tags"]
+    assert any("by the classifier" in n for n in result.notes)
+
+
+async def test_an_explicit_home_beats_the_classifier_but_keeps_its_tag(
+    services, monkeypatch
+) -> None:
+    """A given home files; the classifier's different home becomes a tag."""
+    _classifier_picks(services, monkeypatch, home="lesson/cfa2", concept="duration")
+    await services.sessions.checkpoint(
+        provider="claude",
+        principal=ME,
+        provider_conversation_id="jev-2",
+        title="Bonds duration",
+        summary="Same content, but the author filed it themselves.",
+        home="lesson/ifoa",
+    )
+    metadata = await _home_and_tags(services, "jev-2")
+    assert metadata["home"] == "lesson/ifoa"
+    assert "lesson/cfa2" in metadata["tags"]
+    assert "concept/duration" in metadata["tags"]

@@ -31,7 +31,11 @@ class TriageJev:
     name = "jev"
 
     async def classify_checkpoint(
-        self, state: dict[str, Any], candidates: dict[str, str]
+        self,
+        state: dict[str, Any],
+        candidates: dict[str, str],
+        home_candidates: dict[str, str] | None = None,
+        concept_candidates: dict[str, str] | None = None,
     ) -> ClassificationResult:
         worth, gate, bucket, relation, preference = PLAN[state["title"]]
         return ClassificationResult(

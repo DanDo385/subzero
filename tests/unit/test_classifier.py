@@ -421,3 +421,60 @@ async def test_state_is_redacted_and_bounded(monkeypatch) -> None:
     assert "[email]" in sent
     assert len(sent) < 5000
     await classifier.aclose()
+
+
+# --------------------------------------------- homes and concepts from Jev
+
+
+def test_home_and_concept_questions_only_appear_with_candidates() -> None:
+    bare = checkpoint_questions({"alpha": "Alpha"})
+    assert "home" not in bare and "concept" not in bare
+    offered = checkpoint_questions(
+        {"alpha": "Alpha"},
+        {"lesson/cfa2": "lesson/cfa2, 3 filed here"},
+        {"duration": "concept/duration, 4 tagged"},
+    )
+    assert isinstance(offered["home"], Choice)
+    assert isinstance(offered["concept"], Choice)
+    # "None of these" stays reachable, so Jev is never forced to pick.
+    assert UNASSIGNED in offered["home"].criteria
+    assert UNASSIGNED in offered["concept"].criteria
+
+
+def _routed(**answers: Any) -> Any:
+    result = ClassificationResult(
+        answers={
+            key: Answer("choice", value, confidence=conf) for key, (value, conf) in answers.items()
+        },
+        classifier="jev",
+    )
+    return PolicyEngine(_settings()).route(result)
+
+
+def test_a_confident_home_files_the_session() -> None:
+    routing = _routed(home=("lesson/cfa2", 0.95))
+    assert routing.home == "lesson/cfa2"
+    assert routing.home_band is Band.AUTO
+    assert routing.home_tag is None
+
+
+def test_an_uncertain_home_tags_instead_of_filing() -> None:
+    routing = _routed(home=("lesson/cfa2", 0.6))
+    assert routing.home is None
+    assert routing.home_tag == "lesson/cfa2"
+
+
+def test_an_unconfident_home_is_dropped() -> None:
+    routing = _routed(home=("lesson/cfa2", 0.2))
+    assert routing.home is None and routing.home_tag is None
+
+
+def test_unassigned_is_not_a_home() -> None:
+    routing = _routed(home=(UNASSIGNED, 0.95))
+    assert routing.home is None and routing.home_tag is None
+
+
+def test_a_concept_tags_unless_deferred() -> None:
+    assert _routed(concept=("duration", 0.6)).concept == "duration"
+    assert _routed(concept=("duration", 0.2)).concept is None
+    assert _routed(concept=(UNASSIGNED, 0.9)).concept is None

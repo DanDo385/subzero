@@ -517,6 +517,14 @@ Every question and every threshold lives in one reviewable file,
 to check. Independent questions about the same state go in **one** request —
 Jev ingests the state once and evaluates them in parallel.
 
+A session saved without a `home` is still filed and tagged: Jev is offered
+the lessons, setups and concepts already in use as two more Choices in the same
+request, bounded the way the project list is. A confident home files the
+session, an uncertain one only tags it, and a concept tags it unless the
+confidence defers. An explicit `home` always wins, and Jev can only choose names that
+already exist, so the vocabulary grows only when someone names a new home
+or concept explicitly.
+
 | Primitive | Used for |
 | --- | --- |
 | `Noul` | one independent yes/no, e.g. "does this create a concrete unfinished action?" |

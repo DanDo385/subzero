@@ -122,8 +122,13 @@ async def write_home_metadata(
     explicit_project: bool,
     home: str | None,
     concepts: list[str] | None,
+    extra_tags: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Decide the session's home and tags and store them on the conversation."""
+    """Decide the session's home and tags and store them on the conversation.
+
+    ``extra_tags`` are homes the classifier was confident about that did not
+    become the home; they tag the session without filing it there.
+    """
     saved = await conn.fetchrow(
         "SELECT c.metadata, p.slug FROM conversations c LEFT JOIN projects p ON p.id = c.project_id WHERE c.id = $1 FOR UPDATE OF c",
         conversation_id,
@@ -141,6 +146,9 @@ async def write_home_metadata(
             t.removeprefix("concept/") for t in previous.get("tags", []) if t.startswith("concept/")
         ],
     )
+    for tag in extra_tags or []:
+        if tag != metadata["home"] and tag not in metadata["tags"]:
+            metadata["tags"].append(tag)
     await conn.execute(
         "UPDATE conversations SET metadata = metadata || $2::jsonb WHERE id = $1",
         conversation_id,

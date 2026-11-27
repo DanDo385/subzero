@@ -140,6 +140,20 @@ class SessionService(ConversationStore):
         )
         summary_embedding, memory_vectors = route.summary_embedding, route.memory_vectors
 
+        # Jev fills only the gaps the caller left. An explicit home always
+        # beats a model judgement, and Jev cannot invent a name: it chooses a
+        # home or a concept from the ones already in use.
+        classifier_tags = [routing.home_tag] if routing.home_tag else []
+        if routing.home and home and home != routing.home:
+            # A confident home that lost to an explicit one still tags: the
+            # session is about both, it is only filed under one.
+            classifier_tags.append(routing.home)
+        if not home and routing.home:
+            home = routing.home
+            tally.notes.append(f"Filed under {home} by the classifier; no home was given.")
+        if routing.concept and routing.concept not in (concepts or []):
+            concepts = [*(concepts or []), routing.concept]
+
         # ---- 2. everything else in one transaction ----------------------
         async with self._db.transaction() as conn:
             routed_project_id = explicit.id if explicit else None
@@ -196,6 +210,7 @@ class SessionService(ConversationStore):
                 explicit_project=explicit is not None,
                 home=home,
                 concepts=concepts,
+                extra_tags=classifier_tags,
             )
 
             # -- session summary (layer 2) --------------------------------

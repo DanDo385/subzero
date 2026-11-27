@@ -25,7 +25,11 @@ class CountingJev:
         self.degraded = degraded
 
     async def classify_checkpoint(
-        self, state: dict[str, Any], candidates: dict[str, str]
+        self,
+        state: dict[str, Any],
+        candidates: dict[str, str],
+        home_candidates: dict[str, str] | None = None,
+        concept_candidates: dict[str, str] | None = None,
     ) -> ClassificationResult:
         self.calls += 1
         self.states.append(state)
