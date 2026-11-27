@@ -121,3 +121,36 @@ async def test_standing_context_is_ordered_skips_gaps_and_is_capped(tmp_path: Pa
     assert sum(len(d.content) for d in standing) <= STANDING_MAX_CHARS + 80
     assert all("# Machines" not in d.content for d in standing)
     assert await read_standing(Settings()) == []
+
+
+async def test_missing_local_checkout_falls_back_to_github(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One settings file serves the Mac and Vercel: where the configured
+    checkout does not exist, the published ref is read instead."""
+    body = b"# From GitHub"
+    sha = sha1(body, usedforsecurity=False).hexdigest()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents/subzero"):
+            return httpx.Response(200, json=[{"name": "SOUL.md", "type": "file", "sha": sha}])
+        return httpx.Response(200, content=body)
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "subzero.agent_context.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    settings = Settings(
+        dotfiles_root=tmp_path / "not-on-this-machine",
+        dotfiles_github_repo="owner/dotfiles",
+        dotfiles_github_token="test-token",
+        dotfiles_cache_seconds=0,
+    )
+    soul = await read_agent_context(settings, "soul")
+    assert soul is not None and soul.source == "github" and soul.content == "# From GitHub"
+
+    (tmp_path / "not-on-this-machine" / "subzero").mkdir(parents=True)
+    (tmp_path / "not-on-this-machine" / "subzero" / "SOUL.md").write_text("# From disk")
+    local = await read_agent_context(settings, "soul")
+    assert local is not None and local.source == "local" and local.content == "# From disk"

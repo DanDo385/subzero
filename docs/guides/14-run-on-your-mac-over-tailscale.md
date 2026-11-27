@@ -141,6 +141,10 @@ If that path already exists, inspect it before changing it. Put the link's
 absolute path in the Mac's server settings, then restart the server once.
 Changes on disk show up on the next call.
 
+One settings file can serve both servers: when `SUBZERO_DOTFILES_ROOT` names a
+folder that does not exist on the machine (as on Vercel), Subzero reads the
+GitHub settings below instead.
+
 Vercel runs on a separate filesystem. Set `SUBZERO_DOTFILES_GITHUB_REPO` to
 `owner/dotfiles`, `SUBZERO_DOTFILES_GITHUB_REF` to the branch that holds the
 files, and `SUBZERO_DOTFILES_GITHUB_TOKEN` to a sensitive deployment variable

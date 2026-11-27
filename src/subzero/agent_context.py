@@ -7,8 +7,10 @@ context every ``context_bootstrap`` starts with; memory and machines open on
 demand through ``context_read_guidance``.
 
 The source is the owner's dotfiles: a local checkout when the server runs on a
-machine that has one (``SUBZERO_DOTFILES_ROOT``), otherwise a published Git
-ref read through the GitHub API (the serverless deployment). GitHub reads are
+machine that has one (``SUBZERO_DOTFILES_ROOT`` names a folder that exists
+here), otherwise a published Git ref read through the GitHub API (the
+serverless deployment). So one settings file can carry both: the Mac finds its
+checkout, and Vercel, where that folder does not exist, reads GitHub. GitHub reads are
 cached for ``SUBZERO_DOTFILES_CACHE_SECONDS`` so a bootstrap does not pay six
 API round trips; local reads always see the file as it is on disk.
 """
@@ -46,6 +48,15 @@ _MAX_BYTES = 32_768
 _FETCH_SECONDS = 2.0
 
 _cache: dict[tuple[str, str, str], tuple[float, AgentContext | None]] = {}
+
+
+def _local_root(settings: Settings) -> Path | None:
+    """The configured checkout, when it exists on this machine."""
+    root = settings.dotfiles_root
+    if root is None:
+        return None
+    path = root.expanduser()
+    return path if path.is_dir() else None
 
 
 def configured(settings: Settings) -> bool:
@@ -116,10 +127,11 @@ async def _github_bytes(
 
 async def _read(settings: Settings, document: Document) -> AgentContext | None:
     relative = _PATHS[document]
-    source: Literal["local", "github"] = "local" if settings.dotfiles_root else "github"
+    local = _local_root(settings)
+    source: Literal["local", "github"] = "local" if local else "github"
     try:
-        if settings.dotfiles_root:
-            data = await asyncio.to_thread(_read_local, settings.dotfiles_root, relative)
+        if local:
+            data = await asyncio.to_thread(_read_local, local, relative)
         else:
             data = await _read_github(settings, relative)
         if not data or len(data) > _MAX_BYTES:
@@ -142,7 +154,7 @@ async def _read(settings: Settings, document: Document) -> AgentContext | None:
 
 async def read_agent_context(settings: Settings, document: Document) -> AgentContext | None:
     """One document, or None when it is missing, unreadable or not configured."""
-    if settings.dotfiles_root or settings.dotfiles_cache_seconds <= 0:
+    if _local_root(settings) or settings.dotfiles_cache_seconds <= 0:
         return await _read(settings, document)
     key = (settings.dotfiles_github_repo, settings.dotfiles_github_ref, document)
     hit = _cache.get(key)
